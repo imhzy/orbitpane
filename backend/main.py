@@ -102,6 +102,15 @@ def get_history(conv_id: int):
     conn.close()
     return [{"role": r[0], "content": r[1], "thought": r[2] if r[2] else "", "timestamp": r[3]} for r in rows]
 
+@app.delete("/api/history/{conv_id}")
+def clear_history(conv_id: int):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("DELETE FROM messages WHERE conversation_id = ?", (conv_id,))
+    conn.commit()
+    conn.close()
+    return {"status": "ok"}
+
 @app.get("/api/ls")
 def list_directory(path: str = "/root"):
     try:

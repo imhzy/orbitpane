@@ -8,7 +8,7 @@ import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { 
   Menu, X, MessageSquare, Plus, Trash2, Folder, 
   FileText, ChevronLeft, ArrowUp, Brain, Sparkles,
-  ChevronDown, ChevronUp, Copy, Check, Lock
+  ChevronDown, ChevronUp, Copy, Check, Lock, Eraser
 } from 'lucide-react'
 import './App.css'
 
@@ -437,6 +437,16 @@ export default function App() {
     }
   }
 
+  const clearMessages = () => {
+    if (!activeConv) return
+    if (window.confirm('Clear all messages in this conversation?')) {
+      fetch(`/agy/api/history/${activeConv.id}`, { method: 'DELETE' })
+        .then(() => {
+          setMessages([])
+        })
+    }
+  }
+
   const sendMessage = () => {
     if (!input.trim() || !socket || socket.readyState !== WebSocket.OPEN) return
     const msg = input.trim()
@@ -477,9 +487,19 @@ export default function App() {
           </div>
           
           {activeConv && (
-            <div className="status-indicator">
-              <div className={`status-dot ${isConnected ? 'online' : 'offline'}`} />
-              {isConnected ? 'Connected' : 'Offline'}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div className="status-indicator">
+                <div className={`status-dot ${isConnected ? 'online' : 'offline'}`} />
+                {isConnected ? 'Connected' : 'Offline'}
+              </div>
+              <motion.button 
+                whileTap={{ scale: 0.95 }}
+                className="icon-btn"
+                title="Clear Session"
+                onClick={clearMessages}
+              >
+                <Eraser size={18} />
+              </motion.button>
             </div>
           )}
         </div>
