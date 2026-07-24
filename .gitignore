@@ -1,0 +1,6 @@
+.antigravity/
+.cursor/
+.gemini/
+history.db
+backend/__pycache__/
+*.pyc
