@@ -1,0 +1,3 @@
+Hello! I see you have several processes running in PM2, including `agy-backend`, `quantitative-trading-system`, `spider-social-media`, and more.
+
+What would you like to test or do with PM2? Are we looking to deploy, debug, or monitor a specific process?

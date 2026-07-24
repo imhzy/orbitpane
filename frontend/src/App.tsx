@@ -1,15 +1,23 @@
 import { useState, useEffect, useRef } from 'react'
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { motion, AnimatePresence } from 'framer-motion'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeRaw from 'rehype-raw'
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { 
+<<<<<<< Updated upstream
   Menu, X, MessageSquare, Plus, Trash2, Folder, 
   FileText, ChevronLeft, ArrowUp, Brain, Sparkles,
   ChevronDown, ChevronUp, Copy, Check, Lock, Eraser
+=======
+  Menu, X, MessageSquare, Plus, Trash2, Folder,
+  ChevronRight,
+  Send,
+  Compass, FolderPlus, Sun, Moon,
+  Check, ChevronDown, Sparkles, Copy, Layers, HardDrive
+>>>>>>> Stashed changes
 } from 'lucide-react'
+import { LogoIcon } from './LogoIcon'
 import './App.css'
 
 interface DirItem { name: string; path: string; is_dir: boolean; }
@@ -19,182 +27,83 @@ interface Message {
   thought?: string;
   isThinking?: boolean;
   thinkingDuration?: number;
+  elapsedSoFar?: number;
   isError?: boolean; 
+  timestamp?: string;
 }
 interface Conversation { id: number; name: string; path: string; created_at: string; }
 
-function ThinkingBlock({ 
-  thought, 
-  isThinking, 
-  duration 
-}: { 
-  thought: string; 
-  isThinking: boolean; 
-  duration?: number;
-}) {
-  const [isOpen, setIsOpen] = useState<boolean>(true)
-  const [elapsed, setElapsed] = useState<number>(0)
-
-  useEffect(() => {
-    let timer: any
-    if (isThinking) {
-      const startTime = Date.now()
-      setElapsed(0)
-      timer = setInterval(() => {
-        setElapsed(Number(((Date.now() - startTime) / 1000).toFixed(1)))
-      }, 100)
-    } else if (duration !== undefined) {
-      setElapsed(duration)
-    }
-    return () => clearInterval(timer)
-  }, [isThinking, duration])
-
-  // Auto collapse when done if thought is empty or after short delay
-  useEffect(() => {
-    if (!isThinking && !thought) {
-      setIsOpen(false)
-    }
-  }, [isThinking, thought])
-
-  if (!isThinking && !thought && (duration === undefined || duration === 0)) return null
-
-  return (
-    <div className={`thinking-card ${isThinking ? 'active' : 'completed'}`}>
-      <button 
-        className="thinking-header" 
-        onClick={() => setIsOpen(!isOpen)}
-        type="button"
-      >
-        <div className="thinking-title">
-          {isThinking ? (
-            <span className="sparkle-icon pulsing">
-              <Sparkles size={16} />
-            </span>
-          ) : (
-            <span className="sparkle-icon done">
-              <Brain size={16} />
-            </span>
-          )}
-          <span className="thinking-text">
-            {isThinking ? 'Thinking...' : `Thought for ${elapsed}s`}
-          </span>
-          {isThinking && <span className="thinking-timer">{elapsed}s</span>}
-        </div>
-        <div className="thinking-chevron">
-          {isOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-        </div>
-      </button>
-
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="thinking-body-wrapper"
-          >
-            <div className="thinking-body">
-              {thought ? (
-                <div className="thought-markdown">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {thought}
-                  </ReactMarkdown>
-                </div>
-              ) : isThinking ? (
-                <div className="thinking-shimmer">
-                  <div className="shimmer-bar" />
-                  <span className="status-tip">Analyzing request, inspecting context & formulating steps...</span>
-                </div>
-              ) : (
-                <div className="thinking-empty">Thought process finalized.</div>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  )
+function formatTimestamp(ts?: string | number) {
+  if (!ts) return ''
+  const d = new Date(ts.toString().includes(' ') ? ts + ' UTC' : ts)
+  if (isNaN(d.getTime())) return ''
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-function CodeBlock({ children, className, ...props }: any) {
-  const [copied, setCopied] = useState(false)
-  const match = /language-(\w+)/.exec(className || '')
-  const codeStr = String(children).replace(/\n$/, '')
+import { ThinkingBlock } from './components/ThinkingBlock'
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(codeStr)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
+import { CodeBlock } from './components/CodeBlock'
 
-  return match ? (
-    <div className="code-block-container">
-      <div className="code-block-header">
-        <span className="code-lang">{match[1]}</span>
-        <button className="copy-code-btn" onClick={handleCopy}>
-          {copied ? <Check size={13} /> : <Copy size={13} />}
-          <span>{copied ? 'Copied' : 'Copy'}</span>
-        </button>
-      </div>
-      <SyntaxHighlighter style={oneLight as any} language={match[1]} PreTag="div" {...props}>
-        {codeStr}
-      </SyntaxHighlighter>
-    </div>
-  ) : (
-    <code className={className} {...props}>
-      {children}
-    </code>
-  )
-}
-
-function Login({ onLogin }: { onLogin: () => void }) {
-  const [pin, setPin] = useState('')
-  const [error, setError] = useState(false)
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (pin === '0524') {
-      onLogin()
-    } else {
-      setError(true)
-      setPin('')
-    }
-  }
-
-  return (
-    <div className="login-container">
-      <motion.div 
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="login-card"
-      >
-        <div className="login-icon">
-          <Lock size={40} />
-        </div>
-        <h2>Welcome Back</h2>
-        <p>Please enter your PIN to continue</p>
-        <form onSubmit={handleSubmit} className="login-form">
-          <input 
-            type="password"
-            value={pin}
-            onChange={e => { setPin(e.target.value); setError(false); }}
-            placeholder="Enter PIN"
-            className={`textfield login-input ${error ? 'error' : ''}`}
-            autoFocus
-          />
-          {error && <div className="login-error">Incorrect PIN</div>}
-          <button type="submit" className="action-btn login-btn">
-            Login
-          </button>
-        </form>
-      </motion.div>
-    </div>
-  )
-}
+import { Login } from './components/Login'
+import { ConfirmDialog } from './components/ConfirmDialog'
 
 export default function App() {
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    return (localStorage.getItem('theme') as 'dark' | 'light') || 'dark'
+  })
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    localStorage.setItem('theme', theme)
+  }, [theme])
+
+  const toggleTheme = () => {
+    setTheme(prev => prev === 'dark' ? 'light' : 'dark')
+  }
+
+  const [models, setModels] = useState<string[]>([])
+  const [selectedModel, setSelectedModel] = useState<string>('gemini-3.6-flash-medium')
+  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    fetch('/api/models')
+      .then(r => r.json())
+      .then(data => {
+        if (data.models && data.models.length > 0) {
+          setModels(data.models)
+        }
+      })
+      .catch(console.error)
+  }, [])
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsModelDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  const formatModelName = (id: string) => {
+    if (id === 'gemini-3.6-flash-high') return 'Gemini 3.6 Flash (High)'
+    if (id === 'gemini-3.6-flash-medium') return 'Gemini 3.6 Flash (Medium)'
+    if (id === 'gemini-3.6-flash-low') return 'Gemini 3.6 Flash (Low)'
+    if (id === 'gemini-3.5-flash-high') return 'Gemini 3.5 Flash (High)'
+    if (id === 'gemini-3.5-flash-medium') return 'Gemini 3.5 Flash (Medium)'
+    if (id === 'gemini-3.5-flash-low') return 'Gemini 3.5 Flash (Low)'
+    if (id === 'gemini-3.1-pro-high') return 'Gemini 3.1 Pro (High)'
+    if (id === 'gemini-3.1-pro-low') return 'Gemini 3.1 Pro (Low)'
+    if (id === 'claude-sonnet-4-6') return 'Claude Sonnet 4.6'
+    if (id === 'claude-opus-4-6-thinking') return 'Claude Opus 4.6 (Thinking)'
+    if (id === 'gpt-oss-120b-medium') return 'GPT-OSS 120B (Medium)'
+    return id.split('-').map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ')
+  }
+
   const [conversations, setConversations] = useState<Conversation[]>([])
+  const [isConversationsLoading, setIsConversationsLoading] = useState(true)
   const [activeConv, setActiveConv] = useState<Conversation | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   
@@ -202,209 +111,324 @@ export default function App() {
   const [drawerMode, setDrawerMode] = useState<'sessions' | 'create'>('sessions')
   
   // Create Session State
-  const [currentPath, setCurrentPath] = useState<string>('/root')
+  const [currentPath, setCurrentPath] = useState<string>('/root/agy_web_bridge')
   const [items, setItems] = useState<DirItem[]>([])
-  const [selectedDir, setSelectedDir] = useState<string | null>(null)
+  const [selectedDir, setSelectedDir] = useState<string>('/root/agy_web_bridge')
   const [newConvName, setNewConvName] = useState('')
+
+  // Toast notification
+  const [toast, setToast] = useState<string | null>(null)
+  const showToast = (msg: string) => {
+    setToast(msg)
+    setTimeout(() => setToast(null), 2000)
+  }
+
+  // Confirm dialog state
+  const [confirmState, setConfirmState] = useState<{
+    isOpen: boolean
+    title: string
+    description: string
+    onConfirm: () => void
+  }>({ isOpen: false, title: '', description: '', onConfirm: () => {} })
+
+  const getBreadcrumbParts = (pathStr: string) => {
+    const segments = pathStr.split('/').filter(Boolean)
+    let result: { name: string; fullPath: string }[] = [{ name: '/', fullPath: '/' }]
+    let acc = ''
+    segments.forEach(seg => {
+      acc += '/' + seg
+      result.push({ name: seg, fullPath: acc })
+    })
+    if (result.length > 5) {
+      const first = result[0]
+      const second = result[1]
+      const ellipsis = { name: '...', fullPath: result[result.length - 3].fullPath }
+      const secondLast = result[result.length - 2]
+      const last = result[result.length - 1]
+      result = [first, second, ellipsis, secondLast, last]
+    }
+    return result
+  }
   
   // Chat State
   const [input, setInput] = useState('')
-  const [socket, setSocket] = useState<WebSocket | null>(null)
+  const [copiedMsgIdx, setCopiedMsgIdx] = useState<number | null>(null)
+  const [, setSocket] = useState<WebSocket | null>(null)
   const socketRef = useRef<WebSocket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
+
+  const isNearBottom = () => {
+    const container = messagesContainerRef.current
+    if (!container) return true
+    return container.scrollHeight - container.scrollTop - container.clientHeight < 150
+  }
 
   const [isLoggedIn, setIsLoggedIn] = useState(() => {
     return localStorage.getItem('isLoggedIn') === 'true'
   })
 
+  useKeyboardShortcuts({
+    onEscape: () => {
+      setIsDrawerOpen(false)
+      setIsModelDropdownOpen(false)
+    },
+    onFocusInput: () => {
+      textareaRef.current?.focus()
+    }
+  })
+
+  const triggerVibration = () => {
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      navigator.vibrate(50)
+    }
+  }
+
   // Fluid Spring Configuration
   const springConfig = { type: "spring" as const, damping: 25, stiffness: 250, mass: 1 }
 
   useEffect(() => {
-    const init = async () => {
-      const data = await loadConversations()
-      const params = new URLSearchParams(window.location.search)
-      const idStr = params.get('id')
-      if (idStr && data) {
-        const conv = data.find(c => c.id === Number(idStr))
-        if (conv) {
-          setActiveConv(conv)
-          connectWebSocket(conv.id)
-        }
-      }
+    const updateAppHeight = () => {
+      const vv = window.visualViewport
+      const h = vv ? vv.height : window.innerHeight
+      document.documentElement.style.setProperty('--app-height', `${h}px`)
     }
-    init()
-    loadDir('/root')
+    updateAppHeight()
 
-    const handlePopState = () => {
-      const params = new URLSearchParams(window.location.search)
-      const idStr = params.get('id')
-      if (idStr) {
-        setConversations(prev => {
-          const conv = prev.find(c => c.id === Number(idStr))
-          if (conv) {
-            setActiveConv(conv)
-            connectWebSocket(conv.id)
-          }
-          return prev
-        })
-      } else {
-        setActiveConv(null)
-        setMessages([])
-        if (socketRef.current) socketRef.current.close()
-      }
+    const handleResize = () => {
+      updateAppHeight()
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+      }, 100)
     }
-    window.addEventListener('popstate', handlePopState)
-    return () => window.removeEventListener('popstate', handlePopState)
+
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', handleResize)
+      window.visualViewport.addEventListener('scroll', handleResize)
+    }
+    window.addEventListener('resize', handleResize)
+
+    return () => {
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', handleResize)
+        window.visualViewport.removeEventListener('scroll', handleResize)
+      }
+      window.removeEventListener('resize', handleResize)
+    }
   }, [])
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (isLoggedIn) {
+      loadConversations()
+    }
+  }, [isLoggedIn])
+
+  useEffect(() => {
+    if (drawerMode === 'create' && isLoggedIn) {
+      loadDir(currentPath)
+    }
+  }, [drawerMode, currentPath, isLoggedIn])
+
+  useEffect(() => {
+    if (isNearBottom()) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
   }, [messages])
 
-  const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInput(e.target.value)
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto'
-      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + 'px'
-    }
-  }
-
-  const loadConversations = async () => {
-    try {
-      const r = await fetch('/agy/api/conversations')
-      const data = await r.json()
-      if (Array.isArray(data)) {
+  const loadConversations = () => {
+    setIsConversationsLoading(true)
+    fetch('/api/conversations')
+      .then(r => r.json())
+      .then((data: Conversation[]) => {
         setConversations(data)
-        return data
-      }
-    } catch (e) {
-      console.error(e)
-    }
-    return []
+        const params = new URLSearchParams(window.location.search)
+        const convId = params.get('id')
+        if (convId) {
+          const found = data.find(c => c.id === Number(convId))
+          if (found) {
+            selectConversation(found)
+          }
+        }
+      })
+      .catch(err => console.error(err))
+      .finally(() => setIsConversationsLoading(false))
   }
 
   const loadDir = (path: string) => {
-    fetch(`/agy/api/ls?path=${encodeURIComponent(path)}`)
+    fetch(`/api/ls?path=${encodeURIComponent(path)}`)
       .then(r => r.json())
       .then(data => {
-        if (data.items) {
+        if (data && Array.isArray(data.items)) {
           setItems(data.items)
-          setCurrentPath(path)
+        } else {
+          setItems([])
         }
       })
-      .catch(console.error)
+      .catch(err => console.error(err))
   }
 
   const selectConversation = (conv: Conversation) => {
     setActiveConv(conv)
     setIsDrawerOpen(false)
-    connectWebSocket(conv.id)
-
+    
     const url = new URL(window.location.href)
-    url.searchParams.set('id', String(conv.id))
+    url.searchParams.set('id', conv.id.toString())
     window.history.pushState({}, '', url.toString())
-  }
 
-  const connectWebSocket = (convId: number) => {
     if (socketRef.current) {
       socketRef.current.close()
     }
-    
-    // Load history first
-    fetch(`/agy/api/history/${convId}`)
+
+    fetch(`/api/history/${conv.id}`)
       .then(r => r.json())
       .then(data => {
         if (Array.isArray(data)) {
-          setMessages(data.map((m: any) => ({
-            role: m.role,
-            content: m.content || '',
-            thought: m.thought || '',
-            isThinking: false
-          })))
+          setMessages(data)
+        } else {
+          setMessages([])
         }
+        setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
+      })
+      .catch(err => {
+        console.error(err)
+        setMessages([])
       })
 
-    const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const ws = new WebSocket(`${wsProto}//${window.location.host}/agy/api/chat`)
-    
+    const loc = window.location
+    const wsProtocol = loc.protocol === 'https:' ? 'wss:' : 'ws:'
+    const wsUrl = `${wsProtocol}//${loc.host}/api/chat`
+    const ws = new WebSocket(wsUrl)
+
     ws.onopen = () => {
+      if (socketRef.current !== ws) return
       setIsConnected(true)
-      ws.send(JSON.stringify({ conversation_id: convId }))
+      // Handshake with conversation_id required by backend
+      ws.send(JSON.stringify({ conversation_id: conv.id }))
     }
-    
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data)
-      if (data.type === 'start') {
-        setMessages(prev => [
-          ...prev, 
-          { role: 'agent', content: '', thought: '', isThinking: true }
-        ])
-      } else if (data.type === 'thought') {
-        setMessages(prev => {
-          const newMsgs = [...prev]
-          let lastMsg = newMsgs[newMsgs.length - 1]
-          if (lastMsg && lastMsg.role === 'agent') {
-            lastMsg.thought = (lastMsg.thought || '') + data.content
-            lastMsg.isThinking = true
-          } else {
-            newMsgs.push({ role: 'agent', content: '', thought: data.content, isThinking: true })
-          }
-          return newMsgs
-        })
-      } else if (data.type === 'token') {
-        setMessages(prev => {
-          const newMsgs = [...prev]
-          let lastMsg = newMsgs[newMsgs.length - 1]
-          if (lastMsg && lastMsg.role === 'agent') {
-            lastMsg.content += data.content
-          } else {
-            newMsgs.push({ role: 'agent', content: data.content, thought: '', isThinking: false })
-          }
-          return newMsgs
-        })
-      } else if (data.type === 'done') {
-        setMessages(prev => {
-          const newMsgs = [...prev]
-          let lastMsg = newMsgs[newMsgs.length - 1]
-          if (lastMsg && lastMsg.role === 'agent') {
-            lastMsg.isThinking = false
-            lastMsg.thinkingDuration = data.duration
-          }
-          return newMsgs
-        })
-      } else if (data.type === 'error') {
-        setMessages(prev => {
-          const newMsgs = [...prev]
-          const lastIdx = newMsgs.length - 1
-          if (lastIdx >= 0 && newMsgs[lastIdx].role === 'agent') {
-            if (!newMsgs[lastIdx].content && !newMsgs[lastIdx].thought) {
-              newMsgs.pop()
+
+    ws.onmessage = (e) => {
+      if (socketRef.current !== ws) return
+      try {
+        const data = JSON.parse(e.data)
+        if (data.type === 'start') {
+          setMessages(prev => {
+            const newMsgs = [...prev]
+            let lastMsg = newMsgs[newMsgs.length - 1]
+            if (!lastMsg || lastMsg.role !== 'agent') {
+              newMsgs.push({ role: 'agent', content: '', thought: '', isThinking: true, elapsedSoFar: data.elapsed || 0 })
             } else {
-              newMsgs[lastIdx].isThinking = false
+              lastMsg.isThinking = true
+              lastMsg.elapsedSoFar = data.elapsed || 0
             }
-          }
-          newMsgs.push({ role: 'system', content: `Error: ${data.content}`, isError: true })
-          return newMsgs
-        })
+            return newMsgs
+          })
+        } else if (data.type === 'sync_state') {
+          setMessages(prev => {
+            const newMsgs = [...prev]
+            let lastMsg = newMsgs[newMsgs.length - 1]
+            if (!lastMsg || lastMsg.role !== 'agent') {
+              newMsgs.push({ role: 'agent', content: data.content || '', thought: data.thought || '', isThinking: data.in_thought || true, elapsedSoFar: data.elapsed || 0 })
+            } else {
+              lastMsg.content = data.content || ''
+              lastMsg.thought = data.thought || ''
+              lastMsg.isThinking = data.in_thought || true
+              lastMsg.elapsedSoFar = data.elapsed || 0
+            }
+            return newMsgs
+          })
+        } else if (data.type === 'thought') {
+          setMessages(prev => {
+            const newMsgs = [...prev]
+            let lastMsg = newMsgs[newMsgs.length - 1]
+            if (lastMsg && lastMsg.role === 'agent') {
+              lastMsg.thought = (lastMsg.thought || '') + data.content
+              lastMsg.isThinking = true
+            } else {
+              newMsgs.push({ role: 'agent', content: '', thought: data.content, isThinking: true })
+            }
+            return newMsgs
+          })
+        } else if (data.type === 'token' || data.type === 'answer') {
+          setMessages(prev => {
+            const newMsgs = [...prev]
+            let lastMsg = newMsgs[newMsgs.length - 1]
+            if (lastMsg && lastMsg.role === 'agent') {
+              lastMsg.content += data.content
+            } else {
+              newMsgs.push({ role: 'agent', content: data.content })
+            }
+            return newMsgs
+          })
+        } else if (data.type === 'done' || data.type === 'thought_done') {
+          setMessages(prev => {
+            const newMsgs = [...prev]
+            let lastMsg = newMsgs[newMsgs.length - 1]
+            if (lastMsg && lastMsg.role === 'agent') {
+              lastMsg.isThinking = false
+              if (data.type === 'done') {
+                lastMsg.timestamp = new Date().toISOString()
+              }
+              if (data.duration) {
+                lastMsg.thinkingDuration = data.duration
+              }
+            }
+            return newMsgs
+          })
+        } else if (data.type === 'error') {
+          setMessages(prev => {
+            const newMsgs = [...prev]
+            const lastIdx = newMsgs.length - 1
+            if (lastIdx >= 0 && newMsgs[lastIdx].role === 'agent') {
+              if (!newMsgs[lastIdx].content && !newMsgs[lastIdx].thought) {
+                newMsgs.pop()
+              } else {
+                newMsgs[lastIdx].isThinking = false
+              }
+            }
+            newMsgs.push({ role: 'system', content: `处理异常: ${data.content}`, isError: true })
+            return newMsgs
+          })
+        }
+      } catch (err) {
+        console.error("WS message parse error:", err)
       }
     }
     
     ws.onclose = () => {
-      setIsConnected(false)
-      setSocket(null)
-      socketRef.current = null
+      if (socketRef.current === ws) {
+        setIsConnected(false)
+        setSocket(null)
+        socketRef.current = null
+        // Auto-reconnect with exponential backoff
+        const attempt = (ws as any).__reconnectAttempt || 0
+        if (attempt < 5) {
+          const delay = Math.min(1000 * Math.pow(2, attempt), 15000)
+          setTimeout(() => {
+            if (!socketRef.current && activeConv?.id === conv.id) {
+              const newWs = new WebSocket(wsUrl) as any
+              newWs.__reconnectAttempt = attempt + 1
+              // Reuse the same handlers
+              newWs.onopen = ws.onopen
+              newWs.onmessage = ws.onmessage
+              newWs.onclose = ws.onclose
+              setSocket(newWs)
+              socketRef.current = newWs
+            }
+          }, delay)
+        }
+      }
     }
     setSocket(ws)
     socketRef.current = ws
   }
 
   const createConversation = () => {
+    triggerVibration()
     if (!selectedDir || !newConvName.trim()) return
-    fetch('/agy/api/conversations', {
+    fetch('/api/conversations', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: newConvName, path: selectedDir })
@@ -420,23 +444,51 @@ export default function App() {
 
   const deleteConversation = (e: React.MouseEvent, convId: number) => {
     e.stopPropagation()
-    if (window.confirm('Delete this conversation entirely?')) {
-      fetch(`/agy/api/conversations/${convId}`, { method: 'DELETE' })
-        .then(() => {
-          loadConversations()
-          if (activeConv?.id === convId) {
-            setActiveConv(null)
-            setMessages([])
-            if (socketRef.current) socketRef.current.close()
+    setConfirmState({
+      isOpen: true,
+      title: '删除会话',
+      description: '此操作不可撤销，确定要删除该会话记录吗？',
+      onConfirm: () => {
+        setConfirmState(prev => ({ ...prev, isOpen: false }))
+        fetch(`/api/conversations/${convId}`, { method: 'DELETE' })
+          .then(() => {
+            loadConversations()
+            if (activeConv?.id === convId) {
+              setActiveConv(null)
+              setMessages([])
+              if (socketRef.current) socketRef.current.close()
+              const url = new URL(window.location.href)
+              url.searchParams.delete('id')
+              window.history.pushState({}, '', url.toString())
+            }
+          })
+      }
+    })
+  }
 
-            const url = new URL(window.location.href)
-            url.searchParams.delete('id')
-            window.history.pushState({}, '', url.toString())
-          }
-        })
+  const sendMessage = (customText?: string) => {
+    triggerVibration()
+    const textToSend = typeof customText === 'string' ? customText : input
+    const currentSocket = socketRef.current
+    if (!textToSend.trim() || !currentSocket || currentSocket.readyState !== WebSocket.OPEN) return
+    
+    setInput('')
+    if (textareaRef.current) textareaRef.current.style.height = 'auto'
+    setMessages(prev => [...prev, { role: 'user', content: textToSend.trim(), timestamp: new Date().toISOString() }])
+    currentSocket.send(JSON.stringify({ content: textToSend.trim(), model: selectedModel }))
+  }
+
+
+
+  const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value)
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto'
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`
     }
   }
 
+<<<<<<< Updated upstream
   const clearMessages = () => {
     if (!activeConv) return
     if (window.confirm('Clear all messages in this conversation?')) {
@@ -454,10 +506,20 @@ export default function App() {
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
     setMessages(prev => [...prev, { role: 'user', content: msg }])
     socket.send(msg)
+=======
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      sendMessage()
+    }
+>>>>>>> Stashed changes
   }
 
-  const copyMessageText = (text: string) => {
+  const copyMessageText = (text: string, msgIndex: number) => {
     navigator.clipboard.writeText(text)
+    setCopiedMsgIdx(msgIndex)
+    showToast('已复制到剪贴板')
+    setTimeout(() => setCopiedMsgIdx(null), 2000)
   }
 
   const handleLogin = () => {
@@ -471,9 +533,274 @@ export default function App() {
 
   return (
     <div className="app-container">
+      {/* Sidebar Drawer Scrim */}
+      <AnimatePresence>
+        {isDrawerOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="drawer-scrim" 
+            onClick={() => {
+              if (drawerMode === 'create' && (newConvName.trim() || currentPath !== '/root/agy_web_bridge')) {
+                setConfirmState({
+                  isOpen: true,
+                  title: '放弃修改',
+                  description: '有未保存的信息，确定要关闭吗？',
+                  onConfirm: () => {
+                    setConfirmState(prev => ({ ...prev, isOpen: false }))
+                    setIsDrawerOpen(false)
+                  }
+                })
+              } else {
+                setIsDrawerOpen(false)
+              }
+            }} 
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Sidebar Drawer */}
+      <AnimatePresence>
+        {isDrawerOpen && (
+          <motion.div 
+            initial={{ x: '-100%' }} animate={{ x: 0 }} exit={{ x: '-100%' }}
+            transition={springConfig}
+            className="drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-label="工作区菜单"
+            drag="x"
+            dragConstraints={{ left: -340, right: 0 }}
+            dragElastic={0.1}
+            onDragEnd={(_e, { offset, velocity }) => {
+              if (offset.x < -100 || velocity.x < -300) {
+                setIsDrawerOpen(false)
+              }
+            }}
+          >
+            <div className="drawer-header">
+              <div className="drawer-brand">
+                <LogoIcon size={24} />
+                <div className="brand-title-group">
+                  <span className="brand-main-name">ANTIGRAVITY</span>
+                  <span className="brand-badge-sm">STUDIO</span>
+                </div>
+              </div>
+              <button className="icon-btn" onClick={() => setIsDrawerOpen(false)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Navigation Tabs */}
+            <div className="drawer-tabs">
+              <button 
+                className={`drawer-tab-btn ${drawerMode === 'sessions' ? 'active' : ''}`}
+                onClick={() => setDrawerMode('sessions')}
+              >
+                <MessageSquare size={14} />
+                <span>会话列表</span>
+              </button>
+              <button 
+                className={`drawer-tab-btn ${drawerMode === 'create' ? 'active' : ''}`}
+                onClick={() => setDrawerMode('create')}
+              >
+                <Plus size={14} />
+                <span>新建工作区</span>
+              </button>
+            </div>
+
+            {/* Sessions Mode */}
+            {drawerMode === 'sessions' && (
+              <div className="drawer-content">
+                {isConversationsLoading ? (
+                  <div className="flex flex-col gap-2 p-2">
+                    {[1, 2, 3].map(i => (
+                      <div key={i} className="h-14 bg-[var(--bg-surface-hover)] rounded-xl animate-pulse" />
+                    ))}
+                  </div>
+                ) : conversations.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-10 opacity-70">
+                    <Compass size={48} className="text-[var(--accent-color)] mb-4 opacity-50" />
+                    <div className="text-center text-[var(--text-secondary)] text-[14px] font-medium">
+                      暂无工作区
+                    </div>
+                    <div className="text-center text-[var(--text-tertiary)] text-[12px] mt-1 mb-4">
+                      点击下方按钮创建您的第一个智能工作区
+                    </div>
+                    <button 
+                      className="icon-btn" 
+                      onClick={() => setDrawerMode('create')}
+                      style={{ background: 'var(--accent-subtle-bg)', color: 'var(--accent-text)', border: '1px solid var(--accent-border)' }}
+                    >
+                      <Plus size={14} style={{ marginRight: 4 }} /> 立即创建
+                    </button>
+                  </div>
+                ) : (
+                  conversations.map(conv => (
+                    <div 
+                      key={conv.id} 
+                      className={`list-item ${activeConv?.id === conv.id ? 'selected' : ''}`}
+                      onClick={() => selectConversation(conv)}
+                    >
+                      <div className="item-icon">
+                        <MessageSquare size={16} />
+                      </div>
+                      <div className="item-content">
+                        <span className="item-title">{conv.name}</span>
+                        <span className="item-subtitle">{conv.path}</span>
+                      </div>
+                      <button 
+                        className="icon-btn destructive" 
+                        title="删除会话"
+                        onClick={(e) => deleteConversation(e, conv.id)}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            {/* Create Workspace Mode */}
+            {drawerMode === 'create' && (
+              <div className="drawer-content cw-content">
+                <div className="cw-header">
+                  <h3 className="cw-title">配置新工作区</h3>
+                  <p className="cw-subtitle">设定工作区名称并选择项目所在的本地目录</p>
+                </div>
+
+                <div className="cw-form">
+                  <div className="cw-field-group">
+                    <label className="cw-label">工作区名称</label>
+                    <div className="cw-input-wrapper">
+                      <Layers size={14} className="cw-icon" />
+                      <input 
+                        type="text" 
+                        placeholder="例如：Frontend Project" 
+                        value={newConvName}
+                        onChange={e => setNewConvName(e.target.value)}
+                        className="cw-input"
+                        aria-label="工作区名称"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="cw-field-group">
+                    <label className="cw-label">项目路径</label>
+                    <div className="cw-input-wrapper">
+                      <Folder size={14} className="cw-icon" />
+                      <input
+                        type="text"
+                        placeholder="输入绝对路径或从下方选择"
+                        value={selectedDir}
+                        onChange={e => {
+                          setSelectedDir(e.target.value)
+                          if (e.target.value.startsWith('/')) {
+                            setCurrentPath(e.target.value)
+                          }
+                        }}
+                        className="cw-input font-mono"
+                        aria-label="项目路径"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="cw-browser-section">
+                  <div className="cw-browser-header">
+                    <span className="cw-browser-title">目录浏览</span>
+                  </div>
+                  <div className="cw-browser">
+                    <div className="cw-crumbs">
+                      {getBreadcrumbParts(currentPath).map((part, idx, arr) => (
+                        <div key={part.fullPath} className="cw-crumb-item">
+                          <button
+                            className={`cw-crumb ${idx === arr.length - 1 ? 'active' : ''}`}
+                            onClick={() => {
+                              setCurrentPath(part.fullPath)
+                              setSelectedDir(part.fullPath)
+                            }}
+                          >
+                            {part.name === '/' ? <HardDrive size={12} /> : part.name}
+                          </button>
+                          {idx < arr.length - 1 && <ChevronRight size={10} className="cw-crumb-sep" />}
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="cw-list">
+                      {(() => {
+                        const filtered = items.filter(item => item.is_dir)
+
+                        if (filtered.length === 0) {
+                          return (
+                            <div className="cw-empty">
+                              <FolderPlus size={20} />
+                              <span>该目录下无子文件夹</span>
+                            </div>
+                          )
+                        }
+
+                        return filtered.map(item => {
+                          const isSelected = selectedDir === item.path
+                          return (
+                            <button 
+                              key={item.path}
+                              className={`cw-item ${isSelected ? 'selected' : ''}`}
+                              onClick={() => setSelectedDir(item.path)}
+                            >
+                              <Folder size={14} className="cw-item-icon" />
+                              <span className="cw-item-name">{item.name}</span>
+                              {isSelected && (
+                                <motion.span 
+                                  initial={{ scale: 0 }} 
+                                  animate={{ scale: 1 }} 
+                                  className="cw-check"
+                                >
+                                  <Check size={10} strokeWidth={3} />
+                                </motion.span>
+                              )}
+                              <span
+                                className="cw-enter"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setCurrentPath(item.path)
+                                  setSelectedDir(item.path)
+                                }}
+                                role="button"
+                                tabIndex={0}
+                                title="进入该目录"
+                              >
+                                <ChevronRight size={14} />
+                              </span>
+                            </button>
+                          )
+                        })
+                      })()}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="cw-action">
+                  <button 
+                    className="cw-create-btn"
+                    disabled={!selectedDir.trim() || !newConvName.trim()}
+                    onClick={createConversation}
+                  >
+                    <Plus size={16} strokeWidth={2.5} />
+                    <span>创建工作区</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Main Chat Area */}
       <div className="chat-main">
         <div className="chat-header">
+<<<<<<< Updated upstream
           <motion.button 
             whileTap={{ scale: 0.95 }}
             className="icon-btn" 
@@ -500,21 +827,128 @@ export default function App() {
               >
                 <Eraser size={18} />
               </motion.button>
+=======
+          <div className="header-brand">
+            <motion.button 
+              whileTap={{ scale: 0.95 }}
+              className="icon-btn" 
+              onClick={() => setIsDrawerOpen(true)}
+              title="展开工作区菜单"
+            >
+              <Menu size={18} />
+            </motion.button>
+
+            <LogoIcon size={26} />
+
+            <div className="model-selector-container" ref={dropdownRef}>
+              <button 
+                className="model-selector-btn"
+                onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
+                aria-haspopup="listbox"
+                aria-expanded={isModelDropdownOpen}
+                aria-label="选择 AI 模型"
+              >
+                <span className="model-selector-text">{formatModelName(selectedModel)}</span>
+                <ChevronDown size={14} className={`model-selector-chevron ${isModelDropdownOpen ? 'open' : ''}`} />
+              </button>
+              
+              <AnimatePresence>
+                {isModelDropdownOpen && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: -5, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -5, scale: 0.98 }}
+                    transition={{ duration: 0.15 }}
+                    className="model-dropdown-menu"
+                    role="listbox"
+                    aria-label="AI 模型列表"
+                  >
+                    {models.map(m => (
+                      <button
+                        key={m}
+                        role="option"
+                        aria-selected={selectedModel === m}
+                        className={`model-dropdown-item ${selectedModel === m ? 'selected' : ''}`}
+                        onClick={() => {
+                          setSelectedModel(m)
+                          setIsModelDropdownOpen(false)
+                        }}
+                      >
+                        <div className="model-item-icon">
+                          {selectedModel === m ? <Check size={14} /> : <div style={{ width: 14 }} />}
+                        </div>
+                        <span className="model-item-name">{formatModelName(m)}</span>
+                      </button>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+>>>>>>> Stashed changes
             </div>
-          )}
+
+            <div className="header-title-wrapper" style={{ marginLeft: '12px', borderLeft: '1px solid var(--border-color)', paddingLeft: '12px' }}>
+              <div className="header-title">
+                {activeConv ? (
+                  activeConv.name
+                ) : (
+                  <div className="brand-title-group compact">
+                    <span className="brand-main-name">ANTIGRAVITY</span>
+                    <span className="brand-badge-sm">STUDIO</span>
+                  </div>
+                )}
+              </div>
+              {activeConv && (
+                <div className="header-path">{activeConv.path}</div>
+              )}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button 
+              className="icon-btn theme-toggle-btn"
+              onClick={toggleTheme}
+              title={theme === 'dark' ? '切换至明亮模式' : '切换至暗夜模式'}
+            >
+              {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
+
+            {activeConv ? (
+              <div className="status-indicator">
+                <div className={`status-dot ${isConnected ? 'online' : 'offline'}`} />
+                <span>{isConnected ? '在线已连接' : '未连接'}</span>
+              </div>
+            ) : (
+              <button className="icon-btn" onClick={() => setIsDrawerOpen(true)}>
+                <Plus size={16} style={{ marginRight: 4 }} />
+                <span style={{ fontSize: 13, fontWeight: 600 }}>新建工作区</span>
+              </button>
+            )}
+          </div>
         </div>
 
-        <div className="chat-messages">
+        <div className="chat-messages" ref={messagesContainerRef}>
           {!activeConv && (
             <motion.div 
-              initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-              className="system-msg welcome-card"
+              initial={{ opacity: 0, y: 15 }} 
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4 }}
+              className="welcome-container"
             >
-              <div className="welcome-icon">
-                <Sparkles size={28} />
+              <div className="welcome-hero-wrapper">
+                <div className="welcome-hero-icon">
+                  <LogoIcon size={52} />
+                </div>
+                <h1 className="welcome-hero-title">
+                  ANTIGRAVITY <span className="title-highlight">STUDIO</span>
+                </h1>
+                <div className="welcome-hero-badge">
+                  <Sparkles size={13} className="badge-sparkle" />
+                  <span>NEXT-GEN AI PAIR PROGRAMMER</span>
+                </div>
               </div>
-              <h3>Welcome to Antigravity Chat</h3>
-              <p>Open the left menu to select an existing session or start a new workspace chat.</p>
+              <p className="welcome-subtitle">
+                下一代 AI 结对编程与智能工作区
+              </p>
             </motion.div>
           )}
 
@@ -524,7 +958,7 @@ export default function App() {
             ) : (
               <motion.div 
                 key={i} 
-                initial={{ opacity: 0, y: 15 }}
+                initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={springConfig}
                 className={`message-row ${m.role}`}
@@ -536,6 +970,7 @@ export default function App() {
                         thought={m.thought || ''} 
                         isThinking={!!m.isThinking} 
                         duration={m.thinkingDuration} 
+                        elapsedSoFar={m.elapsedSoFar}
                       />
 
                       {m.content ? (
@@ -554,10 +989,10 @@ export default function App() {
                             <div className="message-toolbar">
                               <button 
                                 className="toolbar-btn" 
-                                title="Copy Response"
-                                onClick={() => copyMessageText(m.content)}
+                                title={copiedMsgIdx === i ? '已复制' : '复制全文'}
+                                onClick={() => copyMessageText(m.content, i)}
                               >
-                                <Copy size={14} />
+                                {copiedMsgIdx === i ? <Check size={14} style={{ color: '#10B981' }} /> : <Copy size={14} />}
                               </button>
                             </div>
                           )}
@@ -569,7 +1004,12 @@ export default function App() {
                       )}
                     </div>
                   ) : (
-                    m.content
+                    <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{m.content}</div>
+                  )}
+                  {m.timestamp && (
+                    <div className="message-timestamp">
+                      {formatTimestamp(m.timestamp)}
+                    </div>
                   )}
                 </div>
               </motion.div>
@@ -584,138 +1024,70 @@ export default function App() {
               ref={textareaRef}
               value={input}
               onChange={handleInput}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+              onKeyDown={handleKeyDown}
+              onFocus={() => {
+                setTimeout(() => {
+                  messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+                }, 300)
               }}
-              placeholder={activeConv ? "Ask anything..." : "Select a session to start talking..."}
-              disabled={!activeConv || !isConnected}
+              placeholder={activeConv ? "发送消息给 Antigravity AI (Shift + Enter 换行)..." : "请先选择或新建一个工作区会话以发起提问..."}
+              disabled={!activeConv}
+              aria-label="消息输入框"
               rows={1}
+              className="input-textarea"
             />
-            <motion.button 
-              whileTap={{ scale: 0.95 }}
-              className="send-btn" 
-              onClick={sendMessage} 
-              disabled={!activeConv || !isConnected || !input.trim()}
-            >
-              <ArrowUp size={18} />
-            </motion.button>
+            
+            <div className="input-bottom-bar">
+              <div className="input-hint">
+                <span>按 Enter 发送 / Shift + Enter 换行</span>
+              </div>
+              <button 
+                className="send-btn" 
+                onClick={() => {
+                  if (!activeConv) { showToast('请先选择一个工作区会话'); return }
+                  if (!isConnected) { showToast('AI 服务未连接，正在重连...'); return }
+                  sendMessage()
+                }}
+                disabled={!input.trim()}
+                title={!activeConv ? '请先选择工作区' : !isConnected ? '未连接' : '发送消息'}
+                aria-label="发送消息"
+              >
+                <Send size={16} />
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Drawer */}
+      {/* Toast Notification */}
       <AnimatePresence>
-        {isDrawerOpen && (
-          <>
-            <motion.div 
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              transition={{ duration: 0.3, ease: "easeOut" }}
-              className="drawer-scrim" 
-              onClick={() => setIsDrawerOpen(false)} 
-            />
-            <motion.div 
-              initial={{ x: '-100%', opacity: 0.5 }} 
-              animate={{ x: 0, opacity: 1 }} 
-              exit={{ x: '-100%', opacity: 0.5 }}
-              transition={springConfig}
-              className="drawer"
-            >
-              {drawerMode === 'sessions' ? (
-                <>
-                  <div className="drawer-header">
-                    <span className="drawer-title">Sessions</span>
-                    <motion.button whileTap={{ scale: 0.9 }} className="icon-btn" onClick={() => setIsDrawerOpen(false)}>
-                      <X size={20} />
-                    </motion.button>
-                  </div>
-                  <div className="drawer-content">
-                    {conversations.map(conv => (
-                      <motion.div 
-                        whileTap={{ scale: 0.98 }}
-                        key={conv.id} 
-                        className={`list-item ${activeConv?.id === conv.id ? 'selected' : ''}`}
-                        onClick={() => selectConversation(conv)}
-                      >
-                        <div className="item-icon"><MessageSquare size={18} /></div>
-                        <div className="item-content">
-                          <div className="item-title">{conv.name}</div>
-                          <div className="item-subtitle">{conv.path}</div>
-                        </div>
-                        <motion.button 
-                          whileTap={{scale: 0.9}} 
-                          className="icon-btn destructive" 
-                          onClick={(e) => deleteConversation(e, conv.id)}
-                        >
-                          <Trash2 size={16} />
-                        </motion.button>
-                      </motion.div>
-                    ))}
-                  </div>
-                  <div className="drawer-form">
-                    <motion.button 
-                      whileTap={{ scale: 0.98 }}
-                      className="action-btn" 
-                      onClick={() => setDrawerMode('create')}
-                    >
-                      <Plus size={18} /> New Session
-                    </motion.button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="drawer-header">
-                    <motion.button whileTap={{ scale: 0.9 }} className="icon-btn" onClick={() => setDrawerMode('sessions')}>
-                      <ChevronLeft size={20} />
-                    </motion.button>
-                    <span className="drawer-title">Select Path</span>
-                    <div style={{width: 32}} />
-                  </div>
-                  <div className="drawer-content">
-                    <div className="list-item" onClick={() => {
-                        if (currentPath === '/') return;
-                        const parts = currentPath.split('/');
-                        parts.pop();
-                        loadDir(parts.join('/') || '/');
-                    }}>
-                      <div className="item-icon"><ChevronLeft size={16} /></div>
-                      <div className="item-content"><div className="item-title">Go Up ({currentPath})</div></div>
-                    </div>
-                    {items.map((item, idx) => (
-                      <div 
-                        key={idx} 
-                        className={`list-item ${selectedDir === item.path ? 'selected' : ''}`}
-                        onClick={() => item.is_dir && setSelectedDir(item.path)}
-                        onDoubleClick={() => item.is_dir && loadDir(item.path)}
-                      >
-                        <div className="item-icon">
-                          {item.is_dir ? <Folder size={18} fill={selectedDir === item.path ? "currentColor" : "none"} /> : <FileText size={18} />}
-                        </div>
-                        <div className="item-content"><div className="item-title">{item.name}</div></div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="drawer-form">
-                    <input 
-                      className="textfield"
-                      placeholder="Session Name" 
-                      value={newConvName}
-                      onChange={e => setNewConvName(e.target.value)}
-                    />
-                    <motion.button 
-                      whileTap={{ scale: 0.98 }}
-                      className="action-btn" 
-                      onClick={createConversation} 
-                      disabled={!selectedDir || !newConvName.trim()}
-                    >
-                      Create
-                    </motion.button>
-                  </div>
-                </>
-              )}
-            </motion.div>
-          </>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            transition={{ duration: 0.2 }}
+            className="toast-container"
+          >
+            <div className="toast">
+              <Check size={14} style={{ color: '#10B981' }} />
+              {toast}
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Confirm Dialog */}
+      <ConfirmDialog
+        isOpen={confirmState.isOpen}
+        title={confirmState.title}
+        description={confirmState.description}
+        confirmText="确认"
+        cancelText="取消"
+        variant="destructive"
+        onConfirm={confirmState.onConfirm}
+        onCancel={() => setConfirmState(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   )
 }
