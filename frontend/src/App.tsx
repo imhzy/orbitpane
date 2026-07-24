@@ -5,17 +5,9 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeRaw from 'rehype-raw'
 import { 
-<<<<<<< Updated upstream
-  Menu, X, MessageSquare, Plus, Trash2, Folder, 
-  FileText, ChevronLeft, ArrowUp, Brain, Sparkles,
-  ChevronDown, ChevronUp, Copy, Check, Lock, Eraser
-=======
   Menu, X, MessageSquare, Plus, Trash2, Folder,
-  ChevronRight,
-  Send,
-  Compass, FolderPlus, Sun, Moon,
-  Check, ChevronDown, Sparkles, Copy, Layers, HardDrive
->>>>>>> Stashed changes
+  ChevronRight, Send, Compass, FolderPlus, Sun, Moon,
+  Check, ChevronDown, Sparkles, Copy, Layers, HardDrive, Eraser
 } from 'lucide-react'
 import { LogoIcon } from './LogoIcon'
 import './App.css'
@@ -488,31 +480,27 @@ export default function App() {
     }
   }
 
-<<<<<<< Updated upstream
   const clearMessages = () => {
     if (!activeConv) return
-    if (window.confirm('Clear all messages in this conversation?')) {
-      fetch(`/agy/api/history/${activeConv.id}`, { method: 'DELETE' })
-        .then(() => {
-          setMessages([])
-        })
-    }
+    setConfirmState({
+      isOpen: true,
+      title: '清空会话消息',
+      description: '确定要清空当前会话的所有消息吗？此操作不可逆。',
+      onConfirm: () => {
+        setConfirmState(prev => ({ ...prev, isOpen: false }))
+        fetch(`/api/history/${activeConv.id}`, { method: 'DELETE' })
+          .then(() => {
+            setMessages([])
+          })
+      }
+    })
   }
 
-  const sendMessage = () => {
-    if (!input.trim() || !socket || socket.readyState !== WebSocket.OPEN) return
-    const msg = input.trim()
-    setInput('')
-    if (textareaRef.current) textareaRef.current.style.height = 'auto'
-    setMessages(prev => [...prev, { role: 'user', content: msg }])
-    socket.send(msg)
-=======
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       sendMessage()
     }
->>>>>>> Stashed changes
   }
 
   const copyMessageText = (text: string, msgIndex: number) => {
@@ -800,34 +788,6 @@ export default function App() {
       {/* Main Chat Area */}
       <div className="chat-main">
         <div className="chat-header">
-<<<<<<< Updated upstream
-          <motion.button 
-            whileTap={{ scale: 0.95 }}
-            className="icon-btn" 
-            onClick={() => setIsDrawerOpen(true)}
-          >
-            <Menu size={20} />
-          </motion.button>
-          
-          <div className="header-title">
-            {activeConv ? activeConv.name : "Antigravity"}
-          </div>
-          
-          {activeConv && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <div className="status-indicator">
-                <div className={`status-dot ${isConnected ? 'online' : 'offline'}`} />
-                {isConnected ? 'Connected' : 'Offline'}
-              </div>
-              <motion.button 
-                whileTap={{ scale: 0.95 }}
-                className="icon-btn"
-                title="Clear Session"
-                onClick={clearMessages}
-              >
-                <Eraser size={18} />
-              </motion.button>
-=======
           <div className="header-brand">
             <motion.button 
               whileTap={{ scale: 0.95 }}
@@ -883,7 +843,6 @@ export default function App() {
                   </motion.div>
                 )}
               </AnimatePresence>
->>>>>>> Stashed changes
             </div>
 
             <div className="header-title-wrapper" style={{ marginLeft: '12px', borderLeft: '1px solid var(--border-color)', paddingLeft: '12px' }}>
@@ -913,9 +872,19 @@ export default function App() {
             </button>
 
             {activeConv ? (
-              <div className="status-indicator">
-                <div className={`status-dot ${isConnected ? 'online' : 'offline'}`} />
-                <span>{isConnected ? '在线已连接' : '未连接'}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <motion.button 
+                  whileTap={{ scale: 0.95 }}
+                  className="icon-btn"
+                  title="清空会话"
+                  onClick={clearMessages}
+                >
+                  <Eraser size={16} />
+                </motion.button>
+                <div className="status-indicator">
+                  <div className={`status-dot ${isConnected ? 'online' : 'offline'}`} />
+                  <span>{isConnected ? '在线已连接' : '未连接'}</span>
+                </div>
               </div>
             ) : (
               <button className="icon-btn" onClick={() => setIsDrawerOpen(true)}>
