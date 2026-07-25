@@ -53,9 +53,9 @@ export function ThinkingBlock({
   if (!isThinking && !thought && (duration === undefined || duration === 0)) return null
 
   return (
-    <div className={`mb-4 p-3 overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] transition-colors duration-300 ${isThinking ? 'border-[var(--border-focus)] shadow-[0_0_12px_rgba(99,102,241,0.15)]' : 'opacity-85'}`}>
+    <div className={`mb-4 !p-3 overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] transition-colors duration-300 ${isThinking ? 'border-[var(--border-focus)] shadow-[0_0_12px_rgba(99,102,241,0.15)]' : 'opacity-85'}`}>
       <button 
-        className="w-full flex items-center justify-between p-3 rounded-lg bg-[var(--bg-thinking)] cursor-pointer select-none text-[13px] hover:bg-[var(--bg-surface-hover)] transition-colors" 
+        className="w-full flex items-center justify-between !p-3 rounded-lg bg-[var(--bg-thinking)] cursor-pointer select-none text-[13px] hover:bg-[var(--bg-surface-hover)] transition-colors" 
         onClick={() => setIsOpen(!isOpen)}
         type="button"
       >
