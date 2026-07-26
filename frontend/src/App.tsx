@@ -4,6 +4,9 @@ import { motion, AnimatePresence } from 'framer-motion'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeRaw from 'rehype-raw'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
+import 'katex/dist/katex.min.css'
 import { 
   Menu, X, MessageSquare, Plus, Trash2, Folder,
   ChevronRight, Send, Compass, FolderPlus, Sun, Moon,
@@ -232,7 +235,7 @@ export default function App() {
 
   const loadConversations = () => {
     setIsConversationsLoading(true)
-    fetch('/api/conversations')
+    fetch('/api/conversations', { cache: 'no-store' })
       .then(r => r.json())
       .then((data: Conversation[]) => {
         setConversations(data)
@@ -274,7 +277,7 @@ export default function App() {
       socketRef.current.close()
     }
 
-    fetch(`/api/history/${conv.id}`)
+    fetch(`/api/history/${conv.id}`, { cache: 'no-store' })
       .then(r => r.json())
       .then(data => {
         if (Array.isArray(data)) {
@@ -945,8 +948,8 @@ export default function App() {
                       {m.content ? (
                         <div className="markdown-body">
                           <ReactMarkdown 
-                            remarkPlugins={[remarkGfm]}
-                            rehypePlugins={[rehypeRaw]}
+                            remarkPlugins={[remarkGfm, remarkMath]}
+                            rehypePlugins={[rehypeRaw, rehypeKatex]}
                             components={{
                               code: CodeBlock
                             }}

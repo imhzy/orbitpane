@@ -2,6 +2,9 @@ import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
+import rehypeRaw from 'rehype-raw'
 import { Sparkles, Brain, ChevronUp, ChevronDown } from 'lucide-react'
 
 export function ThinkingBlock({ 
@@ -91,13 +94,15 @@ export function ThinkingBlock({
             <div className="px-6 py-5 text-[13px] leading-relaxed text-[var(--text-secondary)] border-t border-[var(--border-subtle)] bg-[var(--bg-card)]">
               {thought ? (
                 <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-pre:my-2 prose-pre:bg-[var(--bg-code)] text-[var(--text-secondary)]">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  <ReactMarkdown 
+                    remarkPlugins={[remarkGfm, remarkMath]}
+                    rehypePlugins={[rehypeRaw, rehypeKatex]}
+                  >
                     {thought}
                   </ReactMarkdown>
                 </div>
               ) : isThinking ? (
                 <div className="flex flex-col gap-3">
-                  <div className="h-2 w-1/3 bg-[var(--bg-surface-hover)] rounded relative overflow-hidden" />
                   <span className="text-sm italic opacity-80 text-[var(--text-secondary)]">正在分析上下文、思考解题步骤与编写回复...</span>
                 </div>
               ) : (

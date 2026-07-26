@@ -1261,7 +1261,24 @@
 .markdown-body li {
   margin-bottom: 4px;
 }
-
+.markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+  font-size: 14px;
+}
+.markdown-body th, .markdown-body td {
+  border: 1px solid var(--border-color);
+  padding: 8px 12px;
+  text-align: left;
+}
+.markdown-body th {
+  background-color: var(--bg-surface-hover);
+  font-weight: 600;
+}
+.markdown-body tr:nth-child(2n) {
+  background-color: var(--bg-surface-hover);
+}
 /* Code Block Containers */
 .code-block-container {
   margin: 14px 0;

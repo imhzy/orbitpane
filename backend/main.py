@@ -249,7 +249,26 @@ async def run_agent_task(conv_id: int, user_msg: str, working_dir: str, model: s
     in_thought = False
     buffer = ""
     
-    agent_msg = user_msg + "\n\n(Please write your thinking process inside <think> and </think> tags before your final response.)"
+    
+    # Fetch history
+    import sqlite3
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT role, content, thought FROM messages WHERE conversation_id = ? ORDER BY id ASC", (conv_id,))
+    rows = c.fetchall()
+    conn.close()
+    
+    history_text = "Here is the conversation history so far:\\n"
+    for r, c_text, t_text in rows[:-1]: # Exclude the user message just saved
+        history_text += f"{r.upper()}:\\n"
+        if t_text:
+            history_text += f"<agy_thought>\\n{t_text}\\n</agy_thought>\\n"
+        history_text += f"{c_text}\\n\\n"
+        
+    history_text += "### END OF HISTORY ###\\n\\n"
+    
+    agent_msg = history_text + "NEW MESSAGE FROM USER:\\n" + user_msg + "\\n\\n(Please write your thinking process inside <agy_thought> and </agy_thought> tags before your final response.)"
+
     
     try:
         cli_conv_id = f"agy-bridge-conv-{conv_id}"
@@ -267,6 +286,8 @@ async def run_agent_task(conv_id: int, user_msg: str, working_dir: str, model: s
         for k in list(clean_env.keys()):
             if k.startswith("ANTIGRAVITY_"):
                 del clean_env[k]
+        
+        clean_env["PYTHONUNBUFFERED"] = "1"
         
         process = await asyncio.create_subprocess_exec(
             *cmd,
@@ -304,12 +325,12 @@ async def run_agent_task(conv_id: int, user_msg: str, working_dir: str, model: s
             while buffer:
                 lower_buf = buffer.lower()
                 if not in_thought:
-                    t_idx = lower_buf.find("<thought>")
-                    tk_idx = lower_buf.find("<think>")
+                    t_idx = lower_buf.find("<agy_thought>")
+                    tk_idx = -1
                     
                     if t_idx != -1 or tk_idx != -1:
                         idx = t_idx if t_idx != -1 else tk_idx
-                        tag_len = 9 if t_idx != -1 else 7
+                        tag_len = 13 if t_idx != -1 else 7
                         
                         pre_text = buffer[:idx]
                         if pre_text:
@@ -343,12 +364,12 @@ async def run_agent_task(conv_id: int, user_msg: str, working_dir: str, model: s
                                 manager.task_state[conv_id]["content"] = response_content
                             buffer = ""
                 else:
-                    t_idx = lower_buf.find("</thought>")
-                    tk_idx = lower_buf.find("</think>")
+                    t_idx = lower_buf.find("</agy_thought>")
+                    tk_idx = -1
                     
                     if t_idx != -1 or tk_idx != -1:
                         idx = t_idx if t_idx != -1 else tk_idx
-                        tag_len = 10 if t_idx != -1 else 8
+                        tag_len = 14 if t_idx != -1 else 8
                         
                         thought_text = buffer[:idx]
                         if thought_text:
