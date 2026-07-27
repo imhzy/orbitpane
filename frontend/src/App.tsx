@@ -11,7 +11,7 @@ import {
   Menu, X, MessageSquare, Plus, Trash2, Folder,
   ChevronRight, Send, Compass, FolderPlus, Sun, Moon,
   Check, ChevronDown, Sparkles, Copy, Layers, HardDrive, Eraser,
-  User, RotateCcw, ThumbsUp, ThumbsDown, AlertCircle, Square
+  User, RotateCcw, ThumbsUp, ThumbsDown, AlertCircle, Square, RefreshCw
 } from 'lucide-react'
 import { LogoIcon } from './LogoIcon'
 import './App.css'
@@ -63,8 +63,8 @@ export default function App() {
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    fetch('/api/models')
+  const loadModels = () => {
+    fetch('/api/models', { cache: 'no-store' })
       .then(r => r.json())
       .then(data => {
         if (data.models && data.models.length > 0) {
@@ -72,6 +72,10 @@ export default function App() {
         }
       })
       .catch(console.error)
+  }
+
+  useEffect(() => {
+    loadModels()
   }, [])
 
   useEffect(() => {
@@ -220,17 +224,68 @@ export default function App() {
     }
   }, [])
 
+  const activeConvRef = useRef<Conversation | null>(activeConv)
+  useEffect(() => {
+    activeConvRef.current = activeConv
+  }, [activeConv])
+
+  const isAgentThinkingRef = useRef<boolean>(isAgentThinking)
+  useEffect(() => {
+    isAgentThinkingRef.current = isAgentThinking
+  }, [isAgentThinking])
+
+  // Initial data loading on login
   useEffect(() => {
     if (isLoggedIn) {
-      loadConversations()
+      loadConversations(true)
+      loadModels()
     }
   }, [isLoggedIn])
 
+  // Dynamic loading when sidebar drawer is open or mode changes, plus auto-refresh polling while drawer is open
   useEffect(() => {
-    if (drawerMode === 'create' && isLoggedIn) {
+    if (!isDrawerOpen || !isLoggedIn) return
+
+    if (drawerMode === 'sessions') {
+      loadConversations(false)
+      const timer = setInterval(() => {
+        loadConversations(false)
+      }, 5000)
+      return () => clearInterval(timer)
+    } else if (drawerMode === 'create') {
       loadDir(currentPath)
     }
-  }, [drawerMode, currentPath, isLoggedIn])
+  }, [isDrawerOpen, drawerMode, isLoggedIn, currentPath])
+
+  // Dynamic loading when model dropdown opens
+  useEffect(() => {
+    if (isModelDropdownOpen) {
+      loadModels()
+    }
+  }, [isModelDropdownOpen])
+
+  // Window focus & tab visibility change auto-refetching
+  useEffect(() => {
+    const handleFocusOrVisibility = () => {
+      if (document.visibilityState === 'visible' && isLoggedIn) {
+        loadConversations(false)
+        loadModels()
+        if (activeConvRef.current && !isAgentThinkingRef.current) {
+          loadHistory(activeConvRef.current.id)
+        }
+        if (isDrawerOpen && drawerMode === 'create') {
+          loadDir(currentPath)
+        }
+      }
+    }
+
+    window.addEventListener('focus', handleFocusOrVisibility)
+    document.addEventListener('visibilitychange', handleFocusOrVisibility)
+    return () => {
+      window.removeEventListener('focus', handleFocusOrVisibility)
+      document.removeEventListener('visibilitychange', handleFocusOrVisibility)
+    }
+  }, [isLoggedIn, isDrawerOpen, drawerMode, currentPath])
 
   useEffect(() => {
     if (isNearBottom()) {
@@ -238,18 +293,25 @@ export default function App() {
     }
   }, [messages])
 
-  const loadConversations = () => {
+  const loadConversations = (isInitial = false) => {
     setIsConversationsLoading(true)
     fetch('/api/conversations', { cache: 'no-store' })
       .then(r => r.json())
       .then((data: Conversation[]) => {
         setConversations(data)
-        const params = new URLSearchParams(window.location.search)
-        const convId = params.get('id')
-        if (convId) {
-          const found = data.find(c => c.id === Number(convId))
-          if (found) {
-            selectConversation(found)
+        if (isInitial) {
+          const params = new URLSearchParams(window.location.search)
+          const convId = params.get('id')
+          if (convId) {
+            const found = data.find(c => c.id === Number(convId))
+            if (found) {
+              selectConversation(found)
+            }
+          }
+        } else if (activeConvRef.current) {
+          const updated = data.find(c => c.id === activeConvRef.current?.id)
+          if (updated) {
+            setActiveConv(updated)
           }
         }
       })
@@ -258,13 +320,24 @@ export default function App() {
   }
 
   const loadDir = (path: string) => {
-    fetch(`/api/ls?path=${encodeURIComponent(path)}`)
+    fetch(`/api/ls?path=${encodeURIComponent(path)}`, { cache: 'no-store' })
       .then(r => r.json())
       .then(data => {
         if (data && Array.isArray(data.items)) {
           setItems(data.items)
         } else {
           setItems([])
+        }
+      })
+      .catch(err => console.error(err))
+  }
+
+  const loadHistory = (convId: number) => {
+    fetch(`/api/history/${convId}`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setMessages(data)
         }
       })
       .catch(err => console.error(err))
@@ -358,6 +431,9 @@ export default function App() {
             return newMsgs
           })
         } else if (data.type === 'done' || data.type === 'thought_done') {
+          if (data.type === 'done') {
+            loadConversations(false)
+          }
           setMessages(prev => {
             const newMsgs = [...prev]
             let lastMsg = newMsgs[newMsgs.length - 1]
@@ -595,9 +671,22 @@ export default function App() {
                   <span className="brand-badge-sm">STUDIO</span>
                 </div>
               </div>
-              <button className="icon-btn" onClick={() => setIsDrawerOpen(false)}>
-                <X size={18} />
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <button 
+                  className="icon-btn" 
+                  title="刷新数据" 
+                  onClick={() => {
+                    loadConversations(false)
+                    if (drawerMode === 'create') loadDir(currentPath)
+                    showToast('最新数据已刷新')
+                  }}
+                >
+                  <RefreshCw size={16} className={isConversationsLoading ? 'animate-spin' : ''} />
+                </button>
+                <button className="icon-btn" onClick={() => setIsDrawerOpen(false)}>
+                  <X size={18} />
+                </button>
+              </div>
             </div>
 
             {/* Navigation Tabs */}
@@ -717,8 +806,19 @@ export default function App() {
                 </div>
 
                 <div className="cw-browser-section">
-                  <div className="cw-browser-header">
+                  <div className="cw-browser-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <span className="cw-browser-title">目录浏览</span>
+                    <button 
+                      className="icon-btn" 
+                      title="刷新目录"
+                      onClick={() => {
+                        loadDir(currentPath)
+                        showToast('目录结构已刷新')
+                      }}
+                      style={{ padding: 3, width: 24, height: 24 }}
+                    >
+                      <RefreshCw size={12} />
+                    </button>
                   </div>
                   <div className="cw-browser">
                     <div className="cw-crumbs">
