@@ -1310,9 +1310,6 @@ export default function App() {
             />
             
             <div className="input-bottom-bar">
-              <div className="input-hint">
-                <span>按 Enter 发送 / Shift + Enter 换行</span>
-              </div>
               <button 
                 className={`send-btn ${isAgentThinking ? 'interrupt' : ''}`}
                 onClick={() => {
