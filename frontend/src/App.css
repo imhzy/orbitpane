@@ -1556,17 +1556,18 @@
 }
 
 .input-box {
-  max-width: 900px;
+  max-width: 820px;
+  width: 100%;
   margin: 0 auto;
   position: relative;
   background: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
+  border-radius: 20px;
   box-shadow: var(--shadow-md);
   display: flex;
   flex-direction: column;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
-  padding: 10px 14px;
+  padding: 12px 14px 10px 16px;
 }
 
 .input-box:focus-within {
@@ -1587,12 +1588,12 @@
   color: var(--text-primary);
   font-family: var(--font-sans);
   font-size: 15px;
-  line-height: 1.6;
+  line-height: 1.5;
   resize: none;
   outline: none;
   max-height: 40vh;
-  min-height: 48px;
-  padding: 6px 0;
+  min-height: 38px;
+  padding: 4px 0;
   overflow-y: auto;
 }
 
@@ -1603,10 +1604,10 @@
 .input-bottom-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px solid var(--border-subtle);
+  justify-content: flex-end;
+  margin-top: 4px;
+  padding-top: 0;
+  border-top: none;
 }
 
 .input-hint {
