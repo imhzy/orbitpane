@@ -84,7 +84,7 @@ init_db()
 
 class ConversationCreate(BaseModel):
     name: str
-    path: str
+    path: str = "/root"
 
 class ConversationUpdate(BaseModel):
     name: str | None = None

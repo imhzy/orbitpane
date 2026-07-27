@@ -112,9 +112,9 @@ export default function App() {
   const [drawerMode, setDrawerMode] = useState<'sessions' | 'create'>('sessions')
   
   // Create Session State
-  const [currentPath, setCurrentPath] = useState<string>('/root/agy_web_bridge')
+  const [currentPath, setCurrentPath] = useState<string>('/root')
   const [items, setItems] = useState<DirItem[]>([])
-  const [selectedDir, setSelectedDir] = useState<string>('/root/agy_web_bridge')
+  const [selectedDir, setSelectedDir] = useState<string>('/root')
   const [newConvName, setNewConvName] = useState('')
 
   // Toast notification
@@ -599,6 +599,8 @@ export default function App() {
       loadConversations()
       setDrawerMode('sessions')
       setNewConvName('')
+      setCurrentPath('/root')
+      setSelectedDir('/root')
       selectConversation(data)
     })
   }
@@ -732,7 +734,7 @@ export default function App() {
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="drawer-scrim" 
             onClick={() => {
-              if (drawerMode === 'create' && (newConvName.trim() || currentPath !== '/root/agy_web_bridge')) {
+              if (drawerMode === 'create' && (newConvName.trim() || currentPath !== '/root')) {
                 setConfirmState({
                   isOpen: true,
                   title: '放弃修改',
