@@ -10,7 +10,7 @@ import 'katex/dist/katex.min.css'
 import { 
   Menu, X, MessageSquare, Plus, Trash2, Folder,
   ChevronRight, Send, Compass, FolderPlus, Sun, Moon,
-  Check, ChevronDown, Sparkles, Copy, Layers, HardDrive, Eraser,
+  Check, ChevronDown, Sparkles, Copy, Layers, HardDrive, Eraser, Pencil,
   User, RotateCcw, ThumbsUp, ThumbsDown, AlertCircle, Square, RefreshCw
 } from 'lucide-react'
 import { LogoIcon } from './LogoIcon'
@@ -116,6 +116,10 @@ export default function App() {
   const [items, setItems] = useState<DirItem[]>([])
   const [selectedDir, setSelectedDir] = useState<string>('/root')
   const [newConvName, setNewConvName] = useState('')
+
+  // Edit Workspace Name State
+  const [editingConvId, setEditingConvId] = useState<number | null>(null)
+  const [editingConvName, setEditingConvName] = useState<string>('')
 
   // Toast notification
   const [toast, setToast] = useState<string | null>(null)
@@ -629,6 +633,39 @@ export default function App() {
     })
   }
 
+  const startEditingConv = (e: React.MouseEvent, conv: Conversation) => {
+    e.stopPropagation()
+    setEditingConvId(conv.id)
+    setEditingConvName(conv.name)
+  }
+
+  const saveConvName = (convId: number) => {
+    const trimmed = editingConvName.trim()
+    if (!trimmed) {
+      setEditingConvId(null)
+      return
+    }
+    fetch(`/api/conversations/${convId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: trimmed })
+    })
+    .then(r => r.json())
+    .then(() => {
+      setConversations(prev => prev.map(c => c.id === convId ? { ...c, name: trimmed } : c))
+      if (activeConv?.id === convId) {
+        setActiveConv(prev => prev ? { ...prev, name: trimmed } : null)
+      }
+      setEditingConvId(null)
+      showToast('工作区名称已更新')
+    })
+    .catch(err => {
+      console.error(err)
+      showToast('更新失败')
+      setEditingConvId(null)
+    })
+  }
+
   const sendMessage = (customText?: string) => {
     triggerVibration()
     const textToSend = typeof customText === 'string' ? customText : input
@@ -842,28 +879,73 @@ export default function App() {
                     </button>
                   </div>
                 ) : (
-                  conversations.map(conv => (
-                    <div 
-                      key={conv.id} 
-                      className={`list-item ${activeConv?.id === conv.id ? 'selected' : ''}`}
-                      onClick={() => selectConversation(conv)}
-                    >
-                      <div className="item-icon">
-                        <MessageSquare size={16} />
-                      </div>
-                      <div className="item-content">
-                        <span className="item-title">{conv.name}</span>
-                        <span className="item-subtitle">{conv.path}</span>
-                      </div>
-                      <button 
-                        className="icon-btn destructive" 
-                        title="删除会话"
-                        onClick={(e) => deleteConversation(e, conv.id)}
+                  conversations.map(conv => {
+                    const isEditing = editingConvId === conv.id
+                    return (
+                      <div 
+                        key={conv.id} 
+                        className={`list-item ${activeConv?.id === conv.id ? 'selected' : ''}`}
+                        onClick={() => {
+                          if (!isEditing) selectConversation(conv)
+                        }}
                       >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  ))
+                        <div className="item-icon">
+                          <MessageSquare size={16} />
+                        </div>
+                        <div className="item-content">
+                          {isEditing ? (
+                            <input
+                              type="text"
+                              className="cw-input"
+                              style={{ padding: '2px 6px', fontSize: '13px', height: '26px' }}
+                              value={editingConvName}
+                              autoFocus
+                              onClick={e => e.stopPropagation()}
+                              onChange={e => setEditingConvName(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') saveConvName(conv.id)
+                                if (e.key === 'Escape') setEditingConvId(null)
+                              }}
+                              onBlur={() => saveConvName(conv.id)}
+                            />
+                          ) : (
+                            <>
+                              <span className="item-title">{conv.name}</span>
+                              <span className="item-subtitle">{conv.path}</span>
+                            </>
+                          )}
+                        </div>
+                        <div className="item-actions" style={{ display: 'flex', gap: '4px', alignItems: 'center' }} onClick={e => e.stopPropagation()}>
+                          {isEditing ? (
+                            <button
+                              className="icon-btn"
+                              title="保存名称"
+                              onClick={() => saveConvName(conv.id)}
+                            >
+                              <Check size={14} />
+                            </button>
+                          ) : (
+                            <>
+                              <button 
+                                className="icon-btn" 
+                                title="重命名工作区"
+                                onClick={(e) => startEditingConv(e, conv)}
+                              >
+                                <Pencil size={13} />
+                              </button>
+                              <button 
+                                className="icon-btn destructive" 
+                                title="删除会话"
+                                onClick={(e) => deleteConversation(e, conv.id)}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })
                 )}
               </div>
             )}
@@ -1076,9 +1158,35 @@ export default function App() {
             </div>
 
             <div className="header-title-wrapper">
-              <div className="header-title">
+              <div className="header-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 {activeConv ? (
-                  activeConv.name
+                  editingConvId === activeConv.id ? (
+                    <input
+                      type="text"
+                      className="cw-input"
+                      style={{ padding: '2px 8px', fontSize: '15px', fontWeight: 600, height: '28px', maxWidth: '240px' }}
+                      value={editingConvName}
+                      autoFocus
+                      onChange={e => setEditingConvName(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') saveConvName(activeConv.id)
+                        if (e.key === 'Escape') setEditingConvId(null)
+                      }}
+                      onBlur={() => saveConvName(activeConv.id)}
+                    />
+                  ) : (
+                    <>
+                      <span>{activeConv.name}</span>
+                      <button
+                        className="icon-btn edit-title-btn"
+                        title="修改工作区名称"
+                        onClick={(e) => startEditingConv(e, activeConv)}
+                        style={{ padding: 2, width: 22, height: 22, opacity: 0.6 }}
+                      >
+                        <Pencil size={12} />
+                      </button>
+                    </>
+                  )
                 ) : (
                   <div className="brand-title-group compact">
                     <span className="brand-main-name">ANTIGRAVITY</span>

@@ -2013,3 +2013,15 @@
   }
 }
 
+.edit-title-btn {
+  transition: all 0.2s ease;
+  border-radius: var(--radius-sm);
+}
+
+.edit-title-btn:hover {
+  opacity: 1 !important;
+  color: var(--brand-primary, #6366f1);
+  background: var(--bg-surface-hover);
+}
+
+
