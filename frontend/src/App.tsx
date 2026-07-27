@@ -1303,7 +1303,6 @@ export default function App() {
                   messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
                 }, 300)
               }}
-              placeholder={activeConv ? "发送消息给 Antigravity AI (Shift + Enter 换行)..." : "请先选择或新建一个工作区会话以发起提问..."}
               disabled={!activeConv}
               aria-label="消息输入框"
               rows={1}
