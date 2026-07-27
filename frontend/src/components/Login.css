@@ -22,8 +22,8 @@
 .login-orb {
   position: absolute;
   border-radius: 50%;
-  filter: blur(80px);
-  opacity: 0.3;
+  filter: blur(100px);
+  opacity: 0.25;
   animation: orbFloat 8s infinite ease-in-out;
 }
 
@@ -78,11 +78,11 @@
   z-index: 1;
   background: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 24px;
+  border-radius: 28px;
   padding: 40px 36px 32px;
   width: 100%;
   max-width: 400px;
-  box-shadow: var(--shadow-md);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4), var(--shadow-glow);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   display: flex;
@@ -108,6 +108,11 @@
   border: 2px solid transparent;
   border-top-color: var(--accent-color);
   border-right-color: rgba(139, 92, 246, 0.3);
+  animation: loginRingSpin 4s linear infinite;
+}
+
+@keyframes loginRingSpin {
+  to { transform: rotate(360deg); }
 }
 
 .login-logo-icon {
@@ -245,9 +250,9 @@
 }
 
 .login-submit-btn:hover:not(:disabled) {
-  opacity: 0.95;
   transform: translateY(-2px);
-  box-shadow: var(--shadow-md), var(--shadow-glow);
+  box-shadow: 0 8px 30px rgba(99, 102, 241, 0.4), var(--shadow-glow);
+  filter: brightness(1.08);
 }
 
 .login-submit-btn:active:not(:disabled) {
@@ -286,5 +291,23 @@
   .login-orb-2 {
     width: 200px;
     height: 200px;
+  }
+}
+
+/* Login screen entrance animation */
+.login-card-enhanced {
+  animation: loginCardEnter 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes loginCardEnter {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.96);
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
   }
 }

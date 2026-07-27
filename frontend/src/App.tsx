@@ -10,7 +10,8 @@ import 'katex/dist/katex.min.css'
 import { 
   Menu, X, MessageSquare, Plus, Trash2, Folder,
   ChevronRight, Send, Compass, FolderPlus, Sun, Moon,
-  Check, ChevronDown, Sparkles, Copy, Layers, HardDrive, Eraser
+  Check, ChevronDown, Sparkles, Copy, Layers, HardDrive, Eraser,
+  User, RotateCcw, ThumbsUp, ThumbsDown, AlertCircle
 } from 'lucide-react'
 import { LogoIcon } from './LogoIcon'
 import './App.css'
@@ -148,6 +149,7 @@ export default function App() {
   // Chat State
   const [input, setInput] = useState('')
   const [copiedMsgIdx, setCopiedMsgIdx] = useState<number | null>(null)
+  const [feedbackState, setFeedbackState] = useState<Record<number, 'up' | 'down'>>({})
   const [, setSocket] = useState<WebSocket | null>(null)
   const socketRef = useRef<WebSocket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
@@ -513,6 +515,24 @@ export default function App() {
     setTimeout(() => setCopiedMsgIdx(null), 2000)
   }
 
+  const handleFeedback = (idx: number, type: 'up' | 'down') => {
+    setFeedbackState(prev => ({
+      ...prev,
+      [idx]: prev[idx] === type ? (undefined as any) : type
+    }))
+    showToast(type === 'up' ? '感谢你的好评反馈！' : '已收到反馈，我们将持续优化')
+  }
+
+  const regenerateLastResponse = () => {
+    const lastUserMsg = [...messages].reverse().find(m => m.role === 'user')
+    if (lastUserMsg && isConnected) {
+      sendMessage(lastUserMsg.content)
+      showToast('正在重新生成回复...')
+    } else {
+      showToast('无法重新生成，请检查连接状态')
+    }
+  }
+
   const handleLogin = () => {
     setIsLoggedIn(true)
     localStorage.setItem('isLoggedIn', 'true')
@@ -848,7 +868,7 @@ export default function App() {
               </AnimatePresence>
             </div>
 
-            <div className="header-title-wrapper" style={{ marginLeft: '12px', borderLeft: '1px solid var(--border-color)', paddingLeft: '12px' }}>
+            <div className="header-title-wrapper">
               <div className="header-title">
                 {activeConv ? (
                   activeConv.name
@@ -865,7 +885,7 @@ export default function App() {
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div className="header-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <button 
               className="icon-btn theme-toggle-btn"
               onClick={toggleTheme}
@@ -875,7 +895,7 @@ export default function App() {
             </button>
 
             {activeConv ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div className="header-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <motion.button 
                   whileTap={{ scale: 0.95 }}
                   className="icon-btn"
@@ -924,17 +944,50 @@ export default function App() {
             </motion.div>
           )}
 
-          {messages.map((m, i) => (
-            m.role === 'system' ? (
-              <div key={i} className={`system-msg ${m.isError ? 'error' : ''}`}>{m.content}</div>
-            ) : (
+          {messages.map((m, i) => {
+            if (m.role === 'system') {
+              return (
+                <div key={i} className={`system-msg ${m.isError ? 'error' : ''}`}>
+                  {m.isError ? <AlertCircle size={14} /> : <Sparkles size={14} />}
+                  <span>{m.content}</span>
+                </div>
+              )
+            }
+
+            const isLastAgentMessage = m.role === 'agent' && i === messages.length - 1;
+
+            return (
               <motion.div 
                 key={i} 
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
+                initial={{ opacity: 0, y: 14, scale: 0.99 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
                 transition={springConfig}
                 className={`message-row ${m.role}`}
               >
+                <div className="message-header">
+                  <div className="message-author">
+                    {m.role === 'agent' ? (
+                      <div className="avatar agent-avatar">
+                        <LogoIcon size={16} />
+                        <span className="avatar-pulse-ring" />
+                      </div>
+                    ) : (
+                      <div className="avatar user-avatar">
+                        <User size={14} />
+                      </div>
+                    )}
+                    <span className="author-name">
+                      {m.role === 'agent' ? 'Antigravity AI' : '你'}
+                    </span>
+                    {m.role === 'agent' && selectedModel && (
+                      <span className="model-pill">{formatModelName(selectedModel)}</span>
+                    )}
+                  </div>
+                  {m.timestamp && (
+                    <span className="message-time">{formatTimestamp(m.timestamp)}</span>
+                  )}
+                </div>
+
                 <div className="message-bubble">
                   {m.role === 'agent' ? (
                     <div className="agent-container">
@@ -956,37 +1009,69 @@ export default function App() {
                           >
                             {m.content}
                           </ReactMarkdown>
-                          
-                          {!m.isThinking && (
-                            <div className="message-toolbar">
-                              <button 
-                                className="toolbar-btn" 
-                                title={copiedMsgIdx === i ? '已复制' : '复制全文'}
-                                onClick={() => copyMessageText(m.content, i)}
-                              >
-                                {copiedMsgIdx === i ? <Check size={14} style={{ color: '#10B981' }} /> : <Copy size={14} />}
-                              </button>
-                            </div>
-                          )}
                         </div>
                       ) : null}
 
                       {m.isThinking && m.content && (
                         <span className="streaming-cursor" />
                       )}
+
+                      {!m.isThinking && m.content && (
+                        <div className="message-toolbar">
+                          <button 
+                            className={`toolbar-btn ${copiedMsgIdx === i ? 'copied' : ''}`}
+                            title={copiedMsgIdx === i ? '已复制' : '复制全文'}
+                            onClick={() => copyMessageText(m.content, i)}
+                          >
+                            {copiedMsgIdx === i ? <Check size={14} className="text-success" /> : <Copy size={14} />}
+                            <span className="toolbar-btn-text">{copiedMsgIdx === i ? '已复制' : '复制'}</span>
+                          </button>
+
+                          <button 
+                            className={`toolbar-btn ${feedbackState[i] === 'up' ? 'active-up' : ''}`}
+                            title="好评"
+                            onClick={() => handleFeedback(i, 'up')}
+                          >
+                            <ThumbsUp size={14} />
+                          </button>
+
+                          <button 
+                            className={`toolbar-btn ${feedbackState[i] === 'down' ? 'active-down' : ''}`}
+                            title="差评"
+                            onClick={() => handleFeedback(i, 'down')}
+                          >
+                            <ThumbsDown size={14} />
+                          </button>
+
+                          {isLastAgentMessage && (
+                            <button 
+                              className="toolbar-btn regenerate-btn"
+                              title="重新生成"
+                              onClick={regenerateLastResponse}
+                            >
+                              <RotateCcw size={14} />
+                              <span className="toolbar-btn-text">重新生成</span>
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ) : (
-                    <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{m.content}</div>
-                  )}
-                  {m.timestamp && (
-                    <div className="message-timestamp">
-                      {formatTimestamp(m.timestamp)}
+                    <div className="user-content-wrapper">
+                      <div className="user-text-content">{m.content}</div>
+                      <button 
+                        className="user-copy-btn"
+                        title="复制发送内容"
+                        onClick={() => copyMessageText(m.content, i)}
+                      >
+                        {copiedMsgIdx === i ? <Check size={13} /> : <Copy size={13} />}
+                      </button>
                     </div>
                   )}
                 </div>
               </motion.div>
             )
-          ))}
+          })}
           <div ref={messagesEndRef} />
         </div>
 

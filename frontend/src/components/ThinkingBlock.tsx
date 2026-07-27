@@ -91,7 +91,7 @@ export function ThinkingBlock({
             transition={{ duration: 0.2 }}
             className="overflow-hidden"
           >
-            <div className="px-6 py-5 text-[13px] leading-relaxed text-[var(--text-secondary)] border-t border-[var(--border-subtle)] bg-[var(--bg-card)]">
+            <div className="px-4 py-3 sm:px-6 sm:py-5 text-[13px] leading-relaxed text-[var(--text-secondary)] border-t border-[var(--border-subtle)] bg-[var(--bg-card)]">
               {thought ? (
                 <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-pre:my-2 prose-pre:bg-[var(--bg-code)] text-[var(--text-secondary)]">
                   <ReactMarkdown 
