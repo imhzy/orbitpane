@@ -1,10 +1,29 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { Copy, Check } from 'lucide-react'
+
+function useTheme() {
+  const [theme, setTheme] = useState(document.documentElement.getAttribute('data-theme') || 'dark')
+  
+  useEffect(() => {
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.attributeName === 'data-theme') {
+          setTheme(document.documentElement.getAttribute('data-theme') || 'dark')
+        }
+      })
+    })
+    observer.observe(document.documentElement, { attributes: true })
+    return () => observer.disconnect()
+  }, [])
+  
+  return theme
+}
 
 export function CodeBlock({ children, className, ...props }: any) {
   const [copied, setCopied] = useState(false)
+  const theme = useTheme()
   const match = /language-(\w+)/.exec(className || '')
   const codeStr = String(children).replace(/\n$/, '')
 
@@ -13,6 +32,8 @@ export function CodeBlock({ children, className, ...props }: any) {
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
+
+  const syntaxStyle = theme === 'light' ? oneLight : oneDark
 
   return match ? (
     <div className="my-4 rounded-xl overflow-hidden border border-[var(--border-color)] bg-[var(--bg-code)] shadow-sm">
@@ -29,7 +50,7 @@ export function CodeBlock({ children, className, ...props }: any) {
         </button>
       </div>
       <SyntaxHighlighter 
-        style={oneDark as any} 
+        style={syntaxStyle as any} 
         language={match[1]} 
         PreTag="div" 
         customStyle={{ margin: 0, padding: '1rem', background: 'transparent', fontSize: '13px' }}

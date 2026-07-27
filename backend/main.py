@@ -279,7 +279,7 @@ async def tail_transcript(conv_id: int, log_path: str):
         debug_log.close()
         return
         
-    transcript_path = f"/root/.gemini/antigravity-cli/brain/{uuid}/.system_generated/logs/transcript.jsonl"
+    transcript_path = f"/root/.gemini/antigravity-cli/brain/{uuid}/.system_generated/logs/transcript_full.jsonl"
     dbg(f"transcript_path={transcript_path}")
     
     # Wait for transcript file (up to 10s)
@@ -289,11 +289,11 @@ async def tail_transcript(conv_id: int, log_path: str):
         await asyncio.sleep(0.1)
         
     if not os.path.exists(transcript_path):
-        dbg("ABORT: transcript.jsonl never appeared")
+        dbg("ABORT: transcript_full.jsonl never appeared")
         debug_log.close()
         return
     
-    dbg("transcript.jsonl found, spawning tail -f")
+    dbg("transcript_full.jsonl found, spawning tail -f")
     
     process = await asyncio.create_subprocess_exec(
         "tail", "-n", "+1", "-f", transcript_path,
@@ -329,15 +329,17 @@ async def tail_transcript(conv_id: int, log_path: str):
                         for tc in tool_calls:
                             tool_name = tc.get("name", "")
                             args = tc.get("args", {})
-                            args_str = ", ".join([f"{k}={v}" for k, v in args.items()])
-                            if len(args_str) > 50:
-                                args_str = args_str[:47] + "..."
+                            formatted_args = []
+                            for k, v in args.items():
+                                val_str = str(v)
+                                if len(val_str) > 200:
+                                    val_str = val_str[:197] + "..."
+                                formatted_args.append(f"{k}={val_str}")
+                            args_str = ", ".join(formatted_args)
                             formatted_text += f"\n\n● **{tool_name}**({args_str})\n"
                             
                         if thought:
-                            lines_list = thought.strip().split('\n')
-                            first_line = lines_list[0] if lines_list else ""
-                            formatted_text += f"▸ *Thought*: {first_line}\n"
+                            formatted_text += f"\n▸ *Thought*:\n{thought}\n"
                     
                     if formatted_text:
                         thoughts_sent += 1
