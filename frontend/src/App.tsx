@@ -965,7 +965,6 @@ export default function App() {
                       <Layers size={14} className="cw-icon" />
                       <input 
                         type="text" 
-                        placeholder="例如：Frontend Project" 
                         value={newConvName}
                         onChange={e => setNewConvName(e.target.value)}
                         className="cw-input"
