@@ -610,42 +610,43 @@
 
 .cw-create-btn {
   width: 100%;
-  padding: 14px 20px;
+  padding: 11px 18px;
   border-radius: var(--radius-md);
-  border: 1px solid var(--border-glow);
-  background: var(--brand-gradient);
-  color: #FFFFFF;
-  font-family: var(--font-heading);
-  font-size: 15px;
-  font-weight: 700;
+  border: 1px solid var(--border-color);
+  background: var(--text-primary);
+  color: var(--bg-card);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 600;
   letter-spacing: 0.01em;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
   cursor: pointer;
-  box-shadow: var(--shadow-glow);
-  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .cw-create-btn:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md), var(--shadow-glow);
-  filter: brightness(1.08);
+  opacity: 0.9;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12);
 }
 
 .cw-create-btn:active:not(:disabled) {
-  transform: translateY(0) scale(0.98);
+  transform: translateY(0);
+  opacity: 0.98;
 }
 
 .cw-create-btn:disabled {
   background: var(--bg-surface-hover);
-  border-color: var(--border-color);
+  border-color: var(--border-subtle);
   color: var(--text-tertiary);
   cursor: not-allowed;
   box-shadow: none;
   transform: none;
-  opacity: 0.6;
+  opacity: 0.55;
 }
 
 
