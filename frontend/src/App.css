@@ -855,11 +855,23 @@
   border: 1px solid var(--border-color);
 }
 
+.status-indicator.clickable {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.status-indicator.clickable:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--brand-primary, #6366f1);
+  color: var(--brand-primary, #6366f1);
+}
+
 .status-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   position: relative;
+  flex-shrink: 0;
 }
 
 .status-dot.online {
@@ -876,8 +888,20 @@
   animation: pulseGlow 2s infinite ease-out;
 }
 
+.status-dot.connecting {
+  background: #F59E0B;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.6);
+  animation: connectingBlink 1s infinite alternate ease-in-out;
+}
+
 .status-dot.offline {
-  background: #6B7280;
+  background: #EF4444;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.5);
+}
+
+@keyframes connectingBlink {
+  0% { opacity: 0.4; transform: scale(0.85); }
+  100% { opacity: 1; transform: scale(1.15); }
 }
 
 @keyframes pulseGlow {

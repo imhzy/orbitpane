@@ -359,7 +359,7 @@ async def tail_transcript(conv_id: int, log_path: str):
         except Exception:
             pass
 
-async def run_agent_task(conv_id: int, user_msg: str, working_dir: str, model: str = "gemini-3.6-flash-medium"):
+async def run_agent_task(conv_id: int, user_msg: str, working_dir: str, model: str = "gemini-3.6-flash-high"):
     import time
     import codecs
     start_time = time.time()
@@ -575,10 +575,10 @@ async def websocket_endpoint(websocket: WebSocket):
                                 pass
                     continue
                 user_msg = msg_data.get("content", "")
-                model = msg_data.get("model", "gemini-3.6-flash-medium")
+                model = msg_data.get("model", "gemini-3.6-flash-high")
             except:
                 user_msg = raw_msg
-                model = "gemini-3.6-flash-medium"
+                model = "gemini-3.6-flash-high"
             
             save_message(conv_id, "user", user_msg)
             

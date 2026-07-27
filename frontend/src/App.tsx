@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { motion, AnimatePresence } from 'framer-motion'
 import ReactMarkdown from 'react-markdown'
@@ -59,7 +59,7 @@ export default function App() {
   }
 
   const [models, setModels] = useState<string[]>([])
-  const [selectedModel, setSelectedModel] = useState<string>('gemini-3.6-flash-medium')
+  const [selectedModel, setSelectedModel] = useState<string>('gemini-3.6-flash-high')
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
@@ -158,6 +158,9 @@ export default function App() {
   const [, setSocket] = useState<WebSocket | null>(null)
   const socketRef = useRef<WebSocket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
+  const [isReconnecting, setIsReconnecting] = useState(false)
+  const reconnectTimerRef = useRef<any>(null)
+  const reconnectAttemptRef = useRef<number>(0)
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -264,14 +267,19 @@ export default function App() {
     }
   }, [isModelDropdownOpen])
 
-  // Window focus & tab visibility change auto-refetching
+  // Window focus & tab visibility change & network online auto-reconnecting
   useEffect(() => {
     const handleFocusOrVisibility = () => {
       if (document.visibilityState === 'visible' && isLoggedIn) {
         loadConversations(false)
         loadModels()
-        if (activeConvRef.current && !isAgentThinkingRef.current) {
-          loadHistory(activeConvRef.current.id)
+        if (activeConvRef.current) {
+          if (!isAgentThinkingRef.current) {
+            loadHistory(activeConvRef.current.id)
+          }
+          if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
+            connectWebSocket(activeConvRef.current, false)
+          }
         }
         if (isDrawerOpen && drawerMode === 'create') {
           loadDir(currentPath)
@@ -279,13 +287,39 @@ export default function App() {
       }
     }
 
+    const handleOnline = () => {
+      if (isLoggedIn && activeConvRef.current) {
+        showToast('网络已连接，正在主动重连 AI agent...')
+        connectWebSocket(activeConvRef.current, true)
+      }
+    }
+
     window.addEventListener('focus', handleFocusOrVisibility)
     document.addEventListener('visibilitychange', handleFocusOrVisibility)
+    window.addEventListener('online', handleOnline)
     return () => {
       window.removeEventListener('focus', handleFocusOrVisibility)
       document.removeEventListener('visibilitychange', handleFocusOrVisibility)
+      window.removeEventListener('online', handleOnline)
     }
   }, [isLoggedIn, isDrawerOpen, drawerMode, currentPath])
+
+  // Active connection health check & background auto-reconnect polling
+  useEffect(() => {
+    if (!isLoggedIn) return
+
+    const timer = setInterval(() => {
+      if (activeConvRef.current) {
+        const currentWs = socketRef.current
+        if (!currentWs || currentWs.readyState === WebSocket.CLOSED) {
+          console.log('[WS Health Monitor] Connection closed, actively triggering reconnection...')
+          connectWebSocket(activeConvRef.current, false)
+        }
+      }
+    }, 4000)
+
+    return () => clearInterval(timer)
+  }, [isLoggedIn])
 
   useEffect(() => {
     if (isNearBottom()) {
@@ -343,42 +377,59 @@ export default function App() {
       .catch(err => console.error(err))
   }
 
-  const selectConversation = (conv: Conversation) => {
-    setActiveConv(conv)
-    setIsDrawerOpen(false)
-    
-    const url = new URL(window.location.href)
-    url.searchParams.set('id', conv.id.toString())
-    window.history.pushState({}, '', url.toString())
+  const connectWebSocket = useCallback((conv: Conversation, isManual = false) => {
+    if (!conv) return
 
-    if (socketRef.current) {
-      socketRef.current.close()
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
     }
 
-    fetch(`/api/history/${conv.id}`, { cache: 'no-store' })
-      .then(r => r.json())
-      .then(data => {
-        if (Array.isArray(data)) {
-          setMessages(data)
-        } else {
-          setMessages([])
-        }
-        setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
-      })
-      .catch(err => {
-        console.error(err)
-        setMessages([])
-      })
+    const currentWs = socketRef.current
+    if (currentWs && currentWs.readyState === WebSocket.OPEN && !isManual) {
+      setIsConnected(true)
+      setIsReconnecting(false)
+      return
+    }
+
+    if (currentWs) {
+      currentWs.onopen = null
+      currentWs.onmessage = null
+      currentWs.onerror = null
+      currentWs.onclose = null
+      try { currentWs.close() } catch (e) {}
+      socketRef.current = null
+      setSocket(null)
+    }
+
+    setIsConnected(false)
+    setIsReconnecting(true)
+
+    if (isManual) {
+      showToast('正在尝试连接 AI 后台 agent...')
+    }
 
     const loc = window.location
     const wsProtocol = loc.protocol === 'https:' ? 'wss:' : 'ws:'
     const wsUrl = `${wsProtocol}//${loc.host}/api/chat`
-    const ws = new WebSocket(wsUrl)
+
+    let ws: WebSocket
+    try {
+      ws = new WebSocket(wsUrl)
+    } catch (err) {
+      console.error("WS construction error:", err)
+      setIsReconnecting(false)
+      return
+    }
 
     ws.onopen = () => {
       if (socketRef.current !== ws) return
       setIsConnected(true)
-      // Handshake with conversation_id required by backend
+      setIsReconnecting(false)
+      reconnectAttemptRef.current = 0
+      if (isManual) {
+        showToast('已成功连接后台 AI agent')
+      }
       ws.send(JSON.stringify({ conversation_id: conv.id }))
     }
 
@@ -468,33 +519,71 @@ export default function App() {
         console.error("WS message parse error:", err)
       }
     }
-    
-    ws.onclose = () => {
+
+    ws.onerror = (err) => {
+      console.error("WS error:", err)
+    }
+
+    ws.onclose = (e) => {
       if (socketRef.current === ws) {
         setIsConnected(false)
+        setIsReconnecting(false)
         setSocket(null)
         socketRef.current = null
-        // Auto-reconnect with exponential backoff
-        const attempt = (ws as any).__reconnectAttempt || 0
-        if (attempt < 5) {
-          const delay = Math.min(1000 * Math.pow(2, attempt), 15000)
-          setTimeout(() => {
-            if (!socketRef.current && activeConv?.id === conv.id) {
-              const newWs = new WebSocket(wsUrl) as any
-              newWs.__reconnectAttempt = attempt + 1
-              // Reuse the same handlers
-              newWs.onopen = ws.onopen
-              newWs.onmessage = ws.onmessage
-              newWs.onclose = ws.onclose
-              setSocket(newWs)
-              socketRef.current = newWs
-            }
-          }, delay)
-        }
+
+        const attempt = reconnectAttemptRef.current
+        reconnectAttemptRef.current = attempt + 1
+        const delay = Math.min(1000 * Math.pow(1.5, Math.min(attempt, 6)), 10000)
+
+        console.log(`[WS] Disconnected (code ${e.code}). Auto-reconnecting in ${Math.round(delay)}ms (attempt ${attempt + 1})`)
+
+        reconnectTimerRef.current = setTimeout(() => {
+          if (!socketRef.current && activeConvRef.current && activeConvRef.current.id === conv.id) {
+            connectWebSocket(activeConvRef.current, false)
+          }
+        }, delay)
       }
     }
+
     setSocket(ws)
     socketRef.current = ws
+  }, [])
+
+  const selectConversation = (conv: Conversation) => {
+    setActiveConv(conv)
+    setIsDrawerOpen(false)
+    
+    const url = new URL(window.location.href)
+    url.searchParams.set('id', conv.id.toString())
+    window.history.pushState({}, '', url.toString())
+
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
+    }
+
+    if (socketRef.current) {
+      socketRef.current.onclose = null
+      socketRef.current.close()
+      socketRef.current = null
+    }
+
+    fetch(`/api/history/${conv.id}`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setMessages(data)
+        } else {
+          setMessages([])
+        }
+        setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
+      })
+      .catch(err => {
+        console.error(err)
+        setMessages([])
+      })
+
+    connectWebSocket(conv, false)
   }
 
   const createConversation = () => {
@@ -541,16 +630,25 @@ export default function App() {
   const sendMessage = (customText?: string) => {
     triggerVibration()
     const textToSend = typeof customText === 'string' ? customText : input
+    if (!textToSend.trim()) return
+
+    if (!activeConvRef.current) {
+      showToast('请先选择一个工作区会话')
+      return
+    }
+
     const currentSocket = socketRef.current
-    if (!textToSend.trim() || !currentSocket || currentSocket.readyState !== WebSocket.OPEN) return
+    if (!currentSocket || currentSocket.readyState !== WebSocket.OPEN) {
+      showToast('未连接 AI 后台，已为你发起自动重连...')
+      connectWebSocket(activeConvRef.current, true)
+      return
+    }
     
     setInput('')
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
     setMessages(prev => [...prev, { role: 'user', content: textToSend.trim(), timestamp: new Date().toISOString() }])
     currentSocket.send(JSON.stringify({ content: textToSend.trim(), model: selectedModel }))
   }
-
-
 
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value)
@@ -600,6 +698,14 @@ export default function App() {
 
   const regenerateLastResponse = () => {
     const lastUserMsg = [...messages].reverse().find(m => m.role === 'user')
+    if (!lastUserMsg) return
+
+    if (!isConnected && activeConvRef.current) {
+      showToast('AI 后台未连接，正在发起重连...')
+      connectWebSocket(activeConvRef.current, true)
+      return
+    }
+
     if (lastUserMsg && isConnected) {
       sendMessage(lastUserMsg.content)
       showToast('正在重新生成回复...')
@@ -1003,9 +1109,18 @@ export default function App() {
                 >
                   <Eraser size={16} />
                 </motion.button>
-                <div className="status-indicator">
-                  <div className={`status-dot ${isConnected ? 'online' : 'offline'}`} />
-                  <span>{isConnected ? '在线已连接' : '未连接'}</span>
+                <div 
+                  className={`status-indicator ${!isConnected ? 'clickable' : ''}`}
+                  onClick={() => {
+                    if (!isConnected && activeConvRef.current) {
+                      connectWebSocket(activeConvRef.current, true)
+                    }
+                  }}
+                  title={isConnected ? 'AI agent 已在线连接' : isReconnecting ? '正在尝试重新连接...' : '未连接，点击主动发起重连'}
+                  style={{ cursor: isConnected ? 'default' : 'pointer' }}
+                >
+                  <div className={`status-dot ${isConnected ? 'online' : isReconnecting ? 'connecting' : 'offline'}`} />
+                  <span>{isConnected ? '在线已连接' : isReconnecting ? '正在重连...' : '未连接 (点击重连)'}</span>
                 </div>
               </div>
             ) : (
@@ -1201,7 +1316,11 @@ export default function App() {
                 className={`send-btn ${isAgentThinking ? 'interrupt' : ''}`}
                 onClick={() => {
                   if (!activeConv) { showToast('请先选择一个工作区会话'); return }
-                  if (!isConnected) { showToast('AI 服务未连接，正在重连...'); return }
+                  if (!isConnected) {
+                    showToast('AI 后台未连接，已为你发起重连...')
+                    connectWebSocket(activeConv, true)
+                    return
+                  }
                   if (isAgentThinking) {
                     socketRef.current?.send(JSON.stringify({ action: "interrupt" }))
                     return
