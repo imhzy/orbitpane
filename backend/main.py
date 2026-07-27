@@ -73,6 +73,10 @@ def init_db():
         c.execute("ALTER TABLE messages ADD COLUMN thought TEXT")
     except:
         pass
+    try:
+        c.execute("ALTER TABLE messages ADD COLUMN model TEXT")
+    except:
+        pass
     conn.commit()
     conn.close()
 
@@ -144,10 +148,10 @@ def delete_conversation(conv_id: int):
 def get_history(conv_id: int):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("SELECT role, content, thought, timestamp FROM messages WHERE conversation_id = ? ORDER BY id ASC", (conv_id,))
+    c.execute("SELECT role, content, thought, timestamp, model FROM messages WHERE conversation_id = ? ORDER BY id ASC", (conv_id,))
     rows = c.fetchall()
     conn.close()
-    return [{"role": r[0], "content": r[1], "thought": r[2] if r[2] else "", "timestamp": r[3]} for r in rows]
+    return [{"role": r[0], "content": r[1], "thought": r[2] if r[2] else "", "timestamp": r[3], "model": r[4] if len(r) > 4 and r[4] else ""} for r in rows]
 
 @app.delete("/api/history/{conv_id}")
 def clear_history(conv_id: int):
@@ -191,10 +195,10 @@ def list_directory(path: str = "/root", show_hidden: bool = False):
     except Exception as e:
         return {"error": str(e), "items": []}
 
-def save_message(conv_id: int, role: str, content: str, thought: str = ""):
+def save_message(conv_id: int, role: str, content: str, thought: str = "", model: str = ""):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("INSERT INTO messages (conversation_id, role, content, thought) VALUES (?, ?, ?, ?)", (conv_id, role, content, thought))
+    c.execute("INSERT INTO messages (conversation_id, role, content, thought, model) VALUES (?, ?, ?, ?, ?)", (conv_id, role, content, thought, model))
     conn.commit()
     conn.close()
 
@@ -230,6 +234,129 @@ class ConversationManager:
 
 manager = ConversationManager()
 
+async def tail_transcript(conv_id: int, log_path: str):
+    import json
+    import os
+    import asyncio
+    import time as _time
+    
+    debug_log = open("/tmp/tail_debug.log", "a")
+    def dbg(msg):
+        debug_log.write(f"[{_time.strftime('%H:%M:%S')}] conv={conv_id} {msg}\n")
+        debug_log.flush()
+    
+    dbg(f"START tail_transcript, log_path={log_path}")
+    
+    # Wait for glog file (up to 10s)
+    for _ in range(100):
+        if os.path.exists(log_path):
+            break
+        await asyncio.sleep(0.1)
+        
+    if not os.path.exists(log_path):
+        dbg("ABORT: glog file never appeared")
+        debug_log.close()
+        return
+    
+    dbg(f"glog file found: {log_path}")
+        
+    # Extract UUID from glog - time-based loop, not iteration-based
+    uuid = None
+    deadline = _time.time() + 30  # 30 second deadline
+    with open(log_path, 'r') as f:
+        while _time.time() < deadline:
+            line = f.readline()
+            if not line:
+                await asyncio.sleep(0.2)
+                continue
+            if "Streaming conversation " in line:
+                uuid = line.split("Streaming conversation ")[1].strip()
+                dbg(f"Found UUID: {uuid}")
+                break
+                
+    if not uuid:
+        dbg("ABORT: UUID not found within deadline")
+        debug_log.close()
+        return
+        
+    transcript_path = f"/root/.gemini/antigravity-cli/brain/{uuid}/.system_generated/logs/transcript.jsonl"
+    dbg(f"transcript_path={transcript_path}")
+    
+    # Wait for transcript file (up to 10s)
+    for _ in range(100):
+        if os.path.exists(transcript_path):
+            break
+        await asyncio.sleep(0.1)
+        
+    if not os.path.exists(transcript_path):
+        dbg("ABORT: transcript.jsonl never appeared")
+        debug_log.close()
+        return
+    
+    dbg("transcript.jsonl found, spawning tail -f")
+    
+    process = await asyncio.create_subprocess_exec(
+        "tail", "-n", "+1", "-f", transcript_path,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL
+    )
+    
+    dbg("tail -f spawned, reading lines...")
+    lines_read = 0
+    thoughts_sent = 0
+    
+    try:
+        while True:
+            line = await process.stdout.readline()
+            if not line:
+                dbg(f"tail EOF after {lines_read} lines, {thoughts_sent} thoughts sent")
+                break
+            
+            lines_read += 1
+            
+            try:
+                data = json.loads(line)
+                step_type = data.get("type")
+                dbg(f"line {lines_read}: type={step_type}")
+                
+                if step_type in ["PLANNER_RESPONSE", "TOOL_RESPONSE", "BASH_COMMAND", "ACTION", "ERROR"]:
+                    formatted_text = ""
+                    
+                    if step_type == "PLANNER_RESPONSE":
+                        thought = data.get("thinking", "")
+                        tool_calls = data.get("tool_calls", [])
+                        
+                        for tc in tool_calls:
+                            tool_name = tc.get("name", "")
+                            args = tc.get("args", {})
+                            args_str = ", ".join([f"{k}={v}" for k, v in args.items()])
+                            if len(args_str) > 50:
+                                args_str = args_str[:47] + "..."
+                            formatted_text += f"\n\n● **{tool_name}**({args_str})\n"
+                            
+                        if thought:
+                            lines_list = thought.strip().split('\n')
+                            first_line = lines_list[0] if lines_list else ""
+                            formatted_text += f"▸ *Thought*: {first_line}\n"
+                    
+                    if formatted_text:
+                        thoughts_sent += 1
+                        dbg(f"BROADCASTING thought #{thoughts_sent}: {formatted_text[:80]}...")
+                        await manager.broadcast(conv_id, {"type": "thought", "content": formatted_text})
+            except json.JSONDecodeError as e:
+                dbg(f"JSON parse error on line {lines_read}: {e}")
+            except Exception as e:
+                dbg(f"Error on line {lines_read}: {e}")
+    except asyncio.CancelledError:
+        dbg(f"CANCELLED after {lines_read} lines, {thoughts_sent} thoughts sent")
+    finally:
+        dbg(f"CLEANUP: {lines_read} lines read, {thoughts_sent} thoughts broadcast")
+        debug_log.close()
+        try:
+            process.terminate()
+        except Exception:
+            pass
+
 async def run_agent_task(conv_id: int, user_msg: str, working_dir: str, model: str = "gemini-3.6-flash-medium"):
     import time
     import codecs
@@ -239,10 +366,12 @@ async def run_agent_task(conv_id: int, user_msg: str, working_dir: str, model: s
         "start_time": start_time,
         "content": "",
         "thought": "",
-        "in_thought": False
+        "in_thought": False,
+        "interrupted": False,
+        "model": model
     }
 
-    await manager.broadcast(conv_id, {"type": "start", "status": "Thinking...", "elapsed": 0})
+    await manager.broadcast(conv_id, {"type": "start", "status": "Thinking...", "elapsed": 0, "model": model})
     
     response_content = ""
     response_thought = ""
@@ -261,24 +390,30 @@ async def run_agent_task(conv_id: int, user_msg: str, working_dir: str, model: s
     history_text = "Here is the conversation history so far:\\n"
     for r, c_text, t_text in rows[:-1]: # Exclude the user message just saved
         history_text += f"{r.upper()}:\\n"
-        if t_text:
-            history_text += f"<agy_thought>\\n{t_text}\\n</agy_thought>\\n"
         history_text += f"{c_text}\\n\\n"
         
     history_text += "### END OF HISTORY ###\\n\\n"
     
-    agent_msg = history_text + "NEW MESSAGE FROM USER:\\n" + user_msg + "\\n\\n(Please write your thinking process inside <agy_thought> and </agy_thought> tags before your final response.)"
+    agent_msg = history_text + "NEW MESSAGE FROM USER:\\n" + user_msg
 
     
     try:
         cli_conv_id = f"agy-bridge-conv-{conv_id}"
+        log_path = f"/tmp/agy-bridge-conv-{conv_id}.log"
+        if os.path.exists(log_path):
+            try:
+                os.remove(log_path)
+            except:
+                pass
+                
         cmd = [
             "agy", "-p", agent_msg,
             "--conversation", cli_conv_id,
             "--add-dir", working_dir,
             "--model", model,
             "--dangerously-skip-permissions",
-            "--print-timeout", "24h"
+            "--print-timeout", "24h",
+            "--log-file", log_path
         ]
         
         # Clean up stale ANTIGRAVITY_* env vars inherited from PM2 start
@@ -296,6 +431,9 @@ async def run_agent_task(conv_id: int, user_msg: str, working_dir: str, model: s
             env=clean_env
         )
         
+        if conv_id in manager.task_state:
+            manager.task_state[conv_id]["process"] = process
+        
         stderr_output = []
         async def read_stderr():
             while True:
@@ -308,6 +446,7 @@ async def run_agent_task(conv_id: int, user_msg: str, working_dir: str, model: s
                     break
                     
         stderr_task = asyncio.create_task(read_stderr())
+        transcript_task = asyncio.create_task(tail_transcript(conv_id, log_path))
         
         decoder = codecs.getincrementaldecoder('utf-8')(errors='replace')
         
@@ -323,88 +462,18 @@ async def run_agent_task(conv_id: int, user_msg: str, working_dir: str, model: s
             buffer += chunk
             
             while buffer:
-                lower_buf = buffer.lower()
-                if not in_thought:
-                    t_idx = lower_buf.find("<agy_thought>")
-                    tk_idx = -1
-                    
-                    if t_idx != -1 or tk_idx != -1:
-                        idx = t_idx if t_idx != -1 else tk_idx
-                        tag_len = 13 if t_idx != -1 else 7
-                        
-                        pre_text = buffer[:idx]
-                        if pre_text:
-                            await manager.broadcast(conv_id, {"type": "token", "content": pre_text})
-                            response_content += pre_text
-                            if conv_id in manager.task_state:
-                                manager.task_state[conv_id]["content"] = response_content
-                            
-                        in_thought = True
-                        if conv_id in manager.task_state:
-                            manager.task_state[conv_id]["in_thought"] = True
-                        await manager.broadcast(conv_id, {"type": "thought_start"})
-                        
-                        buffer = buffer[idx + tag_len:]
-                    else:
-                        possible_partial = False
-                        for tag in ["<thought>", "<think>"]:
-                            for i in range(1, len(tag)):
-                                if lower_buf.endswith(tag[:i]):
-                                    possible_partial = True
-                                    break
-                            if possible_partial:
-                                break
-                        
-                        if possible_partial:
-                            break
-                        else:
-                            await manager.broadcast(conv_id, {"type": "token", "content": buffer})
-                            response_content += buffer
-                            if conv_id in manager.task_state:
-                                manager.task_state[conv_id]["content"] = response_content
-                            buffer = ""
-                else:
-                    t_idx = lower_buf.find("</agy_thought>")
-                    tk_idx = -1
-                    
-                    if t_idx != -1 or tk_idx != -1:
-                        idx = t_idx if t_idx != -1 else tk_idx
-                        tag_len = 14 if t_idx != -1 else 8
-                        
-                        thought_text = buffer[:idx]
-                        if thought_text:
-                            await manager.broadcast(conv_id, {"type": "thought", "content": thought_text})
-                            response_thought += thought_text
-                            if conv_id in manager.task_state:
-                                manager.task_state[conv_id]["thought"] = response_thought
-                            
-                        in_thought = False
-                        if conv_id in manager.task_state:
-                            manager.task_state[conv_id]["in_thought"] = False
-                        await manager.broadcast(conv_id, {"type": "thought_done"})
-                        
-                        buffer = buffer[idx + tag_len:]
-                    else:
-                        possible_partial = False
-                        for tag in ["</thought>", "</think>"]:
-                            for i in range(1, len(tag)):
-                                if lower_buf.endswith(tag[:i]):
-                                    possible_partial = True
-                                    break
-                            if possible_partial:
-                                break
-                        
-                        if possible_partial:
-                            break
-                        else:
-                            await manager.broadcast(conv_id, {"type": "thought", "content": buffer})
-                            response_thought += buffer
-                            if conv_id in manager.task_state:
-                                manager.task_state[conv_id]["thought"] = response_thought
-                            buffer = ""
+                await manager.broadcast(conv_id, {"type": "token", "content": buffer})
+                response_content += buffer
+                if conv_id in manager.task_state:
+                    manager.task_state[conv_id]["content"] = response_content
+                buffer = ""
         
         await process.wait()
         await stderr_task
+        if not transcript_task.done():
+            transcript_task.cancel()
+        
+        is_interrupted = manager.task_state.get(conv_id, {}).get("interrupted", False)
         
         if buffer:
             if in_thought:
@@ -414,17 +483,23 @@ async def run_agent_task(conv_id: int, user_msg: str, working_dir: str, model: s
                 await manager.broadcast(conv_id, {"type": "token", "content": buffer})
                 response_content += buffer
 
-        if process.returncode != 0:
+        if is_interrupted:
+            msg = "\n\n*[Generation interrupted by user]*"
+            await manager.broadcast(conv_id, {"type": "token", "content": msg})
+            response_content += msg
+        elif process.returncode != 0 and process.returncode != -9 and process.returncode != -15:
             error_msg = f"Process exited with code {process.returncode}.\nStderr: " + "".join(stderr_output)
             if not response_content:
                 response_content = error_msg
             else:
                 response_content += "\n\n" + error_msg
+            await manager.broadcast(conv_id, {"type": "error", "content": error_msg})
+            # Also send as token so it appears in the chat log properly
             await manager.broadcast(conv_id, {"type": "token", "content": f"\n\n**Error:**\n```\n{error_msg}\n```"})
 
         duration = round(time.time() - start_time, 1)
         await manager.broadcast(conv_id, {"type": "done", "duration": duration})
-        save_message(conv_id, "agent", response_content, response_thought)
+        save_message(conv_id, "agent", response_content, response_thought, model)
 
     except Exception as ex:
         error_msg = str(ex)
@@ -476,7 +551,8 @@ async def websocket_endpoint(websocket: WebSocket):
                 "content": state["content"],
                 "thought": state["thought"],
                 "in_thought": state["in_thought"],
-                "elapsed": elapsed
+                "elapsed": elapsed,
+                "model": state.get("model", "")
             }))
 
     try:
@@ -485,6 +561,17 @@ async def websocket_endpoint(websocket: WebSocket):
             
             try:
                 msg_data = json.loads(raw_msg)
+                action = msg_data.get("action")
+                if action == "interrupt":
+                    if conv_id in manager.task_state:
+                        process = manager.task_state[conv_id].get("process")
+                        if process:
+                            manager.task_state[conv_id]["interrupted"] = True
+                            try:
+                                process.kill()
+                            except:
+                                pass
+                    continue
                 user_msg = msg_data.get("content", "")
                 model = msg_data.get("model", "gemini-3.6-flash-medium")
             except:

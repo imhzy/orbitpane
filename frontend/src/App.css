@@ -1623,6 +1623,14 @@
   transform: none;
   box-shadow: none;
 }
+.send-btn.interrupt {
+  background: #f43f5e; /* Rose 500 */
+  box-shadow: 0 4px 14px rgba(244, 63, 94, 0.35);
+}
+.send-btn.interrupt:hover {
+  background: #e11d48; /* Rose 600 */
+  box-shadow: 0 6px 20px rgba(244, 63, 94, 0.45);
+}
 
 /* === Login Screen === */
 .login-container {

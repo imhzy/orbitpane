@@ -11,7 +11,7 @@ import {
   Menu, X, MessageSquare, Plus, Trash2, Folder,
   ChevronRight, Send, Compass, FolderPlus, Sun, Moon,
   Check, ChevronDown, Sparkles, Copy, Layers, HardDrive, Eraser,
-  User, RotateCcw, ThumbsUp, ThumbsDown, AlertCircle
+  User, RotateCcw, ThumbsUp, ThumbsDown, AlertCircle, Square
 } from 'lucide-react'
 import { LogoIcon } from './LogoIcon'
 import './App.css'
@@ -26,6 +26,7 @@ interface Message {
   elapsedSoFar?: number;
   isError?: boolean; 
   timestamp?: string;
+  model?: string;
 }
 interface Conversation { id: number; name: string; path: string; created_at: string; }
 
@@ -163,6 +164,8 @@ export default function App() {
     if (!container) return true
     return container.scrollHeight - container.scrollTop - container.clientHeight < 150
   }
+
+  const isAgentThinking = messages.length > 0 && messages[messages.length - 1].role === 'agent' && messages[messages.length - 1].isThinking;
 
   const [isLoggedIn, setIsLoggedIn] = useState(() => {
     return localStorage.getItem('isLoggedIn') === 'true'
@@ -315,10 +318,9 @@ export default function App() {
             const newMsgs = [...prev]
             let lastMsg = newMsgs[newMsgs.length - 1]
             if (!lastMsg || lastMsg.role !== 'agent') {
-              newMsgs.push({ role: 'agent', content: '', thought: '', isThinking: true, elapsedSoFar: data.elapsed || 0 })
+              newMsgs.push({ role: 'agent', content: '', thought: '', isThinking: true, elapsedSoFar: data.elapsed || 0, model: data.model })
             } else {
-              lastMsg.isThinking = true
-              lastMsg.elapsedSoFar = data.elapsed || 0
+              newMsgs[newMsgs.length - 1] = { ...lastMsg, isThinking: true, elapsedSoFar: data.elapsed || 0, ...(data.model ? { model: data.model } : {}) }
             }
             return newMsgs
           })
@@ -327,12 +329,9 @@ export default function App() {
             const newMsgs = [...prev]
             let lastMsg = newMsgs[newMsgs.length - 1]
             if (!lastMsg || lastMsg.role !== 'agent') {
-              newMsgs.push({ role: 'agent', content: data.content || '', thought: data.thought || '', isThinking: data.in_thought || true, elapsedSoFar: data.elapsed || 0 })
+              newMsgs.push({ role: 'agent', content: data.content || '', thought: data.thought || '', isThinking: data.in_thought || true, elapsedSoFar: data.elapsed || 0, model: data.model })
             } else {
-              lastMsg.content = data.content || ''
-              lastMsg.thought = data.thought || ''
-              lastMsg.isThinking = data.in_thought || true
-              lastMsg.elapsedSoFar = data.elapsed || 0
+              newMsgs[newMsgs.length - 1] = { ...lastMsg, content: data.content || '', thought: data.thought || '', isThinking: data.in_thought || true, elapsedSoFar: data.elapsed || 0, ...(data.model ? { model: data.model } : {}) }
             }
             return newMsgs
           })
@@ -341,8 +340,7 @@ export default function App() {
             const newMsgs = [...prev]
             let lastMsg = newMsgs[newMsgs.length - 1]
             if (lastMsg && lastMsg.role === 'agent') {
-              lastMsg.thought = (lastMsg.thought || '') + data.content
-              lastMsg.isThinking = true
+              newMsgs[newMsgs.length - 1] = { ...lastMsg, thought: (lastMsg.thought || '') + data.content, isThinking: true }
             } else {
               newMsgs.push({ role: 'agent', content: '', thought: data.content, isThinking: true })
             }
@@ -353,7 +351,7 @@ export default function App() {
             const newMsgs = [...prev]
             let lastMsg = newMsgs[newMsgs.length - 1]
             if (lastMsg && lastMsg.role === 'agent') {
-              lastMsg.content += data.content
+              newMsgs[newMsgs.length - 1] = { ...lastMsg, content: lastMsg.content + data.content }
             } else {
               newMsgs.push({ role: 'agent', content: data.content })
             }
@@ -364,13 +362,14 @@ export default function App() {
             const newMsgs = [...prev]
             let lastMsg = newMsgs[newMsgs.length - 1]
             if (lastMsg && lastMsg.role === 'agent') {
-              lastMsg.isThinking = false
+              const updates: any = { isThinking: false }
               if (data.type === 'done') {
-                lastMsg.timestamp = new Date().toISOString()
+                updates.timestamp = new Date().toISOString()
               }
               if (data.duration) {
-                lastMsg.thinkingDuration = data.duration
+                updates.thinkingDuration = data.duration
               }
+              newMsgs[newMsgs.length - 1] = { ...lastMsg, ...updates }
             }
             return newMsgs
           })
@@ -979,8 +978,8 @@ export default function App() {
                     <span className="author-name">
                       {m.role === 'agent' ? 'Antigravity AI' : '你'}
                     </span>
-                    {m.role === 'agent' && selectedModel && (
-                      <span className="model-pill">{formatModelName(selectedModel)}</span>
+                    {m.role === 'agent' && m.model && (
+                      <span className="model-pill">{formatModelName(m.model)}</span>
                     )}
                   </div>
                   {m.timestamp && (
@@ -1099,17 +1098,21 @@ export default function App() {
                 <span>按 Enter 发送 / Shift + Enter 换行</span>
               </div>
               <button 
-                className="send-btn" 
+                className={`send-btn ${isAgentThinking ? 'interrupt' : ''}`}
                 onClick={() => {
                   if (!activeConv) { showToast('请先选择一个工作区会话'); return }
                   if (!isConnected) { showToast('AI 服务未连接，正在重连...'); return }
+                  if (isAgentThinking) {
+                    socketRef.current?.send(JSON.stringify({ action: "interrupt" }))
+                    return
+                  }
                   sendMessage()
                 }}
-                disabled={!input.trim()}
-                title={!activeConv ? '请先选择工作区' : !isConnected ? '未连接' : '发送消息'}
-                aria-label="发送消息"
+                disabled={!isAgentThinking && !input.trim()}
+                title={!activeConv ? '请先选择工作区' : !isConnected ? '未连接' : isAgentThinking ? '中断生成' : '发送消息'}
+                aria-label={isAgentThinking ? '中断生成' : '发送消息'}
               >
-                <Send size={16} />
+                {isAgentThinking ? <Square size={14} fill="currentColor" /> : <Send size={16} />}
               </button>
             </div>
           </div>
