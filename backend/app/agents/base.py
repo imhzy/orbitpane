@@ -62,7 +62,7 @@ class AgentProvider(ABC):
         if not self.models:
             raise ProviderError(f"Provider {self.id} has no configured models")
         if model not in self.models:
-            raise ProviderError(f"Model {model!r} is not supported by provider {self.id}")
+            return self.models[0]
         return model
 
     def describe(self) -> dict[str, object]:

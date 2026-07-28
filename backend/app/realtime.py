@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 import uuid
 from dataclasses import dataclass, field
 
 from fastapi import WebSocket
+
+logger = logging.getLogger(__name__)
 
 from .agents.base import AgentEvent, AgentRequest, ProviderError
 from .agents.registry import ProviderRegistry
@@ -133,6 +136,11 @@ class AgentCoordinator:
             result = await provider.run(request, emit)
             state.content = result.content
             state.thought = result.thought
+            if not result.content.strip() and not result.interrupted:
+                raise ProviderError(
+                    "Agent completed without generating text output. "
+                    "This usually occurs when a requested tool operation requires permissions or failed to complete."
+                )
             self.database.add_message(
                 conversation_id,
                 "agent",
@@ -145,11 +153,13 @@ class AgentCoordinator:
             await provider.interrupt(conversation_id)
             raise
         except ProviderError as exc:
+            import logging
+            logging.getLogger(__name__).error("ProviderError occurred: %s", exc, exc_info=True)
             await self.hub.broadcast(
                 conversation_id,
                 {"type": "error", "code": "provider_error", "content": str(exc)},
             )
-            if state.content:
+            if state.content and state.content.strip():
                 self.database.add_message(
                     conversation_id,
                     "agent",
@@ -158,13 +168,14 @@ class AgentCoordinator:
                     model=state.model,
                     provider=state.provider,
                 )
-        except Exception:
+        except Exception as exc:
+            logger.exception("Unexpected error during agent execution for conversation %s: %s", conversation_id, exc)
             await self.hub.broadcast(
                 conversation_id,
                 {
                     "type": "error",
                     "code": "internal_error",
-                    "content": "Agent execution failed unexpectedly",
+                    "content": f"Agent execution failed unexpectedly: {exc}",
                 },
             )
         finally:

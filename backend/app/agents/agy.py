@@ -17,7 +17,7 @@ from .process import terminate_process
 
 class AgyProvider(AgentProvider):
     id = "agy"
-    display_name = "Google Antigravity"
+    display_name = "Google Gemini"
 
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -109,8 +109,16 @@ class AgyProvider(AgentProvider):
                 marker = "\n\n*[Generation interrupted by user]*"
                 content_parts.append(marker)
                 await emit(AgentEvent("token", marker))
+
+            final_content = "".join(content_parts)
+            if not final_content.strip() and not interrupted:
+                raise ProviderError(
+                    "AGY completed without generating text content. "
+                    "This usually occurs when a requested tool operation requires permissions or failed to complete."
+                )
+
             return AgentResult(
-                content="".join(content_parts),
+                content=final_content,
                 thought="".join(thoughts),
                 interrupted=interrupted,
             )

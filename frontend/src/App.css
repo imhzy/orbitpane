@@ -188,6 +188,7 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
+  gap: 3px;
 }
 
 .item-title {
@@ -197,16 +198,97 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  width: 100%;
+  line-height: 1.3;
+}
+
+.item-badge-row {
+  display: flex;
+  align-items: center;
+  margin-top: 1px;
+  margin-bottom: 1px;
+}
+
+.conv-provider-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+  flex-shrink: 0;
+  letter-spacing: 0.2px;
+}
+
+.conv-provider-tag.badge-gemini {
+  background: rgba(142, 84, 233, 0.15);
+  color: #a777e3;
+  border: 1px solid rgba(142, 84, 233, 0.3);
+}
+
+.conv-provider-tag.badge-codex {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.conv-provider-tag.badge-default {
+  background: var(--bg-surface-hover);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+}
+
+[data-theme='light'] .conv-provider-tag.badge-gemini {
+  background: rgba(142, 84, 233, 0.08);
+  color: #7c3aed;
+  border-color: rgba(142, 84, 233, 0.2);
+}
+
+[data-theme='light'] .conv-provider-tag.badge-codex {
+  background: rgba(16, 185, 129, 0.08);
+  color: #059669;
+  border-color: rgba(16, 185, 129, 0.2);
 }
 
 .item-subtitle {
-  font-size: 12px;
-  color: var(--text-secondary);
+  font-size: 11px;
+  color: var(--text-tertiary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  margin-top: 2px;
   font-family: var(--font-mono);
+  width: 100%;
+}
+
+/* Item Icon variants */
+.item-icon.codex {
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.item-icon.gemini {
+  color: #a777e3;
+  background: rgba(142, 84, 233, 0.1);
+}
+
+[data-theme='light'] .item-icon.codex {
+  color: #059669;
+}
+
+[data-theme='light'] .item-icon.gemini {
+  color: #7c3aed;
+}
+
+.list-item.selected .item-icon.codex {
+  background: rgba(16, 185, 129, 0.2);
+  color: #10b981;
+}
+
+.list-item.selected .item-icon.gemini {
+  background: rgba(142, 84, 233, 0.2);
+  color: #a777e3;
 }
 
 /* Buttons System */

@@ -32,3 +32,14 @@ export interface ModelsResponse {
   models: string[]
 }
 
+export interface Provider {
+  id: string
+  name: string
+  available: boolean
+  models: string[]
+}
+
+export interface AgentsResponse {
+  default_provider: string
+  providers: Provider[]
+}

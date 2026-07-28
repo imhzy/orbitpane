@@ -6,7 +6,7 @@ import {
   ChevronRight, Send, Compass, FolderPlus, Sun, Moon,
   Check, ChevronDown, Sparkles, Copy, Layers, HardDrive, Eraser, Pencil,
   User, RotateCcw, ThumbsUp, ThumbsDown, AlertCircle, Square, RefreshCw,
-  FolderGit2
+  FolderGit2, Cpu
 } from 'lucide-react'
 import { LogoIcon } from './LogoIcon'
 import './App.css'
@@ -17,6 +17,8 @@ import type {
   DirItem,
   Message,
   ModelsResponse,
+  AgentsResponse,
+  Provider,
 } from './lib/types'
 
 function formatTimestamp(ts?: string | number) {
@@ -135,11 +137,32 @@ export default function App() {
   const [models, setModels] = useState<string[]>([])
   const [selectedModel, setSelectedModel] = useState<string>('gemini-3.6-flash-high')
 
-  const loadModels = () => {
-    apiFetch<ModelsResponse>('/api/models')
+  const [providers, setProviders] = useState<Provider[]>([])
+  const [defaultProvider, setDefaultProvider] = useState<string>('agy')
+
+  const loadProviders = () => {
+    apiFetch<AgentsResponse>('/api/agents')
+      .then(data => {
+        if (data.providers) {
+          setProviders(data.providers)
+        }
+        if (data.default_provider) {
+          setDefaultProvider(data.default_provider)
+          setSelectedProvider(prev => prev || data.default_provider)
+        }
+      })
+      .catch(console.error)
+  }
+
+  const loadModels = (providerId?: string) => {
+    const p = typeof providerId === 'string' ? providerId : (activeConvRef.current?.provider || defaultProvider || 'agy')
+    apiFetch<ModelsResponse>(`/api/models?provider=${p}`)
       .then(data => {
         if (data.models && data.models.length > 0) {
           setModels(data.models)
+          setSelectedModel(prev => data.models.includes(prev) ? prev : data.models[0])
+        } else {
+          setModels([])
         }
       })
       .catch(console.error)
@@ -157,7 +180,40 @@ export default function App() {
     if (id === 'claude-sonnet-4-6') return 'Claude Sonnet 4.6'
     if (id === 'claude-opus-4-6-thinking') return 'Claude Opus 4.6 (Thinking)'
     if (id === 'gpt-oss-120b-medium') return 'GPT-OSS 120B (Medium)'
+    if (id === 'gpt-5.6-sol') return 'GPT-5.6 Sol (Default)'
+    if (id === 'gpt-5.6-terra') return 'GPT-5.6 Terra'
+    if (id === 'gpt-5.6-luna') return 'GPT-5.6 Luna'
+    if (id === 'gpt-5.5') return 'GPT-5.5'
+    if (id === 'gpt-5.4') return 'GPT-5.4'
+    if (id === 'gpt-5.4-mini') return 'GPT-5.4 Mini'
     return id.split('-').map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ')
+  }
+
+  const getProviderBadge = (providerId?: string, providersCatalog: Provider[] = []) => {
+    const pid = (providerId || 'agy').toLowerCase()
+    if (pid === 'codex' || pid.includes('codex')) {
+      return {
+        text: 'ChatGPT Codex',
+        type: 'codex',
+        className: 'badge-codex',
+        Icon: Cpu,
+      }
+    }
+    if (pid === 'agy' || pid === 'gemini' || pid.includes('gemini') || pid.includes('google')) {
+      return {
+        text: 'Google Gemini',
+        type: 'gemini',
+        className: 'badge-gemini',
+        Icon: Sparkles,
+      }
+    }
+    const matched = providersCatalog.find(p => p.id === providerId)
+    return {
+      text: matched?.name || providerId || 'Google Gemini',
+      type: 'other',
+      className: 'badge-default',
+      Icon: MessageSquare,
+    }
   }
 
   const [conversations, setConversations] = useState<Conversation[]>([])
@@ -173,6 +229,7 @@ export default function App() {
   const [items, setItems] = useState<DirItem[]>([])
   const [selectedDir, setSelectedDir] = useState<string>('/root')
   const [newConvName, setNewConvName] = useState('')
+  const [selectedProvider, setSelectedProvider] = useState<string>('')
 
   // Edit Workspace Name State
   const [editingConvId, setEditingConvId] = useState<number | null>(null)
@@ -323,10 +380,13 @@ export default function App() {
     isAgentThinkingRef.current = isAgentThinking
   }, [isAgentThinking])
 
+  const pendingSendMessageRef = useRef<{ content: string; model: string; provider: string } | null>(null)
+
   // Initial data loading on login
   useEffect(() => {
     if (isLoggedIn) {
       loadConversationsRef.current(true)
+      loadProviders()
       loadModels()
     }
   }, [isLoggedIn])
@@ -352,6 +412,7 @@ export default function App() {
     const handleFocusOrVisibility = () => {
       if (document.visibilityState === 'visible' && isLoggedIn) {
         loadConversationsRef.current(false)
+        loadProviders()
         loadModels()
         if (activeConvRef.current) {
           if (!isAgentThinkingRef.current) {
@@ -510,6 +571,11 @@ export default function App() {
       ws.send(JSON.stringify({
         conversation_id: conv.id,
       }))
+      if (pendingSendMessageRef.current) {
+        const pending = pendingSendMessageRef.current
+        pendingSendMessageRef.current = null
+        ws.send(JSON.stringify(pending))
+      }
     }
 
     ws.onmessage = (e) => {
@@ -635,6 +701,7 @@ export default function App() {
     shouldAutoScrollRef.current = true
     setActiveConv(conv)
     setIsDrawerOpen(false)
+    loadModels(conv.provider)
     
     const url = new URL(window.location.href)
     url.searchParams.set('id', conv.id.toString())
@@ -676,7 +743,7 @@ export default function App() {
       body: JSON.stringify({
         name: newConvName,
         path: selectedDir,
-        provider: 'agy',
+        provider: selectedProvider || defaultProvider,
       })
     })
     .then(data => {
@@ -685,6 +752,7 @@ export default function App() {
       setNewConvName('')
       setCurrentPath('/root')
       setSelectedDir('/root')
+      setSelectedProvider(defaultProvider)
       selectConversation(data)
     })
     .catch(err => {
@@ -766,22 +834,26 @@ export default function App() {
       return
     }
 
-    const currentSocket = socketRef.current
-    if (!currentSocket || currentSocket.readyState !== WebSocket.OPEN) {
-      showToast('未连接 AI 后台，已为你发起自动重连...')
-      connectWebSocket(activeConvRef.current, true)
-      return
-    }
-    
     setInput('')
     shouldAutoScrollRef.current = true
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
     setMessages(prev => [...prev, { role: 'user', content: textToSend.trim(), timestamp: new Date().toISOString() }])
-    currentSocket.send(JSON.stringify({
+    
+    const payload = {
       content: textToSend.trim(),
       model: selectedModel,
       provider: activeConvRef.current.provider,
-    }))
+    }
+
+    const currentSocket = socketRef.current
+    if (!currentSocket || currentSocket.readyState !== WebSocket.OPEN) {
+      pendingSendMessageRef.current = payload
+      showToast('连接中，重连成功后将自动发送...')
+      connectWebSocket(activeConvRef.current, true)
+      return
+    }
+
+    currentSocket.send(JSON.stringify(payload))
   }
 
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -987,6 +1059,8 @@ export default function App() {
                 ) : (
                   conversations.map(conv => {
                     const isEditing = editingConvId === conv.id
+                    const badge = getProviderBadge(conv.provider, providers)
+                    const ProviderIcon = badge.Icon
                     return (
                       <div 
                         key={conv.id} 
@@ -995,8 +1069,8 @@ export default function App() {
                           if (!isEditing) selectConversation(conv)
                         }}
                       >
-                        <div className="item-icon">
-                          <MessageSquare size={16} />
+                        <div className={`item-icon ${badge.type}`}>
+                          <ProviderIcon size={16} />
                         </div>
                         <div className="item-content">
                           {isEditing ? (
@@ -1016,8 +1090,13 @@ export default function App() {
                             />
                           ) : (
                             <>
-                              <span className="item-title">{conv.name}</span>
-                              <span className="item-subtitle">{conv.path}</span>
+                              <span className="item-title" title={conv.name}>{conv.name}</span>
+                              <div className="item-badge-row">
+                                <span className={`conv-provider-tag ${badge.className}`}>
+                                  {badge.text}
+                                </span>
+                              </div>
+                              <span className="item-subtitle" title={conv.path}>{conv.path}</span>
                             </>
                           )}
                         </div>
@@ -1096,6 +1175,26 @@ export default function App() {
                         className="cw-input font-mono"
                         aria-label="项目路径"
                       />
+                    </div>
+                  </div>
+
+                  <div className="cw-field-group">
+                    <label className="cw-label">Agent 接入方式 (Provider)</label>
+                    <div className="cw-input-wrapper">
+                      <Cpu size={14} className="cw-icon" />
+                      <select
+                        value={selectedProvider || defaultProvider}
+                        onChange={e => setSelectedProvider(e.target.value)}
+                        className="cw-input"
+                        aria-label="Agent Provider"
+                        style={{ appearance: 'auto' }}
+                      >
+                        {providers.map(p => (
+                          <option key={p.id} value={p.id} disabled={!p.available}>
+                            {p.name} {p.available ? '' : '(不可用)'}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   </div>
                 </div>
@@ -1246,6 +1345,9 @@ export default function App() {
                   ) : (
                     <>
                       <span>{activeConv.name}</span>
+                      <span className={`conv-provider-tag ${getProviderBadge(activeConv.provider, providers).className}`}>
+                        {getProviderBadge(activeConv.provider, providers).text}
+                      </span>
                       <button
                         className="icon-btn edit-title-btn"
                         title="修改工作区名称"

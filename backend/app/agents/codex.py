@@ -2,27 +2,67 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shutil
+import subprocess
 
 from ..config import Settings
 from .base import AgentEvent, AgentProvider, AgentRequest, AgentResult, EmitEvent, ProviderError
 from .process import terminate_process
 
 
+def fetch_codex_models(command: str = "codex") -> tuple[str, ...]:
+    try:
+        res = subprocess.run(
+            [command, "debug", "models"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        if res.returncode == 0 and res.stdout:
+            data = json.loads(res.stdout)
+            models: list[str] = []
+            for item in data.get("models", []):
+                slug = item.get("slug")
+                if slug and slug not in {"codex-auto-review", "auto"}:
+                    models.append(slug)
+            if models:
+                return tuple(models)
+    except Exception:
+        pass
+    return ()
+
+
 class CodexCliProvider(AgentProvider):
     """Optional Codex adapter using the documented JSONL non-interactive interface."""
 
     id = "codex"
-    display_name = "OpenAI Codex"
+    display_name = "ChatGPT Codex"
 
     def __init__(self, settings: Settings):
         self.settings = settings
         self._processes: dict[int, asyncio.subprocess.Process] = {}
         self._interrupted: set[int] = set()
+        self._cached_models: tuple[str, ...] | None = None
 
     @property
     def models(self) -> tuple[str, ...]:
+        if os.getenv("CODEX_MODELS"):
+            return self.settings.codex_models
+        if self._cached_models:
+            return self._cached_models
+        fetched = fetch_codex_models(self.settings.codex_command)
+        if fetched:
+            self._cached_models = fetched
+            return fetched
         return self.settings.codex_models
+
+    def validate_model(self, model: str) -> str:
+        if not self.models:
+            raise ProviderError(f"Provider {self.id} has no configured models")
+        if not model or model == "auto" or model not in self.models:
+            return self.models[0]
+        return model
 
     @property
     def available(self) -> bool:
@@ -38,21 +78,23 @@ class CodexCliProvider(AgentProvider):
                 "Codex provider is disabled or not configured; set CODEX_ENABLED=true "
                 "and CODEX_MODELS"
             )
-        self.validate_model(request.model)
+        model = self.validate_model(request.model)
         prompt = self._build_prompt(request)
         command = [
             self.settings.codex_command,
             "exec",
             "--json",
             "--ephemeral",
+            "--skip-git-repo-check",
             "--sandbox",
             self.settings.codex_sandbox,
             "--model",
-            request.model,
+            model,
             prompt,
         ]
         process = await asyncio.create_subprocess_exec(
             *command,
+            stdin=asyncio.subprocess.DEVNULL,
             cwd=request.working_directory,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -62,6 +104,9 @@ class CodexCliProvider(AgentProvider):
         content_parts: list[str] = []
         thought_parts: list[str] = []
         stderr_task = asyncio.create_task(process.stderr.read())  # type: ignore[union-attr]
+
+        seen_started: set[str] = set()
+        seen_completed: set[str] = set()
 
         try:
             assert process.stdout is not None
@@ -78,16 +123,9 @@ class CodexCliProvider(AgentProvider):
                     if text:
                         content_parts.append(text)
                         await emit(AgentEvent("token", text))
-                elif event_type.startswith("item.") and item_type in {
-                    "reasoning",
-                    "command_execution",
-                    "mcp_tool_call",
-                    "web_search",
-                    "plan_update",
-                }:
-                    text = item.get("text") or item.get("command") or item.get("name") or ""
-                    if text:
-                        thought = f"\n● {item_type}: {text}\n"
+                elif event_type.startswith("item."):
+                    thought = self._format_thought(event_type, item, seen_started, seen_completed)
+                    if thought:
                         thought_parts.append(thought)
                         await emit(AgentEvent("thought", thought))
                 elif event_type in {"turn.failed", "error"}:
@@ -105,8 +143,14 @@ class CodexCliProvider(AgentProvider):
                     f"Codex exited with code {return_code}"
                     + (f": {stderr[-4000:]}" if stderr else "")
                 )
+            final_content = "".join(content_parts)
+            if not final_content.strip() and not interrupted:
+                raise ProviderError(
+                    "Codex completed without generating text content."
+                )
+
             return AgentResult(
-                content="".join(content_parts),
+                content=final_content,
                 thought="".join(thought_parts),
                 interrupted=interrupted,
             )
@@ -135,3 +179,108 @@ class CodexCliProvider(AgentProvider):
         if len(prompt) > max_chars:
             return "Earlier history was truncated.\n\n" + prompt[-max_chars:]
         return prompt
+
+    def _format_thought(
+        self,
+        event_type: str,
+        item: dict[str, object],
+        seen_started: set[str],
+        seen_completed: set[str],
+    ) -> str:
+        item_id = str(item.get("id") or "")
+        item_type = str(item.get("type") or "")
+        if not item_type or item_type == "agent_message":
+            return ""
+
+        is_start = event_type == "item.started"
+        is_complete = event_type == "item.completed"
+
+        if is_start:
+            if item_id and item_id in seen_started:
+                return ""
+            if item_id:
+                seen_started.add(item_id)
+
+            if item_type == "command_execution":
+                cmd = str(item.get("command") or "")
+                return f"\n● **Exec**: `{cmd}`\n" if cmd else ""
+            elif item_type == "mcp_tool_call":
+                server = item.get("server")
+                name = item.get("name") or item.get("tool") or "tool"
+                args = item.get("arguments") or item.get("args") or {}
+                args_str = (
+                    json.dumps(args, ensure_ascii=False, separators=(",", ":"))
+                    if isinstance(args, dict)
+                    else str(args)
+                )
+                prefix = f"{server}:" if server else ""
+                return f"\n● **{prefix}{name}**({args_str[:500]})\n"
+            elif item_type == "web_search":
+                query = str(item.get("query") or item.get("text") or "")
+                return f"\n● **Search**: {query}\n" if query else ""
+            elif item_type == "file_change":
+                action = str(item.get("action") or "change")
+                path = str(item.get("path") or "")
+                return f"\n● **File ({action})**: {path}\n" if path else ""
+            elif item_type in {"todo_list", "plan_update"}:
+                text = str(item.get("text") or item.get("plan") or "")
+                return f"\n● **Plan**: {text}\n" if text else ""
+            elif item_type == "reasoning":
+                text = (
+                    item.get("text")
+                    or item.get("summary")
+                    or item.get("content")
+                    or item.get("thinking")
+                    or item.get("detail")
+                    or ""
+                )
+                if isinstance(text, list):
+                    text = "\n".join(str(part) for part in text)
+                text_str = str(text).strip()
+                return f"\n▸ *Thought*:\n{text_str}\n" if text_str else ""
+
+        elif is_complete:
+            if item_id and item_id in seen_completed:
+                return ""
+            if item_id:
+                seen_completed.add(item_id)
+
+            if item_type == "command_execution":
+                output = str(item.get("aggregated_output") or item.get("output") or "").strip()
+                cmd = str(item.get("command") or "")
+                parts: list[str] = []
+                if item_id not in seen_started and cmd:
+                    parts.append(f"\n● **Exec**: `{cmd}`\n")
+                if output:
+                    snippet = output[:500] + ("..." if len(output) > 500 else "")
+                    parts.append(f"```text\n{snippet}\n```\n")
+                return "".join(parts)
+
+            elif item_type == "reasoning":
+                text = (
+                    item.get("text")
+                    or item.get("summary")
+                    or item.get("content")
+                    or item.get("thinking")
+                    or item.get("detail")
+                    or ""
+                )
+                if isinstance(text, list):
+                    text = "\n".join(str(part) for part in text)
+                text_str = str(text).strip()
+                if text_str and item_id not in seen_started:
+                    return f"\n▸ *Thought*:\n{text_str}\n"
+
+            elif item_id not in seen_started:
+                text = str(
+                    item.get("text")
+                    or item.get("command")
+                    or item.get("name")
+                    or item.get("summary")
+                    or ""
+                )
+                if text:
+                    return f"\n● **{item_type}**: {text}\n"
+
+        return ""
+

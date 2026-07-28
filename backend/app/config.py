@@ -100,7 +100,15 @@ class Settings:
             ),
             codex_enabled=_as_bool(os.getenv("CODEX_ENABLED"), default=False),
             codex_command=os.getenv("CODEX_COMMAND", "codex").strip(),
-            codex_models=_csv(os.getenv("CODEX_MODELS")),
+            codex_models=_csv(os.getenv("CODEX_MODELS"))
+            or (
+                "gpt-5.6-sol",
+                "gpt-5.6-terra",
+                "gpt-5.6-luna",
+                "gpt-5.5",
+                "gpt-5.4",
+                "gpt-5.4-mini",
+            ),
             codex_sandbox=os.getenv("CODEX_SANDBOX", "workspace-write").strip(),
         )
 
