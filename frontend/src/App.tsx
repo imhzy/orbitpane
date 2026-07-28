@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect, useRef, useCallback } from 'react'
+import { lazy, Suspense, useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
@@ -6,7 +6,7 @@ import {
   ChevronRight, Send, Compass, FolderPlus, Sun, Moon,
   Check, ChevronDown, Sparkles, Copy, Layers, HardDrive, Eraser, Pencil,
   User, RotateCcw, ThumbsUp, ThumbsDown, AlertCircle, Square, RefreshCw,
-  FolderGit2, Cpu
+  FolderGit2, Cpu, Download
 } from 'lucide-react'
 import { LogoIcon } from './LogoIcon'
 import './App.css'
@@ -273,6 +273,7 @@ export default function App() {
   const [input, setInput] = useState('')
   const [copiedMsgIdx, setCopiedMsgIdx] = useState<number | null>(null)
   const [feedbackState, setFeedbackState] = useState<Record<number, 'up' | 'down'>>({})
+  const [isExporting, setIsExporting] = useState(false)
   const socketRef = useRef<WebSocket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
   const [isReconnecting, setIsReconnecting] = useState(false)
@@ -284,7 +285,10 @@ export default function App() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
+  const messagesContentRef = useRef<HTMLDivElement>(null)
   const shouldAutoScrollRef = useRef(true)
+  const scrollAnimationFrameRef = useRef<number | null>(null)
+  const pendingAutoScrollTopRef = useRef<number | null>(null)
 
   const isNearBottom = useCallback(() => {
     const container = messagesContainerRef.current
@@ -295,12 +299,40 @@ export default function App() {
   const scrollToBottom = useCallback((smooth = true) => {
     const container = messagesContainerRef.current
     if (container) {
-      container.scrollTo({
-        top: container.scrollHeight,
-        behavior: smooth ? 'smooth' : 'auto'
-      })
+      if (smooth) {
+        container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' })
+      } else {
+        const target = Math.max(0, container.scrollHeight - container.clientHeight)
+        pendingAutoScrollTopRef.current = target
+        container.scrollTop = target
+      }
     }
   }, [])
+
+  const handleMessagesScroll = useCallback(() => {
+    const container = messagesContainerRef.current
+    if (!container) return
+
+    const pendingTarget = pendingAutoScrollTopRef.current
+    pendingAutoScrollTopRef.current = null
+    if (pendingTarget !== null && Math.abs(container.scrollTop - pendingTarget) < 2) {
+      shouldAutoScrollRef.current = true
+      return
+    }
+
+    shouldAutoScrollRef.current = isNearBottom()
+  }, [isNearBottom])
+
+  const scheduleScrollToBottom = useCallback(() => {
+    if (!shouldAutoScrollRef.current || scrollAnimationFrameRef.current !== null) return
+
+    scrollAnimationFrameRef.current = requestAnimationFrame(() => {
+      scrollAnimationFrameRef.current = null
+      if (shouldAutoScrollRef.current) {
+        scrollToBottom(false)
+      }
+    })
+  }, [scrollToBottom])
 
   const isAgentThinking = messages.length > 0 && messages[messages.length - 1].role === 'agent' && messages[messages.length - 1].isThinking;
 
@@ -462,11 +494,32 @@ export default function App() {
     return () => clearInterval(timer)
   }, [isLoggedIn])
 
+  useLayoutEffect(() => {
+    scheduleScrollToBottom()
+  }, [messages, scheduleScrollToBottom])
+
   useEffect(() => {
-    if (shouldAutoScrollRef.current) {
-      scrollToBottom(true)
+    const content = messagesContentRef.current
+    if (!content) return
+
+    const observer = new ResizeObserver(scheduleScrollToBottom)
+    observer.observe(content)
+    const mutationObserver = new MutationObserver(scheduleScrollToBottom)
+    mutationObserver.observe(content, {
+      characterData: true,
+      childList: true,
+      subtree: true,
+    })
+
+    return () => {
+      observer.disconnect()
+      mutationObserver.disconnect()
+      if (scrollAnimationFrameRef.current !== null) {
+        cancelAnimationFrame(scrollAnimationFrameRef.current)
+        scrollAnimationFrameRef.current = null
+      }
     }
-  }, [messages, scrollToBottom])
+  }, [isLoggedIn, scheduleScrollToBottom])
 
   const loadConversations = (isInitial = false) => {
     setIsConversationsLoading(true)
@@ -900,6 +953,85 @@ export default function App() {
     setCopiedMsgIdx(msgIndex)
     showToast('已复制到剪贴板')
     setTimeout(() => setCopiedMsgIdx(null), 2000)
+  }
+
+  const exportConversationAsImage = async () => {
+    const container = messagesContainerRef.current
+    const hasConversationMessages = messages.some(message => message.role !== 'system')
+    if (!activeConv || !container || !hasConversationMessages || isExporting) return
+
+    setIsExporting(true)
+
+    try {
+      const { default: html2canvas } = await import('html2canvas')
+      const width = container.clientWidth
+      const height = container.scrollHeight
+      const maxCanvasDimension = 16000
+      const maxCanvasPixels = 32_000_000
+      const scale = Math.min(
+        window.devicePixelRatio || 1,
+        2,
+        maxCanvasDimension / width,
+        maxCanvasDimension / height,
+        Math.sqrt(maxCanvasPixels / (width * height)),
+      )
+      const backgroundColor = getComputedStyle(document.documentElement)
+        .getPropertyValue('--bg-primary')
+        .trim() || '#0b0b12'
+
+      const canvas = await html2canvas(container, {
+        backgroundColor,
+        height,
+        logging: false,
+        scale: Math.max(scale, 0.1),
+        scrollX: 0,
+        scrollY: 0,
+        useCORS: true,
+        width,
+        windowHeight: height,
+        windowWidth: window.innerWidth,
+        onclone: clonedDocument => {
+          const clonedContainer = clonedDocument.querySelector<HTMLElement>('[data-conversation-export]')
+          if (!clonedContainer) return
+
+          clonedContainer.style.flex = 'none'
+          clonedContainer.style.height = `${height}px`
+          clonedContainer.style.maxHeight = 'none'
+          clonedContainer.style.overflow = 'visible'
+          clonedContainer.style.width = `${width}px`
+          clonedContainer.scrollTop = 0
+
+          clonedContainer
+            .querySelectorAll<HTMLElement>('.message-toolbar, .user-copy-btn, .streaming-cursor')
+            .forEach(element => { element.style.display = 'none' })
+        },
+      })
+
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(result => {
+          if (result) {
+            resolve(result)
+          } else {
+            reject(new Error('无法生成图片文件'))
+          }
+        }, 'image/png')
+      })
+      const filename = `${activeConv.name.replace(/[\\/:*?"<>|]/g, '_').slice(0, 80) || 'conversation'}-${new Date().toISOString().replace(/[:.]/g, '-')}.png`
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+      showToast('当前对话已导出为图片')
+    } catch (error) {
+      console.error('Conversation image export failed:', error)
+      showToast('导出图片失败，请重试')
+    } finally {
+      setIsExporting(false)
+    }
   }
 
   const handleFeedback = (idx: number, type: 'up' | 'down') => {
@@ -1382,6 +1514,16 @@ export default function App() {
 
             {activeConv ? (
               <div className="header-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  className="icon-btn"
+                  disabled={isExporting || !messages.some(message => message.role !== 'system')}
+                  title={isExporting ? '正在导出对话图片' : '导出当前对话为 PNG 图片'}
+                  aria-label={isExporting ? '正在导出对话图片' : '导出当前对话为 PNG 图片'}
+                  onClick={exportConversationAsImage}
+                >
+                  <Download size={16} className={isExporting ? 'animate-pulse' : ''} />
+                </motion.button>
                 <motion.button 
                   whileTap={{ scale: 0.95 }}
                   className="icon-btn"
@@ -1415,47 +1557,47 @@ export default function App() {
 
         <div
           className="chat-messages"
+          data-conversation-export
           ref={messagesContainerRef}
-          onScroll={() => {
-            shouldAutoScrollRef.current = isNearBottom()
-          }}
+          onScroll={handleMessagesScroll}
         >
-          {!activeConv && (
-            <motion.div 
-              initial={{ opacity: 0, y: 15 }} 
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.4 }}
-              className="welcome-container"
-            >
-              <div className="welcome-hero-wrapper">
-                <div className="welcome-hero-icon">
-                  <LogoIcon size={52} />
-                </div>
-                <h1 className="welcome-hero-title">
-                  ANTIGRAVITY <span className="title-highlight">STUDIO</span>
-                </h1>
-                <div className="welcome-hero-badge">
-                  <Sparkles size={13} className="badge-sparkle" />
-                  <span>NEXT-GEN AI PAIR PROGRAMMER</span>
-                </div>
-              </div>
-              <p className="welcome-subtitle">
-                下一代 AI 结对编程与智能工作区
-              </p>
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                className="cw-create-btn"
-                style={{ marginTop: 4, padding: '12px 24px', fontSize: '14px', borderRadius: '12px' }}
-                onClick={() => setIsDrawerOpen(true)}
+          <div className="chat-message-list" ref={messagesContentRef}>
+            {!activeConv && (
+              <motion.div
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4 }}
+                className="welcome-container"
               >
-                <Plus size={16} strokeWidth={2.5} />
-                <span>选择或新建工作区</span>
-              </motion.button>
-            </motion.div>
-          )}
+                <div className="welcome-hero-wrapper">
+                  <div className="welcome-hero-icon">
+                    <LogoIcon size={52} />
+                  </div>
+                  <h1 className="welcome-hero-title">
+                    ANTIGRAVITY <span className="title-highlight">STUDIO</span>
+                  </h1>
+                  <div className="welcome-hero-badge">
+                    <Sparkles size={13} className="badge-sparkle" />
+                    <span>NEXT-GEN AI PAIR PROGRAMMER</span>
+                  </div>
+                </div>
+                <p className="welcome-subtitle">
+                  下一代 AI 结对编程与智能工作区
+                </p>
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  className="cw-create-btn"
+                  style={{ marginTop: 4, padding: '12px 24px', fontSize: '14px', borderRadius: '12px' }}
+                  onClick={() => setIsDrawerOpen(true)}
+                >
+                  <Plus size={16} strokeWidth={2.5} />
+                  <span>选择或新建工作区</span>
+                </motion.button>
+              </motion.div>
+            )}
 
-          {activeConv && messages.filter(m => m.role !== 'system').length === 0 && (
+            {activeConv && messages.filter(m => m.role !== 'system').length === 0 && (
             <motion.div
               initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
@@ -1477,7 +1619,7 @@ export default function App() {
             </motion.div>
           )}
 
-          {messages.map((m, i) => {
+            {messages.map((m, i) => {
             if (m.role === 'system') {
               return (
                 <div key={i} className={`system-msg ${m.isError ? 'error' : ''}`}>
@@ -1601,8 +1743,9 @@ export default function App() {
                 </div>
               </motion.div>
             )
-          })}
-          <div ref={messagesEndRef} />
+            })}
+            <div ref={messagesEndRef} />
+          </div>
         </div>
 
         <div className="input-area">

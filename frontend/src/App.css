@@ -1335,6 +1335,20 @@
   scrollbar-width: thin;
 }
 
+.chat-message-list {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  min-height: 100%;
+  width: 100%;
+}
+
+.icon-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  transform: none;
+}
+
 .system-msg {
   align-self: center;
   display: inline-flex;
@@ -2105,6 +2119,10 @@
     gap: 16px;
   }
 
+  .chat-message-list {
+    gap: 16px;
+  }
+
   /* User Bubble */
   .message-row.user .message-bubble {
     max-width: 90%;
@@ -2259,5 +2277,4 @@
   color: var(--brand-primary, #6366f1);
   background: var(--bg-surface-hover);
 }
-
 
