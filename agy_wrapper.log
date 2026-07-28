@@ -1,2 +1,0 @@
-ARGS: -p hello pm2 test --conversation agy-bridge-conv-6 --add-dir /root/quantitative-trading-system --dangerously-skip-permissions
-EXIT CODE: 0

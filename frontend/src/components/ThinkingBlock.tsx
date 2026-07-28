@@ -1,11 +1,8 @@
-import { useState, useEffect, useRef } from 'react'
+import { lazy, Suspense, useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import remarkMath from 'remark-math'
-import rehypeKatex from 'rehype-katex'
-import rehypeRaw from 'rehype-raw'
 import { Sparkles, Brain, ChevronUp, ChevronDown } from 'lucide-react'
+
+const MarkdownContent = lazy(() => import('./MarkdownContent'))
 
 export function ThinkingBlock({ 
   thought, 
@@ -94,12 +91,9 @@ export function ThinkingBlock({
             <div className="px-4 py-3 sm:px-6 sm:py-5 text-[13px] leading-relaxed text-[var(--text-secondary)] border-t border-[var(--border-subtle)] bg-[var(--bg-card)]">
               {thought ? (
                 <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-pre:my-2 prose-pre:bg-[var(--bg-code)] text-[var(--text-secondary)]">
-                  <ReactMarkdown 
-                    remarkPlugins={[remarkGfm, remarkMath]}
-                    rehypePlugins={[rehypeRaw, rehypeKatex]}
-                  >
-                    {thought}
-                  </ReactMarkdown>
+                  <Suspense fallback={<div>{thought}</div>}>
+                    <MarkdownContent content={thought} />
+                  </Suspense>
                 </div>
               ) : isThinking ? (
                 <div className="flex flex-col gap-3">

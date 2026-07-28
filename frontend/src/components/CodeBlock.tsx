@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { lazy, Suspense, useState, useEffect } from 'react'
 import { Copy, Check } from 'lucide-react'
+
+const HighlightedCode = lazy(() => import('./HighlightedCode'))
 
 function useTheme() {
   const [theme, setTheme] = useState(document.documentElement.getAttribute('data-theme') || 'dark')
@@ -33,8 +33,6 @@ export function CodeBlock({ children, className, ...props }: any) {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  const syntaxStyle = theme === 'light' ? oneLight : oneDark
-
   return match ? (
     <div className="my-4 rounded-xl overflow-hidden border border-[var(--border-color)] bg-[var(--bg-code)] shadow-sm">
       <div className="flex items-center justify-between px-4 py-2 bg-[var(--bg-code-header)] border-b border-[var(--border-subtle)] text-xs text-[var(--text-tertiary)] font-mono">
@@ -49,16 +47,15 @@ export function CodeBlock({ children, className, ...props }: any) {
           <span>{copied ? '已复制' : '复制代码'}</span>
         </button>
       </div>
-      <SyntaxHighlighter 
-        style={syntaxStyle as any} 
-        language={match[1]} 
-        PreTag="div" 
-        customStyle={{ margin: 0, padding: '1rem', background: 'transparent', fontSize: '13px' }}
-        showLineNumbers={true}
-        {...props}
+      <Suspense
+        fallback={
+          <pre className="m-0 overflow-auto p-4 text-[13px]">
+            <code>{codeStr}</code>
+          </pre>
+        }
       >
-        {codeStr}
-      </SyntaxHighlighter>
+        <HighlightedCode code={codeStr} language={match[1]} theme={theme} />
+      </Suspense>
     </div>
   ) : (
     <code className="px-1.5 py-0.5 rounded bg-[var(--bg-input)] text-[var(--accent-color)] font-mono text-[0.9em]" {...props}>

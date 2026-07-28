@@ -1,34 +1,23 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { lazy, Suspense, useState, useEffect, useRef, useCallback } from 'react'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { motion, AnimatePresence } from 'framer-motion'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import rehypeRaw from 'rehype-raw'
-import remarkMath from 'remark-math'
-import rehypeKatex from 'rehype-katex'
-import 'katex/dist/katex.min.css'
 import { 
   Menu, X, MessageSquare, Plus, Trash2, Folder,
   ChevronRight, Send, Compass, FolderPlus, Sun, Moon,
   Check, ChevronDown, Sparkles, Copy, Layers, HardDrive, Eraser, Pencil,
-  User, RotateCcw, ThumbsUp, ThumbsDown, AlertCircle, Square, RefreshCw
+  User, RotateCcw, ThumbsUp, ThumbsDown, AlertCircle, Square, RefreshCw,
+  FolderGit2
 } from 'lucide-react'
 import { LogoIcon } from './LogoIcon'
 import './App.css'
-
-interface DirItem { name: string; path: string; is_dir: boolean; }
-interface Message { 
-  role: 'user' | 'agent' | 'system'; 
-  content: string; 
-  thought?: string;
-  isThinking?: boolean;
-  thinkingDuration?: number;
-  elapsedSoFar?: number;
-  isError?: boolean; 
-  timestamp?: string;
-  model?: string;
-}
-interface Conversation { id: number; name: string; path: string; created_at: string; }
+import { apiFetch } from './lib/api'
+import { AUTH_EXPIRED_EVENT, clearLegacyAuthState } from './lib/auth'
+import type {
+  Conversation,
+  DirItem,
+  Message,
+  ModelsResponse,
+} from './lib/types'
 
 function formatTimestamp(ts?: string | number) {
   if (!ts) return ''
@@ -39,10 +28,95 @@ function formatTimestamp(ts?: string | number) {
 
 import { ThinkingBlock } from './components/ThinkingBlock'
 
-import { CodeBlock } from './components/CodeBlock'
-
 import { Login } from './components/Login'
 import { ConfirmDialog } from './components/ConfirmDialog'
+
+const MarkdownContent = lazy(() => import('./components/MarkdownContent'))
+
+interface ModelSelectorProps {
+  selectedModel: string
+  setSelectedModel: (model: string) => void
+  models: string[]
+  formatModelName: (modelId: string) => string
+  position: 'header' | 'input'
+  onOpen?: () => void
+}
+
+function ModelSelector({ selectedModel, setSelectedModel, models, formatModelName, position, onOpen }: ModelSelectorProps) {
+  const [isOpen, setIsOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  const handleToggle = () => {
+    const nextState = !isOpen
+    setIsOpen(nextState)
+    if (nextState && onOpen) {
+      onOpen()
+    }
+  }
+
+  const isInput = position === 'input'
+
+  return (
+    <div
+      className={`model-selector-container ${isInput ? 'input-position mobile-only-model-selector' : 'header-position desktop-only-model-selector'}`}
+      ref={dropdownRef}
+    >
+      <button
+        className={`model-selector-btn ${isInput ? 'input-btn' : ''}`}
+        onClick={handleToggle}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        aria-label="选择 AI 模型"
+      >
+        {isInput && <Sparkles size={13} className="model-btn-sparkle" />}
+        <span className="model-selector-text">{formatModelName(selectedModel)}</span>
+        <ChevronDown size={14} className={`model-selector-chevron ${isOpen ? 'open' : ''}`} />
+      </button>
+
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: isInput ? 6 : -5, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: isInput ? 6 : -5, scale: 0.98 }}
+            transition={{ duration: 0.15 }}
+            className={`model-dropdown-menu ${isInput ? 'input-menu' : ''}`}
+            role="listbox"
+            aria-label="AI 模型列表"
+          >
+            {models.map(m => (
+              <button
+                key={m}
+                role="option"
+                aria-selected={selectedModel === m}
+                className={`model-dropdown-item ${selectedModel === m ? 'selected' : ''}`}
+                onClick={() => {
+                  setSelectedModel(m)
+                  setIsOpen(false)
+                }}
+              >
+                <div className="model-item-icon">
+                  {selectedModel === m ? <Check size={14} /> : <div style={{ width: 14 }} />}
+                </div>
+                <span className="model-item-name">{formatModelName(m)}</span>
+              </button>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
 
 export default function App() {
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
@@ -60,12 +134,9 @@ export default function App() {
 
   const [models, setModels] = useState<string[]>([])
   const [selectedModel, setSelectedModel] = useState<string>('gemini-3.6-flash-high')
-  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false)
-  const dropdownRef = useRef<HTMLDivElement>(null)
 
   const loadModels = () => {
-    fetch('/api/models', { cache: 'no-store' })
-      .then(r => r.json())
+    apiFetch<ModelsResponse>('/api/models')
       .then(data => {
         if (data.models && data.models.length > 0) {
           setModels(data.models)
@@ -73,20 +144,6 @@ export default function App() {
       })
       .catch(console.error)
   }
-
-  useEffect(() => {
-    loadModels()
-  }, [])
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setIsModelDropdownOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
 
   const formatModelName = (id: string) => {
     if (id === 'gemini-3.6-flash-high') return 'Gemini 3.6 Flash (High)'
@@ -159,33 +216,56 @@ export default function App() {
   const [input, setInput] = useState('')
   const [copiedMsgIdx, setCopiedMsgIdx] = useState<number | null>(null)
   const [feedbackState, setFeedbackState] = useState<Record<number, 'up' | 'down'>>({})
-  const [, setSocket] = useState<WebSocket | null>(null)
   const socketRef = useRef<WebSocket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
   const [isReconnecting, setIsReconnecting] = useState(false)
   const reconnectTimerRef = useRef<any>(null)
   const reconnectAttemptRef = useRef<number>(0)
+  const loadConversationsRef = useRef<(isInitial?: boolean) => void>(() => {})
+  const connectWebSocketRef = useRef<(conv: Conversation, isManual?: boolean) => void>(() => {})
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
+  const shouldAutoScrollRef = useRef(true)
 
-  const isNearBottom = () => {
+  const isNearBottom = useCallback(() => {
     const container = messagesContainerRef.current
     if (!container) return true
     return container.scrollHeight - container.scrollTop - container.clientHeight < 150
-  }
+  }, [])
+
+  const scrollToBottom = useCallback((smooth = true) => {
+    const container = messagesContainerRef.current
+    if (container) {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: smooth ? 'smooth' : 'auto'
+      })
+    }
+  }, [])
 
   const isAgentThinking = messages.length > 0 && messages[messages.length - 1].role === 'agent' && messages[messages.length - 1].isThinking;
 
-  const [isLoggedIn, setIsLoggedIn] = useState(() => {
-    return localStorage.getItem('isLoggedIn') === 'true'
-  })
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    const handleExpiredAuth = () => {
+      setIsLoggedIn(false)
+      socketRef.current?.close()
+      socketRef.current = null
+    }
+    window.addEventListener(AUTH_EXPIRED_EVENT, handleExpiredAuth)
+    clearLegacyAuthState()
+    apiFetch<{ authenticated: boolean }>('/api/session')
+      .then(() => setIsLoggedIn(true))
+      .catch(() => setIsLoggedIn(false))
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, handleExpiredAuth)
+  }, [])
 
   useKeyboardShortcuts({
     onEscape: () => {
       setIsDrawerOpen(false)
-      setIsModelDropdownOpen(false)
     },
     onFocusInput: () => {
       textareaRef.current?.focus()
@@ -206,14 +286,16 @@ export default function App() {
       const vv = window.visualViewport
       const h = vv ? vv.height : window.innerHeight
       document.documentElement.style.setProperty('--app-height', `${h}px`)
+      window.scrollTo(0, 0)
     }
     updateAppHeight()
 
     const handleResize = () => {
       updateAppHeight()
-      setTimeout(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-      }, 100)
+      window.scrollTo(0, 0)
+      if (isNearBottom()) {
+        scrollToBottom(false)
+      }
     }
 
     if (window.visualViewport) {
@@ -229,7 +311,7 @@ export default function App() {
       }
       window.removeEventListener('resize', handleResize)
     }
-  }, [])
+  }, [isNearBottom, scrollToBottom])
 
   const activeConvRef = useRef<Conversation | null>(activeConv)
   useEffect(() => {
@@ -244,7 +326,7 @@ export default function App() {
   // Initial data loading on login
   useEffect(() => {
     if (isLoggedIn) {
-      loadConversations(true)
+      loadConversationsRef.current(true)
       loadModels()
     }
   }, [isLoggedIn])
@@ -254,9 +336,9 @@ export default function App() {
     if (!isDrawerOpen || !isLoggedIn) return
 
     if (drawerMode === 'sessions') {
-      loadConversations(false)
+      loadConversationsRef.current(false)
       const timer = setInterval(() => {
-        loadConversations(false)
+        loadConversationsRef.current(false)
       }, 5000)
       return () => clearInterval(timer)
     } else if (drawerMode === 'create') {
@@ -264,25 +346,19 @@ export default function App() {
     }
   }, [isDrawerOpen, drawerMode, isLoggedIn, currentPath])
 
-  // Dynamic loading when model dropdown opens
-  useEffect(() => {
-    if (isModelDropdownOpen) {
-      loadModels()
-    }
-  }, [isModelDropdownOpen])
 
   // Window focus & tab visibility change & network online auto-reconnecting
   useEffect(() => {
     const handleFocusOrVisibility = () => {
       if (document.visibilityState === 'visible' && isLoggedIn) {
-        loadConversations(false)
+        loadConversationsRef.current(false)
         loadModels()
         if (activeConvRef.current) {
           if (!isAgentThinkingRef.current) {
             loadHistory(activeConvRef.current.id)
           }
           if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
-            connectWebSocket(activeConvRef.current, false)
+            connectWebSocketRef.current(activeConvRef.current, false)
           }
         }
         if (isDrawerOpen && drawerMode === 'create') {
@@ -294,7 +370,7 @@ export default function App() {
     const handleOnline = () => {
       if (isLoggedIn && activeConvRef.current) {
         showToast('网络已连接，正在主动重连 AI agent...')
-        connectWebSocket(activeConvRef.current, true)
+        connectWebSocketRef.current(activeConvRef.current, true)
       }
     }
 
@@ -317,7 +393,7 @@ export default function App() {
         const currentWs = socketRef.current
         if (!currentWs || currentWs.readyState === WebSocket.CLOSED) {
           console.log('[WS Health Monitor] Connection closed, actively triggering reconnection...')
-          connectWebSocket(activeConvRef.current, false)
+          connectWebSocketRef.current(activeConvRef.current, false)
         }
       }
     }, 4000)
@@ -326,15 +402,14 @@ export default function App() {
   }, [isLoggedIn])
 
   useEffect(() => {
-    if (isNearBottom()) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (shouldAutoScrollRef.current) {
+      scrollToBottom(true)
     }
-  }, [messages])
+  }, [messages, scrollToBottom])
 
   const loadConversations = (isInitial = false) => {
     setIsConversationsLoading(true)
-    fetch('/api/conversations', { cache: 'no-store' })
-      .then(r => r.json())
+    apiFetch<Conversation[]>('/api/conversations')
       .then((data: Conversation[]) => {
         setConversations(data)
         if (isInitial) {
@@ -356,10 +431,10 @@ export default function App() {
       .catch(err => console.error(err))
       .finally(() => setIsConversationsLoading(false))
   }
+  loadConversationsRef.current = loadConversations
 
   const loadDir = (path: string) => {
-    fetch(`/api/ls?path=${encodeURIComponent(path)}`, { cache: 'no-store' })
-      .then(r => r.json())
+    apiFetch<{ items: DirItem[] }>(`/api/ls?path=${encodeURIComponent(path)}`)
       .then(data => {
         if (data && Array.isArray(data.items)) {
           setItems(data.items)
@@ -371,8 +446,7 @@ export default function App() {
   }
 
   const loadHistory = (convId: number) => {
-    fetch(`/api/history/${convId}`, { cache: 'no-store' })
-      .then(r => r.json())
+    apiFetch<Message[]>(`/api/history/${convId}`)
       .then(data => {
         if (Array.isArray(data)) {
           setMessages(data)
@@ -401,9 +475,8 @@ export default function App() {
       currentWs.onmessage = null
       currentWs.onerror = null
       currentWs.onclose = null
-      try { currentWs.close() } catch (e) {}
+      try { currentWs.close() } catch {}
       socketRef.current = null
-      setSocket(null)
     }
 
     setIsConnected(false)
@@ -434,7 +507,9 @@ export default function App() {
       if (isManual) {
         showToast('已成功连接后台 AI agent')
       }
-      ws.send(JSON.stringify({ conversation_id: conv.id }))
+      ws.send(JSON.stringify({
+        conversation_id: conv.id,
+      }))
     }
 
     ws.onmessage = (e) => {
@@ -487,7 +562,7 @@ export default function App() {
           })
         } else if (data.type === 'done' || data.type === 'thought_done') {
           if (data.type === 'done') {
-            loadConversations(false)
+            loadConversationsRef.current(false)
           }
           setMessages(prev => {
             const newMsgs = [...prev]
@@ -505,6 +580,10 @@ export default function App() {
             return newMsgs
           })
         } else if (data.type === 'error') {
+          if (data.code === 'unauthorized') {
+            window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
+            return
+          }
           setMessages(prev => {
             const newMsgs = [...prev]
             const lastIdx = newMsgs.length - 1
@@ -532,7 +611,6 @@ export default function App() {
       if (socketRef.current === ws) {
         setIsConnected(false)
         setIsReconnecting(false)
-        setSocket(null)
         socketRef.current = null
 
         const attempt = reconnectAttemptRef.current
@@ -549,11 +627,12 @@ export default function App() {
       }
     }
 
-    setSocket(ws)
     socketRef.current = ws
   }, [])
+  connectWebSocketRef.current = connectWebSocket
 
   const selectConversation = (conv: Conversation) => {
+    shouldAutoScrollRef.current = true
     setActiveConv(conv)
     setIsDrawerOpen(false)
     
@@ -572,15 +651,14 @@ export default function App() {
       socketRef.current = null
     }
 
-    fetch(`/api/history/${conv.id}`, { cache: 'no-store' })
-      .then(r => r.json())
+    apiFetch<Message[]>(`/api/history/${conv.id}`)
       .then(data => {
         if (Array.isArray(data)) {
           setMessages(data)
         } else {
           setMessages([])
         }
-        setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
+        setTimeout(() => scrollToBottom(false), 100)
       })
       .catch(err => {
         console.error(err)
@@ -593,12 +671,14 @@ export default function App() {
   const createConversation = () => {
     triggerVibration()
     if (!selectedDir || !newConvName.trim()) return
-    fetch('/api/conversations', {
+    apiFetch<Conversation>('/api/conversations', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newConvName, path: selectedDir })
+      body: JSON.stringify({
+        name: newConvName,
+        path: selectedDir,
+        provider: 'agy',
+      })
     })
-    .then(r => r.json())
     .then(data => {
       loadConversations()
       setDrawerMode('sessions')
@@ -606,6 +686,10 @@ export default function App() {
       setCurrentPath('/root')
       setSelectedDir('/root')
       selectConversation(data)
+    })
+    .catch(err => {
+      console.error(err)
+      showToast('创建工作区失败')
     })
   }
 
@@ -617,7 +701,7 @@ export default function App() {
       description: '此操作不可撤销，确定要删除该会话记录吗？',
       onConfirm: () => {
         setConfirmState(prev => ({ ...prev, isOpen: false }))
-        fetch(`/api/conversations/${convId}`, { method: 'DELETE' })
+        apiFetch<{ status: string }>(`/api/conversations/${convId}`, { method: 'DELETE' })
           .then(() => {
             loadConversations()
             if (activeConv?.id === convId) {
@@ -628,6 +712,10 @@ export default function App() {
               url.searchParams.delete('id')
               window.history.pushState({}, '', url.toString())
             }
+          })
+          .catch(err => {
+            console.error(err)
+            showToast('删除工作区失败')
           })
       }
     })
@@ -645,12 +733,10 @@ export default function App() {
       setEditingConvId(null)
       return
     }
-    fetch(`/api/conversations/${convId}`, {
+    apiFetch<Conversation>(`/api/conversations/${convId}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: trimmed })
     })
-    .then(r => r.json())
     .then(() => {
       setConversations(prev => prev.map(c => c.id === convId ? { ...c, name: trimmed } : c))
       if (activeConv?.id === convId) {
@@ -670,6 +756,10 @@ export default function App() {
     triggerVibration()
     const textToSend = typeof customText === 'string' ? customText : input
     if (!textToSend.trim()) return
+    if (isAgentThinkingRef.current) {
+      showToast('Agent 正在处理当前任务，请先中断或等待完成')
+      return
+    }
 
     if (!activeConvRef.current) {
       showToast('请先选择一个工作区会话')
@@ -684,9 +774,14 @@ export default function App() {
     }
     
     setInput('')
+    shouldAutoScrollRef.current = true
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
     setMessages(prev => [...prev, { role: 'user', content: textToSend.trim(), timestamp: new Date().toISOString() }])
-    currentSocket.send(JSON.stringify({ content: textToSend.trim(), model: selectedModel }))
+    currentSocket.send(JSON.stringify({
+      content: textToSend.trim(),
+      model: selectedModel,
+      provider: activeConvRef.current.provider,
+    }))
   }
 
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -705,9 +800,13 @@ export default function App() {
       description: '确定要清空当前会话的所有消息吗？此操作不可逆。',
       onConfirm: () => {
         setConfirmState(prev => ({ ...prev, isOpen: false }))
-        fetch(`/api/history/${activeConv.id}`, { method: 'DELETE' })
+        apiFetch<{ status: string }>(`/api/history/${activeConv.id}`, { method: 'DELETE' })
           .then(() => {
             setMessages([])
+          })
+          .catch(err => {
+            console.error(err)
+            showToast('清空消息失败')
           })
       }
     })
@@ -716,6 +815,10 @@ export default function App() {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
+      if (isAgentThinking) {
+        showToast('Agent 正在处理当前任务')
+        return
+      }
       sendMessage()
     }
   }
@@ -755,7 +858,10 @@ export default function App() {
 
   const handleLogin = () => {
     setIsLoggedIn(true)
-    localStorage.setItem('isLoggedIn', 'true')
+  }
+
+  if (isLoggedIn === null) {
+    return <div className="app-container" aria-label="正在验证登录状态" />
   }
 
   if (!isLoggedIn) {
@@ -1111,50 +1217,14 @@ export default function App() {
 
             <LogoIcon size={26} />
 
-            <div className="model-selector-container" ref={dropdownRef}>
-              <button 
-                className="model-selector-btn"
-                onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-                aria-haspopup="listbox"
-                aria-expanded={isModelDropdownOpen}
-                aria-label="选择 AI 模型"
-              >
-                <span className="model-selector-text">{formatModelName(selectedModel)}</span>
-                <ChevronDown size={14} className={`model-selector-chevron ${isModelDropdownOpen ? 'open' : ''}`} />
-              </button>
-              
-              <AnimatePresence>
-                {isModelDropdownOpen && (
-                  <motion.div 
-                    initial={{ opacity: 0, y: -5, scale: 0.98 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: -5, scale: 0.98 }}
-                    transition={{ duration: 0.15 }}
-                    className="model-dropdown-menu"
-                    role="listbox"
-                    aria-label="AI 模型列表"
-                  >
-                    {models.map(m => (
-                      <button
-                        key={m}
-                        role="option"
-                        aria-selected={selectedModel === m}
-                        className={`model-dropdown-item ${selectedModel === m ? 'selected' : ''}`}
-                        onClick={() => {
-                          setSelectedModel(m)
-                          setIsModelDropdownOpen(false)
-                        }}
-                      >
-                        <div className="model-item-icon">
-                          {selectedModel === m ? <Check size={14} /> : <div style={{ width: 14 }} />}
-                        </div>
-                        <span className="model-item-name">{formatModelName(m)}</span>
-                      </button>
-                    ))}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
+            <ModelSelector
+              selectedModel={selectedModel}
+              setSelectedModel={setSelectedModel}
+              models={models}
+              formatModelName={formatModelName}
+              position="header"
+              onOpen={loadModels}
+            />
 
             <div className="header-title-wrapper">
               <div className="header-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -1241,7 +1311,13 @@ export default function App() {
           </div>
         </div>
 
-        <div className="chat-messages" ref={messagesContainerRef}>
+        <div
+          className="chat-messages"
+          ref={messagesContainerRef}
+          onScroll={() => {
+            shouldAutoScrollRef.current = isNearBottom()
+          }}
+        >
           {!activeConv && (
             <motion.div 
               initial={{ opacity: 0, y: 15 }} 
@@ -1264,6 +1340,38 @@ export default function App() {
               <p className="welcome-subtitle">
                 下一代 AI 结对编程与智能工作区
               </p>
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className="cw-create-btn"
+                style={{ marginTop: 4, padding: '12px 24px', fontSize: '14px', borderRadius: '12px' }}
+                onClick={() => setIsDrawerOpen(true)}
+              >
+                <Plus size={16} strokeWidth={2.5} />
+                <span>选择或新建工作区</span>
+              </motion.button>
+            </motion.div>
+          )}
+
+          {activeConv && messages.filter(m => m.role !== 'system').length === 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4 }}
+              className="welcome-container session-empty-container"
+            >
+              <div className="session-hero-wrapper">
+                <div className="session-hero-icon">
+                  <FolderGit2 size={32} />
+                </div>
+                <h2 className="session-hero-title">
+                  {activeConv.name}
+                </h2>
+                <div className="session-path-badge">
+                  <Folder size={12} />
+                  <span className="font-mono">{activeConv.path}</span>
+                </div>
+              </div>
             </motion.div>
           )}
 
@@ -1323,15 +1431,12 @@ export default function App() {
 
                       {m.content ? (
                         <div className="markdown-body">
-                          <ReactMarkdown 
-                            remarkPlugins={[remarkGfm, remarkMath]}
-                            rehypePlugins={[rehypeRaw, rehypeKatex]}
-                            components={{
-                              code: CodeBlock
-                            }}
-                          >
-                            {m.content}
-                          </ReactMarkdown>
+                          <Suspense fallback={<div>{m.content}</div>}>
+                            <MarkdownContent
+                              content={m.content}
+                              enableCodeBlocks
+                            />
+                          </Suspense>
                         </div>
                       ) : null}
 
@@ -1399,45 +1504,68 @@ export default function App() {
         </div>
 
         <div className="input-area">
-          <div className="input-box">
+          <div
+            className="input-box"
+            onClick={() => {
+              if (!activeConv) {
+                setIsDrawerOpen(true)
+              }
+            }}
+          >
             <textarea
               ref={textareaRef}
               value={input}
               onChange={handleInput}
               onKeyDown={handleKeyDown}
               onFocus={() => {
+                window.scrollTo(0, 0)
                 setTimeout(() => {
-                  messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-                }, 300)
+                  window.scrollTo(0, 0)
+                  if (isNearBottom()) {
+                    scrollToBottom(true)
+                  }
+                }, 100)
               }}
               disabled={!activeConv}
+              placeholder={!activeConv ? "选择工作区后开始" : "向 Antigravity 描述需求，或输入开发指令..."}
               aria-label="消息输入框"
               rows={1}
               className="input-textarea"
             />
             
             <div className="input-bottom-bar">
-              <button 
-                className={`send-btn ${isAgentThinking ? 'interrupt' : ''}`}
-                onClick={() => {
-                  if (!activeConv) { showToast('请先选择一个工作区会话'); return }
-                  if (!isConnected) {
-                    showToast('AI 后台未连接，已为你发起重连...')
-                    connectWebSocket(activeConv, true)
-                    return
-                  }
-                  if (isAgentThinking) {
-                    socketRef.current?.send(JSON.stringify({ action: "interrupt" }))
-                    return
-                  }
-                  sendMessage()
-                }}
-                disabled={!isAgentThinking && !input.trim()}
-                title={!activeConv ? '请先选择工作区' : !isConnected ? '未连接' : isAgentThinking ? '中断生成' : '发送消息'}
-                aria-label={isAgentThinking ? '中断生成' : '发送消息'}
-              >
-                {isAgentThinking ? <Square size={14} fill="currentColor" /> : <Send size={16} />}
-              </button>
+              <ModelSelector
+                selectedModel={selectedModel}
+                setSelectedModel={setSelectedModel}
+                models={models}
+                formatModelName={formatModelName}
+                position="input"
+                onOpen={loadModels}
+              />
+
+              <div className="input-bottom-right">
+                <button
+                  className={`send-btn ${isAgentThinking ? 'interrupt' : ''}`}
+                  onClick={() => {
+                    if (!activeConv) { showToast('请先选择一个工作区会话'); return }
+                    if (!isConnected) {
+                      showToast('AI 后台未连接，已为你发起重连...')
+                      connectWebSocket(activeConv, true)
+                      return
+                    }
+                    if (isAgentThinking) {
+                      socketRef.current?.send(JSON.stringify({ action: "interrupt" }))
+                      return
+                    }
+                    sendMessage()
+                  }}
+                  disabled={!isAgentThinking && !input.trim()}
+                  title={!activeConv ? '请先选择工作区' : !isConnected ? '未连接' : isAgentThinking ? '中断生成' : '发送消息'}
+                  aria-label={isAgentThinking ? '中断生成' : '发送消息'}
+                >
+                  {isAgentThinking ? <Square size={14} fill="currentColor" /> : <Send size={16} />}
+                </button>
+              </div>
             </div>
           </div>
         </div>

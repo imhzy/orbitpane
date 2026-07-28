@@ -1,82 +1,147 @@
-# Antigravity Web Bridge
+# Agent Web Bridge
 
-A sleek, modern web interface for the **Google Antigravity Agent**, bringing the power of the AGY CLI directly to your browser. Designed with Apple-style aesthetics, fluid motion, and professional productivity in mind.
+Agent Web Bridge is a self-hosted web interface for running coding agents inside
+explicitly allowed server workspaces. The default provider is Google
+Antigravity (`agy`). An optional OpenAI Codex provider is included behind a
+feature flag.
 
-## 🌟 Key Features
+## Architecture
 
-- **Multi-Session Management**: Create multiple conversational contexts. Each session is permanently bound to a specific server directory. The agent operates securely within that boundary.
-- **Apple-Style Design System**: 
-  - **Glassmorphism**: Translucent drawers and input panels using `backdrop-filter`.
-  - **Fluid Motion**: Spring-based physics powered by `framer-motion` for drawer menus, message bubbles, and interactions.
-  - **Light Theme (Default)**: Crisp, high-contrast, Mac-native styling using system fonts (Inter / San Francisco).
-- **Rich Markdown & Code**: Seamlessly renders the agent's markdown output with proper formatting and `vs-light` syntax highlighting for code blocks.
-- **Mobile Responsive**: Fully adaptive layout that automatically collapses the sidebar on narrow screens to maximize the chat view.
-- **Persistent Memory**: Chat history is reliably stored in a local SQLite database (`history.db`).
-
-## 🏗️ Architecture
-
-The project is split into two independent domains:
-
-### 1. Frontend (`/frontend`)
-- **Framework**: React 18 + Vite
-- **Styling**: Vanilla CSS (CSS Variables for theming) + `lucide-react` for SVG icons.
-- **Animation**: `framer-motion`
-- **Markdown**: `react-markdown`, `remark-gfm`, `react-syntax-highlighter`
-
-### 2. Backend (`/backend`)
-- **Framework**: Python 3.11 + FastAPI
-- **AI Integration**: `google-antigravity` Python SDK (Using `Gemini 3.6 Flash`)
-- **Database**: SQLite3 (`history.db`)
-- **Communication**: WebSockets for real-time streaming, REST APIs for filesystem and session management.
-
-## 🚀 Deployment & Management
-
-The application is deployed on a Linux server and served via Nginx over HTTPS.
-
-### Managing the Backend (Python/FastAPI)
-The backend is managed as a background daemon using **PM2** to ensure high availability and auto-restarts.
-
-```bash
-# Navigate to backend
-cd ~/agy_web_bridge/backend
-
-# Start the service with PM2
-pm2 start main.py --name "agy-backend" --interpreter python3
-
-# View logs
-pm2 logs agy-backend
-
-# Restart or Stop
-pm2 restart agy-backend
-pm2 stop agy-backend
+```text
+React + Vite PWA
+  ├── authenticated REST ── conversations / history / filesystem
+  └── authenticated WebSocket
+          │
+FastAPI application
+  ├── signed session tokens
+  ├── workspace path policy
+  ├── SQLite repository
+  ├── task coordinator + reconnect state
+  └── AgentProvider
+        ├── AgyProvider (default)
+        └── CodexCliProvider (optional)
 ```
-*Note: The backend runs locally on port `8005`. It automatically configures necessary proxies for the Antigravity SDK to bypass network restrictions.*
 
-### Managing the Frontend (React/Vite)
-The frontend is built statically and served by Nginx.
+The backend is split by responsibility:
+
+- `backend/app/application.py`: HTTP and WebSocket transport.
+- `backend/app/security.py`: PIN verification and signed expiring tokens.
+- `backend/app/database.py`: SQLite schema and repository.
+- `backend/app/realtime.py`: connection hub and one-task-per-conversation
+  coordination.
+- `backend/app/agents/`: provider-neutral contract and concrete adapters.
+
+The frontend uses `frontend/src/lib/api.ts` as the single authenticated REST
+client. Authentication state is based on a signed, expiring, HttpOnly
+same-site cookie rather than an independent browser flag or a token exposed to
+JavaScript.
+
+## Requirements
+
+- Python 3.11+
+- Node.js 20+
+- `agy` CLI for the default provider
+- PM2 and Nginx for the documented production setup
+
+Install dependencies:
 
 ```bash
-# Navigate to frontend
-cd ~/agy_web_bridge/frontend
+python3 -m pip install -e '.[test]'
+cd frontend
+npm ci
+```
 
-# Install dependencies
-npm install
+## Configuration
 
-# Build for production
+Configuration is read from environment variables. Start from `.env.example`,
+but do not commit real credentials.
+
+For production, these values are mandatory:
+
+```bash
+export AGY_ENV=production
+export AGY_PIN='use-a-private-pin'
+export AGY_AUTH_SECRET='use-a-long-random-secret'
+export AGY_ALLOWED_ROOTS='/srv/workspaces,/root/projects'
+```
+
+Useful security settings:
+
+- `AGY_ALLOWED_ROOTS`: comma-separated directory allowlist. Symlinks are
+  resolved before authorization.
+- `AGY_CORS_ORIGINS`: empty for same-origin deployments; otherwise a
+  comma-separated explicit origin list.
+- `AGY_DANGEROUS_SKIP_PERMISSIONS`: defaults to `false`. Only enable it inside
+  an isolated environment.
+- `AGY_AUTH_TTL_SECONDS`: signed login token lifetime, default 12 hours.
+
+In development only, the legacy PIN `0524` remains available when `AGY_PIN` is
+unset. The backend logs a warning and uses an ephemeral signing secret, so
+sessions expire after every restart. Production refuses to start without both
+authentication settings.
+
+## Development
+
+Backend:
+
+```bash
+python3 backend/main.py
+```
+
+Frontend:
+
+```bash
+cd frontend
+npm run dev
+```
+
+The Vite dev server should proxy `/api` to port `8005`, or both applications can
+be served through Nginx.
+
+Verification:
+
+```bash
+python3 -m unittest discover -s backend/tests -v
+python3 -m compileall -q backend
+cd frontend
+npm run lint
 npm run build
 ```
 
-### Nginx Configuration
-The Nginx server acts as a reverse proxy for both the static files and the WebSocket backend. It mounts the application at `/agy`.
+## Production
+
+Build the frontend:
+
+```bash
+cd /root/agy_web_bridge/frontend
+npm ci
+npm run build
+```
+
+Start the backend after exporting the production environment:
+
+```bash
+cd /root/agy_web_bridge/backend
+pm2 start main.py --name agy-backend --interpreter python3
+pm2 save
+```
+
+After backend changes:
+
+```bash
+pm2 restart agy-backend --update-env
+pm2 status agy-backend
+```
+
+Minimal same-origin Nginx layout:
 
 ```nginx
-location /agy/ {
-    alias /root/agy_web_bridge/frontend/dist/;
-    index index.html;
-    try_files $uri $uri/ /agy/index.html;
+location / {
+    root /root/agy_web_bridge/frontend/dist;
+    try_files $uri $uri/ /index.html;
 }
 
-location /agy/api/ {
+location /api/ {
     proxy_pass http://127.0.0.1:8005/api/;
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
@@ -85,27 +150,42 @@ location /agy/api/ {
 }
 ```
 
-## 📂 Project Structure
+Terminate TLS at Nginx. Do not expose port `8005` directly.
 
-```text
-~/agy_web_bridge/
-├── backend/
-│   └── main.py          # FastAPI application & Antigravity SDK integration
-├── frontend/
-│   ├── src/
-│   │   ├── App.tsx      # Main React UI, State Management, WebSocket Client
-│   │   ├── App.css      # Apple-style Design System
-│   │   └── main.tsx     # React Entry
-│   ├── index.html
-│   └── package.json
-├── history.db           # SQLite database (auto-generated)
-└── README.md            # You are here
+## Optional Codex provider
+
+Codex is disabled by default. The adapter uses the documented
+`codex exec --json` JSONL interface, runs in `workspace-write`, and shares the
+same authentication, workspace policy, task coordinator, history and
+WebSocket protocol as AGY.
+
+```bash
+export CODEX_ENABLED=true
+export CODEX_MODELS='your-approved-codex-model'
+export CODEX_SANDBOX=workspace-write
 ```
 
-## 🛠️ Usage
+The provider abstraction can later be replaced by the official Python
+`openai-codex` SDK without changing application routes or frontend state. The
+official SDK is suitable for embedding coding-focused Codex threads in an
+application, while JSONL non-interactive mode provides machine-readable agent
+events:
 
-1. Open `https://your-domain.com/agy` in your browser.
-2. Click the hamburger menu in the top left to open the **Sessions Drawer**.
-3. Click `+ New Session` and browse your server's file tree to pick a working directory.
-4. Name your session and click `Create`.
-5. Select the session to instantly connect the Web Socket and begin chatting with the Antigravity Agent!
+- <https://developers.openai.com/codex/sdk/>
+- <https://developers.openai.com/codex/noninteractive/>
+
+## Security notes
+
+- Every REST endpoint except login and health requires a signed session.
+- WebSockets authenticate from the same HttpOnly session cookie.
+- Failed PIN attempts are rate-limited in memory.
+- Only one task can run per conversation; rejected concurrent messages are not
+  persisted.
+- Deleting a running conversation interrupts its process group first.
+- Agent-produced Markdown does not render raw HTML.
+- Provider model IDs are validated server-side.
+- SQLite uses WAL mode, busy timeouts and indexed conversation history.
+
+This service runs coding agents capable of changing files and executing tools.
+Use an OS account, container or VM whose permissions match the intended trust
+boundary.

@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-web-bridge"
+version = "2.0.0"
+description = "A secure, provider-agnostic web bridge for local coding agents"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "pydantic>=2.10,<3",
+  "uvicorn[standard]>=0.34,<1",
+]
+
+[project.optional-dependencies]
+codex-sdk = ["openai-codex"]
+test = ["httpx>=0.28,<1"]
+
+[tool.setuptools.packages.find]
+include = ["backend*"]

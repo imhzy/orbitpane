@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { motion } from 'framer-motion'
 import { LogoIcon } from '../LogoIcon'
 import { Sparkles } from 'lucide-react'
+import { apiFetch } from '../lib/api'
 import './Login.css'
 
 export function Login({ onLogin }: { onLogin: () => void }) {
@@ -16,19 +17,16 @@ export function Login({ onLogin }: { onLogin: () => void }) {
     setError(false)
     
     try {
-      const res = await fetch('/api/login', {
+      const data = await apiFetch<{ success: boolean }>('/api/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pin })
       })
-      const data = await res.json()
-      if (res.ok && data.success) {
-        localStorage.setItem('agy-token', data.token)
+      if (data.success) {
         onLogin()
       } else {
         throw new Error('Invalid PIN')
       }
-    } catch (err) {
+    } catch {
       setError(true)
       setPin('')
     } finally {

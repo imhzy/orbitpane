@@ -2,5 +2,12 @@
 .cursor/
 .gemini/
 history.db
+history.db-*
+history.db.bak*
 backend/__pycache__/
+**/__pycache__/
 *.pyc
+.env
+.pytest_cache/
+.coverage
+htmlcov/
