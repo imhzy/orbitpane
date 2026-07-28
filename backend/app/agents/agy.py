@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import codecs
+import logging
 import json
 import os
 import shutil
@@ -14,10 +15,13 @@ from ..config import Settings
 from .base import AgentEvent, AgentProvider, AgentRequest, AgentResult, EmitEvent, ProviderError
 from .process import terminate_process
 
+logger = logging.getLogger(__name__)
+
 
 class AgyProvider(AgentProvider):
     id = "agy"
     display_name = "Google Gemini"
+    _COMPLETION_GRACE_SECONDS = 30
 
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -77,16 +81,37 @@ class AgyProvider(AgentProvider):
         self._processes[request.conversation_id] = process
         stderr_lines: deque[str] = deque(maxlen=200)
         thoughts: list[str] = []
+        completion_event = asyncio.Event()
         stderr_task = asyncio.create_task(self._read_stderr(process, stderr_lines))
         transcript_task = asyncio.create_task(
-            self._follow_transcript(log_path, emit, thoughts)
+            self._follow_transcript(log_path, emit, thoughts, completion_event)
         )
         content_parts: list[str] = []
         decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
 
         try:
             assert process.stdout is not None
-            while chunk_bytes := await process.stdout.read(1024):
+            while True:
+                try:
+                    read_timeout = (
+                        self._COMPLETION_GRACE_SECONDS
+                        if completion_event.is_set()
+                        else None
+                    )
+                    chunk_bytes = await asyncio.wait_for(
+                        process.stdout.read(1024), timeout=read_timeout
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "AGY process idle %ds after model completion for "
+                        "conversation %s; terminating stuck process",
+                        self._COMPLETION_GRACE_SECONDS,
+                        request.conversation_id,
+                    )
+                    await terminate_process(process)
+                    break
+                if not chunk_bytes:
+                    break
                 chunk = decoder.decode(chunk_bytes, final=False)
                 if chunk:
                     content_parts.append(chunk)
@@ -162,7 +187,8 @@ class AgyProvider(AgentProvider):
 
     @staticmethod
     async def _follow_transcript(
-        log_path: Path, emit: EmitEvent, thoughts: list[str]
+        log_path: Path, emit: EmitEvent, thoughts: list[str],
+        completion_event: asyncio.Event | None = None,
     ) -> None:
         deadline = time.monotonic() + 30
         while not log_path.exists() and time.monotonic() < deadline:
@@ -219,3 +245,13 @@ class AgyProvider(AgentProvider):
                 if text:
                     thoughts.append(text)
                     await emit(AgentEvent("thought", text))
+                if completion_event is not None:
+                    has_tool_calls = bool(data.get("tool_calls"))
+                    if (
+                        data.get("status") == "DONE"
+                        and data.get("content", "").strip()
+                        and not has_tool_calls
+                    ):
+                        completion_event.set()
+                    elif has_tool_calls:
+                        completion_event.clear()
