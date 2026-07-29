@@ -15,6 +15,16 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
 
   componentDidCatch(error: any, errorInfo: any) {
     console.error("Uncaught Error in Antigravity App:", error, errorInfo)
+    
+    // Fallback for dynamic import failures if vite:preloadError doesn't catch it
+    const errorMsg = error?.message || '';
+    if (errorMsg.includes("Failed to fetch dynamically imported module") || errorMsg.includes("Importing a module script failed")) {
+      const reloaded = sessionStorage.getItem('chunk-load-error-reloaded');
+      if (!reloaded) {
+        sessionStorage.setItem('chunk-load-error-reloaded', 'true');
+        window.location.reload();
+      }
+    }
   }
 
   render() {
@@ -68,6 +78,12 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
     return this.props.children
   }
 }
+
+// Handle dynamic import failures (e.g. after a new deployment)
+window.addEventListener('vite:preloadError', (event) => {
+  console.warn('vite:preloadError, reloading page...', event)
+  window.location.reload()
+})
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

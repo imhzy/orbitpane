@@ -963,59 +963,38 @@ export default function App() {
     setIsExporting(true)
 
     try {
-      const { default: html2canvas } = await import('html2canvas')
+      const { toBlob } = await import('html-to-image')
       const width = container.clientWidth
       const height = container.scrollHeight
-      const maxCanvasDimension = 16000
-      const maxCanvasPixels = 32_000_000
-      const scale = Math.min(
-        window.devicePixelRatio || 1,
-        2,
-        maxCanvasDimension / width,
-        maxCanvasDimension / height,
-        Math.sqrt(maxCanvasPixels / (width * height)),
-      )
       const backgroundColor = getComputedStyle(document.documentElement)
         .getPropertyValue('--bg-primary')
         .trim() || '#0b0b12'
 
-      const canvas = await html2canvas(container, {
-        backgroundColor,
-        height,
-        logging: false,
-        scale: Math.max(scale, 0.1),
-        scrollX: 0,
-        scrollY: 0,
-        useCORS: true,
+      const blob = await toBlob(container, {
         width,
-        windowHeight: height,
-        windowWidth: window.innerWidth,
-        onclone: clonedDocument => {
-          const clonedContainer = clonedDocument.querySelector<HTMLElement>('[data-conversation-export]')
-          if (!clonedContainer) return
-
-          clonedContainer.style.flex = 'none'
-          clonedContainer.style.height = `${height}px`
-          clonedContainer.style.maxHeight = 'none'
-          clonedContainer.style.overflow = 'visible'
-          clonedContainer.style.width = `${width}px`
-          clonedContainer.scrollTop = 0
-
-          clonedContainer
-            .querySelectorAll<HTMLElement>('.message-toolbar, .user-copy-btn, .streaming-cursor')
-            .forEach(element => { element.style.display = 'none' })
+        height,
+        backgroundColor,
+        pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+        style: {
+          flex: 'none',
+          height: `${height}px`,
+          maxHeight: 'none',
+          overflow: 'visible',
+          width: `${width}px`
         },
-      })
-
-      const blob = await new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob(result => {
-          if (result) {
-            resolve(result)
-          } else {
-            reject(new Error('无法生成图片文件'))
+        filter: (node: any) => {
+          if (node?.classList) {
+            const classes = node.classList
+            if (classes.contains('message-toolbar') || 
+                classes.contains('user-copy-btn') || 
+                classes.contains('streaming-cursor')) {
+              return false
+            }
           }
-        }, 'image/png')
+          return true
+        }
       })
+      if (!blob) throw new Error('无法生成图片文件')
       const filename = `${activeConv.name.replace(/[\\/:*?"<>|]/g, '_').slice(0, 80) || 'conversation'}-${new Date().toISOString().replace(/[:.]/g, '-')}.png`
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
