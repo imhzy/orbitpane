@@ -135,7 +135,7 @@ export default function App() {
   }
 
   const [models, setModels] = useState<string[]>([])
-  const [selectedModel, setSelectedModel] = useState<string>('gemini-3.6-flash-high')
+  const [selectedModel, setSelectedModel] = useState<string>('gemini-3.1-pro-high')
 
   const [providers, setProviders] = useState<Provider[]>([])
   const [defaultProvider, setDefaultProvider] = useState<string>('agy')
