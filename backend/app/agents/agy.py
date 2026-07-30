@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import codecs
-import logging
 import json
+import logging
 import os
 import shutil
 import tempfile
@@ -82,40 +82,74 @@ class AgyProvider(AgentProvider):
         stderr_lines: deque[str] = deque(maxlen=200)
         thoughts: list[str] = []
         completion_event = asyncio.Event()
+        completed_responses: list[str] = []
         stderr_task = asyncio.create_task(self._read_stderr(process, stderr_lines))
         transcript_task = asyncio.create_task(
-            self._follow_transcript(log_path, emit, thoughts, completion_event)
+            self._follow_transcript(
+                log_path,
+                emit,
+                thoughts,
+                completion_event,
+                completed_responses,
+            )
         )
         content_parts: list[str] = []
         decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        stopped_after_completion = False
+        read_task: asyncio.Task[bytes] | None = None
 
         try:
             assert process.stdout is not None
+            read_task = asyncio.create_task(process.stdout.read(1024))
+            completion_started_at: float | None = None
             while True:
-                try:
-                    read_timeout = (
-                        self._COMPLETION_GRACE_SECONDS
-                        if completion_event.is_set()
-                        else None
+                if completion_event.is_set():
+                    if completion_started_at is None:
+                        completion_started_at = time.monotonic()
+                else:
+                    completion_started_at = None
+
+                wait_timeout = 1.0
+                if completion_started_at is not None:
+                    remaining = self._COMPLETION_GRACE_SECONDS - (
+                        time.monotonic() - completion_started_at
                     )
-                    chunk_bytes = await asyncio.wait_for(
-                        process.stdout.read(1024), timeout=read_timeout
-                    )
-                except asyncio.TimeoutError:
-                    logger.warning(
-                        "AGY process idle %ds after model completion for "
-                        "conversation %s; terminating stuck process",
-                        self._COMPLETION_GRACE_SECONDS,
-                        request.conversation_id,
-                    )
-                    await terminate_process(process)
-                    break
+                    if remaining <= 0:
+                        logger.warning(
+                            "AGY process remained open %ds after model completion for "
+                            "conversation %s; terminating process tree",
+                            self._COMPLETION_GRACE_SECONDS,
+                            request.conversation_id,
+                        )
+                        stopped_after_completion = True
+                        await terminate_process(process)
+                        break
+                    wait_timeout = min(wait_timeout, remaining)
+
+                assert read_task is not None
+                done, _ = await asyncio.wait(
+                    (read_task,),
+                    timeout=wait_timeout,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if read_task not in done:
+                    continue
+
+                chunk_bytes = read_task.result()
+                read_task = None
                 if not chunk_bytes:
                     break
                 chunk = decoder.decode(chunk_bytes, final=False)
                 if chunk:
                     content_parts.append(chunk)
                     await emit(AgentEvent("token", chunk))
+                read_task = asyncio.create_task(process.stdout.read(1024))
+
+            if read_task is not None and not read_task.done():
+                read_task.cancel()
+                await asyncio.gather(read_task, return_exceptions=True)
+                read_task = None
+
             final_chunk = decoder.decode(b"", final=True)
             if final_chunk:
                 content_parts.append(final_chunk)
@@ -124,7 +158,11 @@ class AgyProvider(AgentProvider):
             return_code = await process.wait()
             await stderr_task
             interrupted = request.conversation_id in self._interrupted
-            if return_code != 0 and not interrupted:
+            if (
+                return_code != 0
+                and not interrupted
+                and not stopped_after_completion
+            ):
                 detail = "".join(stderr_lines).strip()
                 raise ProviderError(
                     f"AGY exited with code {return_code}"
@@ -136,6 +174,13 @@ class AgyProvider(AgentProvider):
                 await emit(AgentEvent("token", marker))
 
             final_content = "".join(content_parts)
+            if (
+                not final_content.strip()
+                and completed_responses
+                and not interrupted
+            ):
+                final_content = completed_responses[-1]
+                await emit(AgentEvent("token", final_content))
             if not final_content.strip() and not interrupted:
                 raise ProviderError(
                     "AGY completed without generating text content. "
@@ -148,6 +193,9 @@ class AgyProvider(AgentProvider):
                 interrupted=interrupted,
             )
         finally:
+            if read_task is not None and not read_task.done():
+                read_task.cancel()
+                await asyncio.gather(read_task, return_exceptions=True)
             transcript_task.cancel()
             await asyncio.gather(transcript_task, return_exceptions=True)
             if process.returncode is None:
@@ -189,6 +237,7 @@ class AgyProvider(AgentProvider):
     async def _follow_transcript(
         log_path: Path, emit: EmitEvent, thoughts: list[str],
         completion_event: asyncio.Event | None = None,
+        completed_responses: list[str] | None = None,
     ) -> None:
         deadline = time.monotonic() + 30
         while not log_path.exists() and time.monotonic() < deadline:
@@ -247,11 +296,14 @@ class AgyProvider(AgentProvider):
                     await emit(AgentEvent("thought", text))
                 if completion_event is not None:
                     has_tool_calls = bool(data.get("tool_calls"))
+                    completed_content = data.get("content", "").strip()
                     if (
                         data.get("status") == "DONE"
-                        and data.get("content", "").strip()
+                        and completed_content
                         and not has_tool_calls
                     ):
+                        if completed_responses is not None:
+                            completed_responses.append(completed_content)
                         completion_event.set()
                     elif has_tool_calls:
                         completion_event.clear()
