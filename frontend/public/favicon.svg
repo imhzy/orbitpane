@@ -43,13 +43,13 @@
   <!-- Outer Glow Halo -->
   <circle cx="256" cy="256" r="160" fill="url(#neonGrad)" opacity="0.25" filter="url(#softGlow)"/>
 
-  <!-- Orbital Rings (Representing Antigravity & Web Bridge) -->
+  <!-- Orbital Rings (Representing OrbitPane's connected agent workspace) -->
   <g transform="translate(256, 256) rotate(-25)">
     <ellipse cx="0" cy="0" rx="180" ry="60" fill="none" stroke="url(#neonGrad)" stroke-width="8" opacity="0.4" stroke-dasharray="12 16"/>
     <ellipse cx="0" cy="0" rx="180" ry="60" fill="none" stroke="url(#accentGrad)" stroke-width="12" stroke-linecap="round" stroke-dasharray="80 300" filter="url(#coreGlow)"/>
   </g>
 
-  <!-- Central Antigravity Symbol: Floating Diamond-Sparkle Core -->
+  <!-- Central OrbitPane Symbol: Floating Diamond-Sparkle Core -->
   <g transform="translate(256, 256)">
     <!-- Central Glowing Core Star -->
     <path d="M 0 -130 Q 0 0 -130 0 Q 0 0 0 130 Q 0 0 130 0 Q 0 0 0 -130 Z" fill="url(#neonGrad)" filter="url(#coreGlow)"/>

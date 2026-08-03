@@ -65,8 +65,8 @@ export function Login({ onLogin }: { onLogin: () => void }) {
 
         <div className="login-brand-section">
           <h2 className="login-brand-title">
-            ANTIGRAVITY
-            <span className="login-brand-badge">STUDIO</span>
+            ORBIT
+            <span className="login-brand-badge">PANE</span>
           </h2>
           <div className="login-brand-tagline">
             <Sparkles size={12} style={{ opacity: 0.7 }} />
@@ -109,7 +109,7 @@ export function Login({ onLogin }: { onLogin: () => void }) {
         </form>
 
         <div className="login-footer">
-          Powered by Antigravity AI Engine
+          Self-hosted Coding Agent Workspace
         </div>
       </motion.div>
     </div>

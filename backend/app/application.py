@@ -28,6 +28,7 @@ from .models import ChatMessage, ConversationCreate, ConversationUpdate, LoginRe
 from .realtime import AgentBusyError, AgentCoordinator, ConnectionHub
 from .security import (
     LoginRateLimiter,
+    SESSION_COOKIE_NAME,
     TokenService,
     authenticate_websocket,
     require_auth,
@@ -50,7 +51,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await coordinator.shutdown()
 
     app = FastAPI(
-        title="Agent Web Bridge",
+        title="OrbitPane",
         version="2.0.0",
         lifespan=lifespan,
         docs_url="/api/docs" if resolved_settings.environment == "development" else None,
@@ -108,7 +109,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.login_limiter.reset(client_id)
             token = app.state.tokens.issue()
             response.set_cookie(
-                key="agy_session",
+                key=SESSION_COOKIE_NAME,
                 value=token,
                 max_age=resolved_settings.auth_ttl_seconds,
                 httponly=True,
@@ -272,13 +273,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             conversation = database.get_conversation(conversation_id)
             if conversation is None:
                 await websocket.send_json(
-                    {"type": "error", "code": "not_found", "content": "Conversation not found"}
+                    {
+                        "type": "error",
+                        "conversation_id": conversation_id,
+                        "code": "not_found",
+                        "content": "Conversation not found",
+                    }
                 )
                 await websocket.close(code=4404)
                 return
             await hub.connect(websocket, conversation_id)
             if sync_message := coordinator.sync_message(conversation_id):
-                await websocket.send_json(sync_message)
+                await hub.send(websocket, conversation_id, sync_message)
+            else:
+                await hub.send(
+                    websocket,
+                    conversation_id,
+                    {"type": "ready", "conversation_id": conversation_id},
+                )
 
             while True:
                 raw_message = await websocket.receive_json()
@@ -294,12 +306,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         provider_id=chat_message.provider,
                     )
                 except AgentBusyError as exc:
-                    await websocket.send_json(
-                        {"type": "error", "code": "busy", "content": str(exc)}
+                    await hub.send(
+                        websocket,
+                        conversation_id,
+                        {
+                            "type": "error",
+                            "conversation_id": conversation_id,
+                            "code": "busy",
+                            "content": str(exc),
+                        },
                     )
                 except (ProviderError, ValueError) as exc:
-                    await websocket.send_json(
-                        {"type": "error", "code": "invalid_request", "content": str(exc)}
+                    await hub.send(
+                        websocket,
+                        conversation_id,
+                        {
+                            "type": "error",
+                            "conversation_id": conversation_id,
+                            "code": "invalid_request",
+                            "content": str(exc),
+                        },
                     )
         except (WebSocketDisconnect, RuntimeError):
             pass

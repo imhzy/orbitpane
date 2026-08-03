@@ -18,6 +18,10 @@ export interface Message {
   timestamp?: string
   model?: string
   provider?: string
+  run_id?: string
+  streamSequence?: number
+  streamFinished?: boolean
+  isOptimistic?: boolean
 }
 
 export interface Conversation {

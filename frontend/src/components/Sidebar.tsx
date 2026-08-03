@@ -83,7 +83,7 @@ export function Sidebar({
   const [searchTerm, setSearchTerm] = useState('')
   const [pinnedIds, setPinnedIds] = useState<number[]>(() => {
     try {
-      return JSON.parse(localStorage.getItem('agy_pinned_convs') || '[]')
+      return JSON.parse(localStorage.getItem('orbitpane_pinned_convs') || '[]')
     } catch {
       return []
     }
@@ -93,7 +93,7 @@ export function Sidebar({
     e.stopPropagation()
     setPinnedIds(prev => {
       const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-      localStorage.setItem('agy_pinned_convs', JSON.stringify(next))
+      localStorage.setItem('orbitpane_pinned_convs', JSON.stringify(next))
       showToast(prev.includes(id) ? '已取消星标置顶' : '已添加星标置顶')
       return next
     })
@@ -132,8 +132,8 @@ export function Sidebar({
             <div className="drawer-brand">
               <LogoIcon size={24} />
               <div className="brand-title-group">
-                <span className="brand-main-name">ANTIGRAVITY</span>
-                <span className="brand-badge-sm">STUDIO</span>
+                <span className="brand-main-name">ORBIT</span>
+                <span className="brand-badge-sm">PANE</span>
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>

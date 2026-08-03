@@ -1,9 +1,10 @@
-# Agent Web Bridge
+# OrbitPane
 
-Agent Web Bridge is a self-hosted web interface for running coding agents inside
-explicitly allowed server workspaces. The default provider is Google
-Antigravity (`agy`). An optional OpenAI Codex provider is included behind a
-feature flag.
+OrbitPane is a secure, self-hosted workspace for running coding agents inside
+explicitly allowed server projects. Its browser PWA provides persistent
+conversations, realtime execution and reconnect support without coupling the UI
+protocol to a specific agent provider. Google Antigravity is the default
+provider, with OpenAI Codex available behind a feature flag.
 
 ## Architecture
 
@@ -18,7 +19,7 @@ FastAPI application
   ├── SQLite repository
   ├── task coordinator + reconnect state
   └── AgentProvider
-        ├── AgyProvider (default)
+        ├── AntigravityProvider (default)
         └── CodexCliProvider (optional)
 ```
 
@@ -40,7 +41,7 @@ JavaScript.
 
 - Python 3.11+
 - Node.js 20+
-- `agy` CLI for the default provider
+- `antigravity` CLI command for the default provider
 - PM2 and Nginx for the documented production setup
 
 Install dependencies:
@@ -59,26 +60,26 @@ but do not commit real credentials.
 For production, these values are mandatory:
 
 ```bash
-export AGY_ENV=production
-export AGY_PIN='use-a-private-pin'
-export AGY_AUTH_SECRET='use-a-long-random-secret'
-export AGY_ALLOWED_ROOTS='/srv/workspaces,/root/projects'
+export ORBITPANE_ENV=production
+export ORBITPANE_PIN='use-a-private-pin'
+export ORBITPANE_AUTH_SECRET='use-a-long-random-secret'
+export ORBITPANE_ALLOWED_ROOTS='/srv/workspaces,/root/projects'
 ```
 
 Useful security settings:
 
-- `AGY_ALLOWED_ROOTS`: comma-separated directory allowlist. Symlinks are
+- `ORBITPANE_ALLOWED_ROOTS`: comma-separated directory allowlist. Symlinks are
   resolved before authorization.
-- `AGY_CORS_ORIGINS`: empty for same-origin deployments; otherwise a
+- `ORBITPANE_CORS_ORIGINS`: empty for same-origin deployments; otherwise a
   comma-separated explicit origin list.
-- `AGY_DANGEROUS_SKIP_PERMISSIONS`: defaults to `false`. Only enable it inside
-  an isolated environment.
-- `AGY_AUTH_TTL_SECONDS`: signed login token lifetime, default 12 hours.
+- `ORBITPANE_AUTH_TTL_SECONDS`: signed login token lifetime, default 12 hours.
+- `ORBITPANE_ANTIGRAVITY_DANGEROUS_SKIP_PERMISSIONS`: provider permission override;
+  defaults to `false` and should only be enabled inside an isolated environment.
 
-In development only, the legacy PIN `0524` remains available when `AGY_PIN` is
-unset. The backend logs a warning and uses an ephemeral signing secret, so
-sessions expire after every restart. Production refuses to start without both
-authentication settings.
+In development, an unset PIN and signing secret are replaced with process-local
+random values, so login credentials and sessions do not survive a restart.
+Configure both values explicitly when interactive login is needed. Production
+refuses to start without both authentication settings.
 
 ## Development
 
@@ -113,7 +114,7 @@ npm run build
 Build the frontend:
 
 ```bash
-cd /root/agy_web_bridge/frontend
+cd /srv/orbitpane/frontend
 npm ci
 npm run build
 ```
@@ -121,23 +122,25 @@ npm run build
 Start the backend after exporting the production environment:
 
 ```bash
-cd /root/agy_web_bridge/backend
-pm2 start main.py --name agy-backend --interpreter python3
+cd /srv/orbitpane
+pm2 start backend/main.py --name orbitpane-backend --interpreter python3
 pm2 save
 ```
 
 After backend changes:
 
 ```bash
-pm2 restart agy-backend --update-env
-pm2 status agy-backend
+pm2 restart orbitpane-backend --update-env
+pm2 status orbitpane-backend
 ```
 
 Minimal same-origin Nginx layout:
 
 ```nginx
+server_name orbitpane.hzycode.com;
+
 location / {
-    root /root/agy_web_bridge/frontend/dist;
+    root /srv/orbitpane/frontend/dist;
     try_files $uri $uri/ /index.html;
 }
 
@@ -157,7 +160,7 @@ Terminate TLS at Nginx. Do not expose port `8005` directly.
 Codex is disabled by default. The adapter uses the documented
 `codex exec --json` JSONL interface, runs in `workspace-write`, and shares the
 same authentication, workspace policy, task coordinator, history and
-WebSocket protocol as AGY.
+WebSocket protocol as Antigravity.
 
 ```bash
 export CODEX_ENABLED=true

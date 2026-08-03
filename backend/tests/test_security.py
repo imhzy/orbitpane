@@ -9,7 +9,7 @@ class TokenServiceTests(unittest.TestCase):
     def test_issued_token_can_be_verified(self) -> None:
         service = TokenService("1234", "a-long-test-secret", 60)
         payload = service.verify(service.issue())
-        self.assertEqual(payload["sub"], "agy-web-user")
+        self.assertEqual(payload["sub"], "orbitpane-user")
 
     def test_tampered_token_is_rejected(self) -> None:
         service = TokenService("1234", "a-long-test-secret", 60)

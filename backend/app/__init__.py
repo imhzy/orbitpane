@@ -1,2 +1,1 @@
-"""Antigravity Web Bridge backend package."""
-
+"""OrbitPane backend package."""

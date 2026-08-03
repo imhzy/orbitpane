@@ -99,7 +99,7 @@ export function ChatInput({
             }, 100)
           }}
           disabled={!activeConv}
-          placeholder={!activeConv ? "选择工程工作区后开启智能对话..." : "向 Antigravity 描述开发需求，按 Enter 发送，Shift + Enter 换行..."}
+          placeholder={!activeConv ? "选择工程工作区后开启智能对话..." : "向 OrbitPane 描述开发需求，按 Enter 发送，Shift + Enter 换行..."}
           aria-label="消息输入框"
           rows={1}
           className="input-textarea"

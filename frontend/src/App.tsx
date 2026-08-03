@@ -21,6 +21,260 @@ function formatTimestamp(ts?: string | number) {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
+interface RealtimeEvent {
+  type: string
+  conversation_id?: number
+  run_id?: string
+  sequence?: number
+  user_content?: string
+  content?: string
+  thought?: string
+  full_content?: string
+  full_thought?: string
+  elapsed?: number
+  duration?: number
+  model?: string
+  provider?: string
+  code?: string
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
+}
+
+function ensureRunAgent(
+  messages: Message[],
+  event: RealtimeEvent,
+): { messages: Message[]; agentIndex: number } {
+  const next = [...messages]
+  const runId = event.run_id
+  const existingAgentIndex = runId
+    ? next.findIndex(message => message.role === 'agent' && message.run_id === runId)
+    : -1
+  let userIndex = runId
+    ? next.findIndex(message => message.role === 'user' && message.run_id === runId)
+    : -1
+
+  if (runId && userIndex < 0 && typeof event.user_content === 'string') {
+    for (let index = next.length - 1; index >= 0; index -= 1) {
+      const message = next[index]
+      if (
+        message.role === 'user'
+        && !message.run_id
+        && message.content === event.user_content
+      ) {
+        userIndex = index
+        next[index] = { ...message, run_id: runId, isOptimistic: false }
+        break
+      }
+    }
+    if (userIndex < 0) {
+      const userMessage: Message = {
+        role: 'user',
+        content: event.user_content,
+        timestamp: new Date().toISOString(),
+        provider: event.provider,
+        run_id: runId,
+      }
+      if (existingAgentIndex >= 0) {
+        userIndex = existingAgentIndex
+        next.splice(existingAgentIndex, 0, userMessage)
+      } else {
+        userIndex = next.length
+        next.push(userMessage)
+      }
+    }
+  }
+
+  let agentIndex = runId
+    ? next.findIndex(message => message.role === 'agent' && message.run_id === runId)
+    : -1
+
+  if (agentIndex < 0 && runId && userIndex >= 0) {
+    const candidateIndex = userIndex + 1
+    const candidate = next[candidateIndex]
+    if (
+      candidate
+      && candidate.role === 'agent'
+      && !candidate.run_id
+      && candidate.isThinking
+    ) {
+      agentIndex = candidateIndex
+      next[agentIndex] = {
+        ...candidate,
+        run_id: runId,
+        isOptimistic: false,
+      }
+    }
+  }
+
+  if (agentIndex < 0 && !runId) {
+    for (let index = next.length - 1; index >= 0; index -= 1) {
+      if (next[index].role === 'agent' && next[index].isThinking) {
+        agentIndex = index
+        break
+      }
+    }
+  }
+
+  if (agentIndex < 0) {
+    agentIndex = next.length
+    next.push({
+      role: 'agent',
+      content: '',
+      thought: '',
+      isThinking: true,
+      elapsedSoFar: isFiniteNumber(event.elapsed) ? event.elapsed : 0,
+      model: event.model,
+      provider: event.provider,
+      run_id: runId,
+      streamSequence: -1,
+    })
+  }
+
+  return { messages: next, agentIndex }
+}
+
+function applyRealtimeEvent(messages: Message[], event: RealtimeEvent): Message[] {
+  const ensured = ensureRunAgent(messages, event)
+  const next = ensured.messages
+  const current = next[ensured.agentIndex]
+  const currentSequence = current.streamSequence ?? -1
+  const incomingSequence = isFiniteNumber(event.sequence)
+    ? event.sequence
+    : currentSequence + 1
+  const elapsed = isFiniteNumber(event.elapsed)
+    ? Math.max(current.elapsedSoFar ?? 0, event.elapsed)
+    : current.elapsedSoFar
+  const common = {
+    ...(event.run_id ? { run_id: event.run_id } : {}),
+    ...(event.model ? { model: event.model } : {}),
+    ...(event.provider ? { provider: event.provider } : {}),
+    ...(elapsed !== undefined ? { elapsedSoFar: elapsed } : {}),
+    isOptimistic: false,
+  }
+
+  if (event.type !== 'done' && current.streamFinished) {
+    return next
+  }
+
+  if (event.type === 'start') {
+    if (incomingSequence < currentSequence) return next
+    next[ensured.agentIndex] = {
+      ...current,
+      ...common,
+      isThinking: true,
+      streamSequence: incomingSequence,
+    }
+  } else if (event.type === 'sync_state') {
+    if (incomingSequence < currentSequence) return next
+    next[ensured.agentIndex] = {
+      ...current,
+      ...common,
+      content: event.content ?? '',
+      thought: event.thought ?? '',
+      isThinking: true,
+      streamSequence: incomingSequence,
+    }
+  } else if (event.type === 'elapsed') {
+    next[ensured.agentIndex] = {
+      ...current,
+      ...common,
+      isThinking: true,
+    }
+  } else if (event.type === 'thought' || event.type === 'token' || event.type === 'answer') {
+    if (incomingSequence <= currentSequence) {
+      next[ensured.agentIndex] = { ...current, ...common }
+      return next
+    }
+    const content = event.content ?? ''
+    next[ensured.agentIndex] = {
+      ...current,
+      ...common,
+      content: event.full_content ?? (
+        event.type === 'thought' ? current.content : current.content + content
+      ),
+      thought: event.full_thought ?? (
+        event.type === 'thought' ? (current.thought ?? '') + content : current.thought
+      ),
+      isThinking: true,
+      streamSequence: incomingSequence,
+    }
+  } else if (event.type === 'done') {
+    const duration = isFiniteNumber(event.duration)
+      ? event.duration
+      : (isFiniteNumber(event.elapsed) ? event.elapsed : current.elapsedSoFar)
+    const hasCurrentNewerContent = incomingSequence < currentSequence
+    next[ensured.agentIndex] = {
+      ...current,
+      ...common,
+      content: hasCurrentNewerContent ? current.content : (event.content ?? current.content),
+      thought: hasCurrentNewerContent ? current.thought : (event.thought ?? current.thought),
+      isThinking: false,
+      streamFinished: true,
+      streamSequence: Math.max(currentSequence, incomingSequence),
+      ...(duration !== undefined
+        ? { thinkingDuration: duration, elapsedSoFar: duration }
+        : {}),
+    }
+  }
+
+  return next
+}
+
+function mergeHistoryWithTransientMessages(
+  history: Message[],
+  current: Message[],
+): Message[] {
+  const merged = history.map(message => ({ ...message }))
+  const trackedRunIds = new Set(current.flatMap(message => (
+    message.run_id
+    && (
+      message.isThinking
+      || message.streamSequence !== undefined
+    )
+      ? [message.run_id]
+      : []
+  )))
+  const transient = current.filter(message => (
+    message.isOptimistic
+    || (message.run_id !== undefined && trackedRunIds.has(message.run_id))
+    || (message.isThinking && !message.run_id)
+    || message.role === 'system'
+  ))
+
+  for (const message of transient) {
+    let matchingIndex = -1
+    if (message.run_id) {
+      matchingIndex = merged.findIndex(candidate => (
+        candidate.role === message.role && candidate.run_id === message.run_id
+      ))
+    } else if (message.role === 'user' && message.isOptimistic) {
+      for (let index = merged.length - 1; index >= 0; index -= 1) {
+        if (merged[index].role === 'user' && merged[index].content === message.content) {
+          matchingIndex = index
+          break
+        }
+      }
+    }
+
+    if (matchingIndex < 0) {
+      merged.push(message)
+      continue
+    }
+
+    if (message.role === 'agent') {
+      merged[matchingIndex] = {
+        ...merged[matchingIndex],
+        isThinking: false,
+        streamFinished: true,
+      }
+    }
+  }
+
+  return merged
+}
+
 import { Login } from './components/Login'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { Sidebar } from './components/Sidebar'
@@ -49,7 +303,8 @@ export default function App() {
   const [selectedModel, setSelectedModel] = useState<string>('gemini-3.1-pro-high')
 
   const [providers, setProviders] = useState<Provider[]>([])
-  const [defaultProvider, setDefaultProvider] = useState<string>('agy')
+  const [defaultProvider, setDefaultProvider] = useState<string>('antigravity')
+  const modelsRequestRef = useRef(0)
 
   const loadProviders = () => {
     apiFetch<AgentsResponse>('/api/agents')
@@ -66,9 +321,11 @@ export default function App() {
   }
 
   const loadModels = (providerId?: string) => {
-    const p = typeof providerId === 'string' ? providerId : (activeConvRef.current?.provider || defaultProvider || 'agy')
+    const p = typeof providerId === 'string' ? providerId : (activeConvRef.current?.provider || defaultProvider || 'antigravity')
+    const requestId = ++modelsRequestRef.current
     apiFetch<ModelsResponse>(`/api/models?provider=${p}`)
       .then(data => {
+        if (requestId !== modelsRequestRef.current) return
         if (data.models && data.models.length > 0) {
           setModels(data.models)
           setSelectedModel(prev => data.models.includes(prev) ? prev : data.models[0])
@@ -76,7 +333,9 @@ export default function App() {
           setModels([])
         }
       })
-      .catch(console.error)
+      .catch(error => {
+        if (requestId === modelsRequestRef.current) console.error(error)
+      })
   }
 
   const formatModelName = (id: string) => {
@@ -101,7 +360,7 @@ export default function App() {
   }
 
   const getProviderBadge = (providerId?: string, providersCatalog: Provider[] = []) => {
-    const pid = (providerId || 'agy').toLowerCase()
+    const pid = (providerId || 'antigravity').toLowerCase()
     if (pid === 'codex' || pid.includes('codex')) {
       return {
         text: 'ChatGPT Codex',
@@ -110,7 +369,7 @@ export default function App() {
         Icon: Cpu,
       }
     }
-    if (pid === 'agy' || pid === 'gemini' || pid.includes('gemini') || pid.includes('google')) {
+    if (pid === 'antigravity' || pid === 'gemini' || pid.includes('gemini') || pid.includes('google')) {
       return {
         text: 'Google Gemini',
         type: 'gemini',
@@ -189,11 +448,17 @@ export default function App() {
   const [feedbackState, setFeedbackState] = useState<Record<number, 'up' | 'down'>>({})
   const [isExporting, setIsExporting] = useState(false)
   const socketRef = useRef<WebSocket | null>(null)
+  const socketConversationIdRef = useRef<number | null>(null)
   const [isConnected, setIsConnected] = useState(false)
   const [isReconnecting, setIsReconnecting] = useState(false)
-  const reconnectTimerRef = useRef<any>(null)
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const reconnectAttemptRef = useRef<number>(0)
+  const historyRequestRef = useRef(0)
   const loadConversationsRef = useRef<(isInitial?: boolean) => void>(() => {})
+  const loadHistoryRef = useRef<(conversationId: number) => void>(() => {})
+  const loadModelsRef = useRef<(providerId?: string) => void>(() => {})
+  const connectWebSocketRef = useRef<(conv: Conversation, isManual?: boolean) => void>(() => {})
+  loadModelsRef.current = loadModels
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -247,7 +512,10 @@ export default function App() {
     })
   }, [scrollToBottom])
 
-  const isAgentThinking = messages.length > 0 && messages[messages.length - 1].role === 'agent' && messages[messages.length - 1].isThinking
+  const isAgentThinking = [...messages]
+    .reverse()
+    .find(message => message.role === 'agent')
+    ?.isThinking
 
   const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null)
 
@@ -256,6 +524,12 @@ export default function App() {
       setIsLoggedIn(false)
       socketRef.current?.close()
       socketRef.current = null
+      socketConversationIdRef.current = null
+      pendingSendMessagesRef.current.clear()
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current)
+        reconnectTimerRef.current = null
+      }
     }
     window.addEventListener(AUTH_EXPIRED_EVENT, handleExpiredAuth)
     clearLegacyAuthState()
@@ -336,14 +610,17 @@ export default function App() {
     isAgentThinkingRef.current = !!isAgentThinking
   }, [isAgentThinking])
 
-  const pendingSendMessageRef = useRef<{ content: string; model: string; provider: string } | null>(null)
+  const pendingSendMessagesRef = useRef(new Map<
+    number,
+    { content: string; model: string; provider: string }
+  >())
 
   // Initial data loading on login
   useEffect(() => {
     if (isLoggedIn) {
       loadConversationsRef.current(true)
       loadProviders()
-      loadModels()
+      loadModelsRef.current()
     }
   }, [isLoggedIn])
 
@@ -373,7 +650,7 @@ export default function App() {
 
     const handleOnline = () => {
       if (isLoggedIn && activeConvRef.current && !socketRef.current) {
-        connectWebSocket(activeConvRef.current, false)
+        connectWebSocketRef.current(activeConvRef.current, false)
       }
     }
 
@@ -461,212 +738,256 @@ export default function App() {
   }
 
   const loadHistory = (convId: number) => {
+    const requestId = ++historyRequestRef.current
     apiFetch<Message[]>(`/api/history/${convId}`)
       .then(data => {
-        if (Array.isArray(data)) {
-          setMessages(data)
-        } else {
-          setMessages([])
-        }
+        if (
+          requestId !== historyRequestRef.current
+          || activeConvRef.current?.id !== convId
+        ) return
+        const history = Array.isArray(data) ? data : []
+        setMessages(current => {
+          const merged = mergeHistoryWithTransientMessages(history, current)
+          isAgentThinkingRef.current = merged.some(message => (
+            message.role === 'agent' && message.isThinking
+          ))
+          return merged
+        })
         setTimeout(() => scrollToBottom(false), 100)
       })
       .catch(err => {
         console.error(err)
-        setMessages([])
+        if (
+          requestId === historyRequestRef.current
+          && activeConvRef.current?.id === convId
+        ) {
+          setMessages(current => {
+            const merged = mergeHistoryWithTransientMessages([], current)
+            isAgentThinkingRef.current = merged.some(message => (
+              message.role === 'agent' && message.isThinking
+            ))
+            return merged
+          })
+        }
       })
   }
+  loadHistoryRef.current = loadHistory
+
+  const disconnectCurrentSocket = useCallback(() => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
+    }
+    const currentSocket = socketRef.current
+    socketRef.current = null
+    socketConversationIdRef.current = null
+    if (currentSocket) {
+      currentSocket.onopen = null
+      currentSocket.onmessage = null
+      currentSocket.onerror = null
+      currentSocket.onclose = null
+      try { currentSocket.close() } catch {}
+    }
+    setIsConnected(false)
+    setIsReconnecting(false)
+  }, [])
 
   const connectWebSocket = useCallback((conv: Conversation, isManual = false) => {
-    if (!conv) return
-
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current)
       reconnectTimerRef.current = null
     }
 
-    const currentWs = socketRef.current
-    if (currentWs && currentWs.readyState === WebSocket.OPEN && !isManual) {
-      setIsConnected(true)
-      setIsReconnecting(false)
+    const currentSocket = socketRef.current
+    const isCurrentConversation = socketConversationIdRef.current === conv.id
+    if (
+      currentSocket
+      && isCurrentConversation
+      && !isManual
+      && (
+        currentSocket.readyState === WebSocket.OPEN
+        || currentSocket.readyState === WebSocket.CONNECTING
+      )
+    ) {
+      if (currentSocket.readyState === WebSocket.OPEN) {
+        setIsConnected(true)
+        setIsReconnecting(false)
+      }
       return
     }
 
-    if (currentWs) {
-      currentWs.onopen = null
-      currentWs.onmessage = null
-      currentWs.onerror = null
-      currentWs.onclose = null
-      try { currentWs.close() } catch {}
-      socketRef.current = null
-    }
-
-    setIsConnected(false)
+    disconnectCurrentSocket()
     setIsReconnecting(true)
-
-    if (isManual) {
-      showToast('正在尝试连接 AI 后台 agent...')
-    }
+    if (isManual) showToast('正在尝试连接 AI 后台 agent...')
 
     const loc = window.location
     const wsProtocol = loc.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${wsProtocol}//${loc.host}/api/chat`
-
     let ws: WebSocket
     try {
-      ws = new WebSocket(wsUrl)
+      ws = new WebSocket(`${wsProtocol}//${loc.host}/api/chat`)
     } catch (err) {
-      console.error("WS construction error:", err)
+      console.error('WS construction error:', err)
       setIsReconnecting(false)
       return
     }
 
+    socketRef.current = ws
+    socketConversationIdRef.current = conv.id
+    let awaitingPendingStart = false
+
+    const belongsToActiveConversation = () => (
+      socketRef.current === ws
+      && socketConversationIdRef.current === conv.id
+      && activeConvRef.current?.id === conv.id
+    )
+
     ws.onopen = () => {
-      if (socketRef.current !== ws) return
+      if (!belongsToActiveConversation()) return
       setIsConnected(true)
       setIsReconnecting(false)
       reconnectAttemptRef.current = 0
-      if (isManual) {
-        showToast('已成功连接后台 AI agent')
-      }
-      ws.send(JSON.stringify({
-        conversation_id: conv.id,
-      }))
-      if (pendingSendMessageRef.current) {
-        const pending = pendingSendMessageRef.current
-        pendingSendMessageRef.current = null
+      if (isManual) showToast('已成功连接后台 AI agent')
+      ws.send(JSON.stringify({ conversation_id: conv.id }))
+
+      const pending = pendingSendMessagesRef.current.get(conv.id)
+      if (pending) {
+        awaitingPendingStart = true
+        pendingSendMessagesRef.current.delete(conv.id)
         ws.send(JSON.stringify(pending))
       }
     }
 
-    ws.onmessage = (e) => {
-      if (socketRef.current !== ws) return
+    ws.onmessage = event => {
+      if (!belongsToActiveConversation()) return
       try {
-        const data = JSON.parse(e.data)
-        if (data.type === 'start') {
-          setMessages(prev => {
-            const newMsgs = [...prev]
-            let lastMsg = newMsgs[newMsgs.length - 1]
-            if (!lastMsg || lastMsg.role !== 'agent') {
-              newMsgs.push({ role: 'agent', content: '', thought: '', isThinking: true, elapsedSoFar: data.elapsed || 0, model: data.model })
-            } else {
-              newMsgs[newMsgs.length - 1] = { ...lastMsg, isThinking: true, elapsedSoFar: data.elapsed || 0, ...(data.model ? { model: data.model } : {}) }
-            }
-            return newMsgs
+        const data = JSON.parse(event.data) as RealtimeEvent
+        if (
+          isFiniteNumber(data.conversation_id)
+          && data.conversation_id !== conv.id
+        ) return
+
+        if (data.type === 'ready') {
+          if (!awaitingPendingStart) {
+            isAgentThinkingRef.current = false
+            setMessages(previous => previous.map(message => (
+              message.isThinking
+                ? { ...message, isThinking: false, streamFinished: true }
+                : message
+            )))
+          }
+          loadHistoryRef.current(conv.id)
+          return
+        }
+
+        if (
+          data.type === 'start'
+          || data.type === 'sync_state'
+          || data.type === 'elapsed'
+          || data.type === 'thought'
+          || data.type === 'token'
+          || data.type === 'answer'
+          || data.type === 'done'
+        ) {
+          if (data.type === 'start') awaitingPendingStart = false
+          setMessages(previous => {
+            if (activeConvRef.current?.id !== conv.id) return previous
+            const updated = applyRealtimeEvent(previous, data)
+            isAgentThinkingRef.current = updated.some(message => (
+              message.role === 'agent' && message.isThinking
+            ))
+            return updated
           })
-        } else if (data.type === 'sync_state') {
-          setMessages(prev => {
-            const newMsgs = [...prev]
-            let lastMsg = newMsgs[newMsgs.length - 1]
-            if (!lastMsg || lastMsg.role !== 'agent') {
-              newMsgs.push({ role: 'agent', content: data.content || '', thought: data.thought || '', isThinking: data.in_thought || true, elapsedSoFar: data.elapsed || 0, model: data.model })
-            } else {
-              newMsgs[newMsgs.length - 1] = { ...lastMsg, content: data.content || '', thought: data.thought || '', isThinking: data.in_thought || true, elapsedSoFar: data.elapsed || 0, ...(data.model ? { model: data.model } : {}) }
-            }
-            return newMsgs
-          })
-        } else if (data.type === 'thought') {
-          setMessages(prev => {
-            const newMsgs = [...prev]
-            let lastMsg = newMsgs[newMsgs.length - 1]
-            if (lastMsg && lastMsg.role === 'agent') {
-              newMsgs[newMsgs.length - 1] = { ...lastMsg, thought: (lastMsg.thought || '') + data.content, isThinking: true }
-            } else {
-              newMsgs.push({ role: 'agent', content: '', thought: data.content, isThinking: true })
-            }
-            return newMsgs
-          })
-        } else if (data.type === 'token' || data.type === 'answer') {
-          setMessages(prev => {
-            const newMsgs = [...prev]
-            let lastMsg = newMsgs[newMsgs.length - 1]
-            if (lastMsg && lastMsg.role === 'agent') {
-              newMsgs[newMsgs.length - 1] = { ...lastMsg, content: lastMsg.content + data.content }
-            } else {
-              newMsgs.push({ role: 'agent', content: data.content })
-            }
-            return newMsgs
-          })
-        } else if (data.type === 'done' || data.type === 'thought_done') {
           if (data.type === 'done') {
             loadConversationsRef.current(false)
+            loadHistoryRef.current(conv.id)
           }
-          setMessages(prev => {
-            const newMsgs = [...prev]
-            let lastMsg = newMsgs[newMsgs.length - 1]
-            if (lastMsg && lastMsg.role === 'agent') {
-              const updates: any = { isThinking: false }
-              if (data.type === 'done') {
-                updates.timestamp = new Date().toISOString()
-              }
-              if (data.duration) {
-                updates.thinkingDuration = data.duration
-              }
-              newMsgs[newMsgs.length - 1] = { ...lastMsg, ...updates }
-            }
-            return newMsgs
-          })
-        } else if (data.type === 'error') {
+          return
+        }
+
+        if (data.type === 'error') {
           if (data.code === 'unauthorized') {
             window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
             return
           }
-          setMessages(prev => {
-            const newMsgs = [...prev]
-            const lastIdx = newMsgs.length - 1
-            if (lastIdx >= 0 && newMsgs[lastIdx].role === 'agent') {
-              if (!newMsgs[lastIdx].content && !newMsgs[lastIdx].thought) {
-                newMsgs.pop()
-              } else {
-                newMsgs[lastIdx].isThinking = false
-              }
+          const requestRejected = (
+            data.code === 'busy'
+            || data.code === 'invalid_request'
+            || data.code === 'not_found'
+          )
+          if (requestRejected) awaitingPendingStart = false
+          setMessages(previous => {
+            if (activeConvRef.current?.id !== conv.id) return previous
+            const next = requestRejected
+              ? previous.filter(message => !message.isOptimistic)
+              : [...previous]
+            next.push({
+              role: 'system',
+              content: `处理异常: ${data.content ?? '未知错误'}`,
+              isError: true,
+            })
+            if (requestRejected) {
+              isAgentThinkingRef.current = next.some(message => (
+                message.role === 'agent' && message.isThinking
+              ))
             }
-            newMsgs.push({ role: 'system', content: `处理异常: ${data.content}`, isError: true })
-            return newMsgs
+            return next
           })
         }
       } catch (err) {
-        console.error("WS message parse error:", err)
+        console.error('WS message parse error:', err)
       }
     }
 
-    ws.onerror = (err) => {
-      console.error("WS error:", err)
+    ws.onerror = err => {
+      if (socketRef.current === ws) console.error('WS error:', err)
     }
 
-    ws.onclose = (e) => {
-      if (socketRef.current === ws) {
-        setIsConnected(false)
-        setIsReconnecting(false)
-        socketRef.current = null
+    ws.onclose = event => {
+      if (
+        socketRef.current !== ws
+        || socketConversationIdRef.current !== conv.id
+      ) return
+      socketRef.current = null
+      socketConversationIdRef.current = null
+      setIsConnected(false)
+      setIsReconnecting(false)
 
-        const attempt = reconnectAttemptRef.current
-        reconnectAttemptRef.current = attempt + 1
-        const delay = Math.min(1000 * Math.pow(1.5, Math.min(attempt, 6)), 10000)
-
-        console.log(`[WS] Disconnected (code ${e.code}). Auto-reconnecting in ${Math.round(delay)}ms (attempt ${attempt + 1})`)
-
-        reconnectTimerRef.current = setTimeout(() => {
-          if (!socketRef.current && activeConvRef.current && activeConvRef.current.id === conv.id) {
-            connectWebSocket(activeConvRef.current, false)
-          }
-        }, delay)
-      }
+      if (activeConvRef.current?.id !== conv.id) return
+      const attempt = reconnectAttemptRef.current
+      reconnectAttemptRef.current = attempt + 1
+      const delay = Math.min(1000 * Math.pow(1.5, Math.min(attempt, 6)), 10000)
+      console.log(`[WS] Disconnected (code ${event.code}). Auto-reconnecting in ${Math.round(delay)}ms (attempt ${attempt + 1})`)
+      reconnectTimerRef.current = setTimeout(() => {
+        if (!socketRef.current && activeConvRef.current?.id === conv.id) {
+          connectWebSocketRef.current(activeConvRef.current, false)
+        }
+      }, delay)
     }
-
-    socketRef.current = ws
-  }, [loadModels])
+  }, [disconnectCurrentSocket])
+  connectWebSocketRef.current = connectWebSocket
 
   const selectConversation = (conv: Conversation) => {
     triggerVibration()
+    const isDifferentConversation = activeConvRef.current?.id !== conv.id
+    activeConvRef.current = conv
     setActiveConv(conv)
-    if (window.innerWidth < 1024) {
-      setIsDrawerOpen(false)
+    shouldAutoScrollRef.current = true
+    historyRequestRef.current += 1
+    if (isDifferentConversation) {
+      isAgentThinkingRef.current = false
+      setMessages([])
+      setCopiedMsgIdx(null)
+      setFeedbackState({})
     }
+    if (window.innerWidth < 1024) setIsDrawerOpen(false)
     loadModels(conv.provider)
+
     const url = new URL(window.location.href)
     url.searchParams.set('id', conv.id.toString())
     window.history.pushState({}, '', url.toString())
+
     loadHistory(conv.id)
+    connectWebSocket(conv, false)
   }
 
   const createConversation = () => {
@@ -706,10 +1027,14 @@ export default function App() {
         apiFetch<{ status: string }>(`/api/conversations/${convId}`, { method: 'DELETE' })
           .then(() => {
             loadConversations()
-            if (activeConv?.id === convId) {
+            pendingSendMessagesRef.current.delete(convId)
+            if (activeConvRef.current?.id === convId) {
+              activeConvRef.current = null
               setActiveConv(null)
               setMessages([])
-              if (socketRef.current) socketRef.current.close()
+              isAgentThinkingRef.current = false
+              historyRequestRef.current += 1
+              disconnectCurrentSocket()
               const url = new URL(window.location.href)
               url.searchParams.delete('id')
               window.history.pushState({}, '', url.toString())
@@ -741,8 +1066,10 @@ export default function App() {
     })
     .then(() => {
       setConversations(prev => prev.map(c => c.id === convId ? { ...c, name: trimmed } : c))
-      if (activeConv?.id === convId) {
-        setActiveConv(prev => prev ? { ...prev, name: trimmed } : null)
+      if (activeConvRef.current?.id === convId) {
+        const updatedConversation = { ...activeConvRef.current, name: trimmed }
+        activeConvRef.current = updatedConversation
+        setActiveConv(updatedConversation)
       }
       setEditingConvId(null)
       showToast('工作区名称已更新')
@@ -763,7 +1090,8 @@ export default function App() {
       return
     }
 
-    if (!activeConvRef.current) {
+    const conversation = activeConvRef.current
+    if (!conversation) {
       showToast('请先选择一个工作区会话')
       return
     }
@@ -771,19 +1099,43 @@ export default function App() {
     setInput('')
     shouldAutoScrollRef.current = true
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
-    setMessages(prev => [...prev, { role: 'user', content: textToSend.trim(), timestamp: new Date().toISOString() }])
+    isAgentThinkingRef.current = true
+    setMessages(prev => [
+      ...prev,
+      {
+        role: 'user',
+        content: textToSend.trim(),
+        timestamp: new Date().toISOString(),
+        provider: conversation.provider,
+        isOptimistic: true,
+      },
+      {
+        role: 'agent',
+        content: '',
+        thought: '',
+        isThinking: true,
+        elapsedSoFar: 0,
+        model: selectedModel,
+        provider: conversation.provider,
+        isOptimistic: true,
+      },
+    ])
     
     const payload = {
       content: textToSend.trim(),
       model: selectedModel,
-      provider: activeConvRef.current.provider,
+      provider: conversation.provider,
     }
 
     const currentSocket = socketRef.current
-    if (!currentSocket || currentSocket.readyState !== WebSocket.OPEN) {
-      pendingSendMessageRef.current = payload
+    if (
+      !currentSocket
+      || currentSocket.readyState !== WebSocket.OPEN
+      || socketConversationIdRef.current !== conversation.id
+    ) {
+      pendingSendMessagesRef.current.set(conversation.id, payload)
       showToast('连接中，重连成功后将自动发送...')
-      connectWebSocket(activeConvRef.current, true)
+      connectWebSocket(conversation, true)
       return
     }
 
@@ -800,15 +1152,19 @@ export default function App() {
 
   const clearMessages = () => {
     if (!activeConv) return
+    const conversationId = activeConv.id
     setConfirmState({
       isOpen: true,
       title: '清空会话消息',
       description: '确定要清空当前会话的所有消息吗？此操作不可逆。',
       onConfirm: () => {
         setConfirmState(prev => ({ ...prev, isOpen: false }))
-        apiFetch<{ status: string }>(`/api/history/${activeConv.id}`, { method: 'DELETE' })
+        apiFetch<{ status: string }>(`/api/history/${conversationId}`, { method: 'DELETE' })
           .then(() => {
-            setMessages([])
+            if (activeConvRef.current?.id === conversationId) {
+              historyRequestRef.current += 1
+              setMessages([])
+            }
           })
           .catch(err => {
             console.error(err)
@@ -1046,6 +1402,7 @@ export default function App() {
               />
             ) : (
               <MessageList
+                key={activeConv.id}
                 messages={messages}
                 copiedMsgIdx={copiedMsgIdx}
                 feedbackState={feedbackState}

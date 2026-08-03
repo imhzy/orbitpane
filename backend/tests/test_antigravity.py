@@ -8,17 +8,17 @@ from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import patch
 
-from backend.app.agents.agy import AgyProvider
+from backend.app.agents.antigravity import AntigravityProvider
 from backend.app.agents.base import AgentEvent, AgentRequest
 from backend.tests.helpers import test_settings
 
 
-class AgyProviderTests(IsolatedAsyncioTestCase):
+class AntigravityProviderTests(IsolatedAsyncioTestCase):
     async def test_follow_transcript_captures_completed_response(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             conversation_id = "conversation-id"
-            log_path = root / "agy.log"
+            log_path = root / "antigravity.log"
             log_path.write_text(
                 f"Streaming conversation {conversation_id}\n",
                 encoding="utf-8",
@@ -51,7 +51,7 @@ class AgyProviderTests(IsolatedAsyncioTestCase):
             completed_responses: list[str] = []
             with patch.object(Path, "home", return_value=root):
                 task = asyncio.create_task(
-                    AgyProvider._follow_transcript(
+                    AntigravityProvider._follow_transcript(
                         log_path,
                         emit,
                         thoughts,
@@ -71,7 +71,7 @@ class AgyProviderTests(IsolatedAsyncioTestCase):
     ) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            provider = AgyProvider(test_settings(root))
+            provider = AntigravityProvider(test_settings(root))
             provider._COMPLETION_GRACE_SECONDS = 0.01
             stdout = asyncio.StreamReader()
             stderr = asyncio.StreamReader()
@@ -121,16 +121,16 @@ class AgyProviderTests(IsolatedAsyncioTestCase):
             )
             with (
                 patch(
-                    "backend.app.agents.agy.asyncio.create_subprocess_exec",
+                    "backend.app.agents.antigravity.asyncio.create_subprocess_exec",
                     return_value=process,
                 ),
                 patch.object(
-                    AgyProvider,
+                    AntigravityProvider,
                     "_follow_transcript",
                     side_effect=follow_transcript,
                 ),
                 patch(
-                    "backend.app.agents.agy.terminate_process",
+                    "backend.app.agents.antigravity.terminate_process",
                     side_effect=terminate,
                 ) as terminate_mock,
             ):

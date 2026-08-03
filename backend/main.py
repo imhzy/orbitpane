@@ -15,6 +15,6 @@ if __name__ == "__main__":
 
     uvicorn.run(
         app,
-        host=os.getenv("AGY_HOST", "127.0.0.1"),
-        port=int(os.getenv("AGY_PORT", "8005")),
+        host=os.getenv("ORBITPANE_HOST", "127.0.0.1"),
+        port=int(os.getenv("ORBITPANE_PORT", "8005")),
     )

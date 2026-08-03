@@ -1,6 +1,9 @@
 import re
+from pathlib import Path
 
-with open('/root/agy_web_bridge/frontend/src/App.tsx', 'r') as f:
+app_path = Path(__file__).resolve().parent / 'src' / 'App.tsx'
+
+with app_path.open('r') as f:
     content = f.read()
 
 # 1. Add imports
@@ -152,6 +155,5 @@ toast_code = "      <Toast toast={toast} />"
 content = re.sub(r'\{\/\* Toast Notification \*\/\}\n      <AnimatePresence>.*?</AnimatePresence>', '{/* Toast Notification */}\n' + toast_code, content, flags=re.DOTALL)
 
 
-with open('/root/agy_web_bridge/frontend/src/App.tsx', 'w') as f:
+with app_path.open('w') as f:
     f.write(content)
-

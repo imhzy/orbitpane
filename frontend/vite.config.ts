@@ -12,9 +12,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'favicon.ico', 'pwa-64x64.png', 'pwa-192x192.png', 'pwa-512x512.png', 'apple-touch-icon-180x180.png', 'maskable-icon-512x512.png'],
       manifest: {
-        name: 'Antigravity AI Studio',
-        short_name: 'Antigravity',
-        description: 'Antigravity AI Studio - Intelligent Workspace & Agent Bridge',
+        name: 'OrbitPane',
+        short_name: 'OrbitPane',
+        description: 'OrbitPane - Secure, self-hosted coding agent workspace',
         theme_color: '#0f0c20',
         background_color: '#0f0c20',
         display: 'standalone',

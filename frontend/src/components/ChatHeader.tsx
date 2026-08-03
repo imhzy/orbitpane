@@ -119,8 +119,8 @@ export function ChatHeader({
               )
             ) : (
               <div className="brand-title-group compact">
-                <span className="brand-main-name">ANTIGRAVITY</span>
-                <span className="brand-badge-sm">STUDIO</span>
+                <span className="brand-main-name">ORBIT</span>
+                <span className="brand-badge-sm">PANE</span>
               </div>
             )}
           </div>

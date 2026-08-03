@@ -14,7 +14,7 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
   }
 
   componentDidCatch(error: any, errorInfo: any) {
-    console.error("Uncaught Error in Antigravity App:", error, errorInfo)
+    console.error("Uncaught Error in OrbitPane:", error, errorInfo)
     
     // Fallback for dynamic import failures if vite:preloadError doesn't catch it
     const errorMsg = error?.message || '';

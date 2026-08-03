@@ -11,6 +11,9 @@ from dataclasses import dataclass
 from fastapi import HTTPException, Request, WebSocket, status
 
 
+SESSION_COOKIE_NAME = "orbitpane_session"
+
+
 class AuthenticationError(ValueError):
     pass
 
@@ -48,7 +51,7 @@ class TokenService:
         payload = {
             "iat": int(time.time()),
             "exp": int(time.time()) + self.ttl_seconds,
-            "sub": "agy-web-user",
+            "sub": "orbitpane-user",
         }
         encoded = self._encode(
             json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
@@ -93,7 +96,7 @@ def bearer_token(request: Request) -> str | None:
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() == "bearer" and token.strip():
         return token.strip()
-    return request.cookies.get("agy_session")
+    return request.cookies.get(SESSION_COOKIE_NAME)
 
 
 async def require_auth(request: Request) -> dict[str, object]:
@@ -111,7 +114,7 @@ async def require_auth(request: Request) -> dict[str, object]:
 async def authenticate_websocket(websocket: WebSocket, token: str | None) -> bool:
     service: TokenService = websocket.app.state.tokens
     try:
-        service.verify(token or websocket.cookies.get("agy_session"))
+        service.verify(token or websocket.cookies.get(SESSION_COOKIE_NAME))
         return True
     except AuthenticationError as exc:
         await websocket.send_json({"type": "error", "code": "unauthorized", "content": str(exc)})

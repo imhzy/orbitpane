@@ -29,36 +29,8 @@ export function AgentExecutionTimeline({
 }: AgentExecutionTimelineProps) {
   const [isOpen, setIsOpen] = useState<boolean>(isThinking)
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
-  const [elapsed, setElapsed] = useState<number>(duration || elapsedSoFar || 0)
-  
-  const timerRef = useRef<number | null>(null)
   const prevThinkingRef = useRef<boolean>(isThinking)
-  const startTimeRef = useRef<number>(Date.now() - (elapsedSoFar * 1000))
-
-  useEffect(() => {
-    if (isThinking) {
-      startTimeRef.current = Date.now() - (elapsedSoFar * 1000)
-      const updateTimer = () => {
-        const sec = (Date.now() - startTimeRef.current) / 1000
-        setElapsed(sec)
-        timerRef.current = requestAnimationFrame(updateTimer)
-      }
-      timerRef.current = requestAnimationFrame(updateTimer)
-    } else {
-      if (timerRef.current) {
-        cancelAnimationFrame(timerRef.current)
-        timerRef.current = null
-      }
-      if (duration !== undefined && duration > 0) {
-        setElapsed(duration)
-      }
-    }
-    return () => {
-      if (timerRef.current) {
-        cancelAnimationFrame(timerRef.current)
-      }
-    }
-  }, [isThinking, duration, elapsedSoFar])
+  const elapsed = isThinking ? elapsedSoFar : (duration ?? elapsedSoFar)
 
   useEffect(() => {
     if (prevThinkingRef.current && !isThinking) {
@@ -143,7 +115,7 @@ export function AgentExecutionTimeline({
     return parsedSteps
   }, [thought, isThinking])
 
-  if (!isThinking && !thought) return null
+  if (!isThinking && !thought && duration === undefined) return null
 
   const formatDuration = (sec: number): string => {
     if (!sec || sec <= 0) return '0 秒'
@@ -153,7 +125,7 @@ export function AgentExecutionTimeline({
     return `${mins} 分 ${secs} 秒`
   }
 
-  const finalDurationSec = duration && duration > 0 ? duration : elapsed
+  const finalDurationSec = duration ?? elapsed
 
   return (
     <div className="agent-execution-block" data-active={isThinking}>
@@ -162,6 +134,7 @@ export function AgentExecutionTimeline({
         onClick={() => setIsOpen(!isOpen)}
         type="button"
         aria-expanded={isOpen}
+        aria-label={isThinking ? '思考与工具调用进行中' : `思考与工具调用已完成，用时 ${formatDuration(finalDurationSec)}`}
       >
         <div className="header-left">
           {isThinking ? (
@@ -281,7 +254,7 @@ export function AgentExecutionTimeline({
                   })}
                 </div>
               ) : isThinking ? (
-                <div className="thinking-placeholder">
+                <div className="thinking-placeholder" role="status" aria-live="polite">
                   正在分析上下文与制定策略...
                 </div>
               ) : (
@@ -296,4 +269,3 @@ export function AgentExecutionTimeline({
     </div>
   )
 }
-

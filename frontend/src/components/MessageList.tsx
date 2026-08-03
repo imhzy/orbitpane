@@ -47,7 +47,7 @@ export function MessageList({
 
         return (
           <motion.div 
-            key={i} 
+            key={m.run_id ? `${m.role}-${m.run_id}` : `${m.role}-${m.timestamp ?? 'message'}-${i}`}
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.2 }}
@@ -65,7 +65,7 @@ export function MessageList({
                   </div>
                 )}
                 <span className="author-name">
-                  {m.role === 'agent' ? 'Antigravity AI' : '你'}
+                  {m.role === 'agent' ? 'OrbitPane' : '你'}
                 </span>
                 {m.role === 'agent' && m.model && (
                   <span className="model-pill">{formatModelName(m.model)}</span>
@@ -85,7 +85,7 @@ export function MessageList({
                   <AgentExecutionTimeline 
                     thought={m.thought || ''} 
                     isThinking={!!m.isThinking} 
-                    duration={m.thinkingDuration || m.duration}
+                    duration={m.thinkingDuration ?? m.duration}
                     elapsedSoFar={m.elapsedSoFar}
                   />
 

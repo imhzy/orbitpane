@@ -138,7 +138,7 @@ export default function App() {
   const [selectedModel, setSelectedModel] = useState<string>('gemini-3.1-pro-high')
 
   const [providers, setProviders] = useState<Provider[]>([])
-  const [defaultProvider, setDefaultProvider] = useState<string>('agy')
+  const [defaultProvider, setDefaultProvider] = useState<string>('antigravity')
 
   const loadProviders = () => {
     apiFetch<AgentsResponse>('/api/agents')
@@ -155,7 +155,7 @@ export default function App() {
   }
 
   const loadModels = (providerId?: string) => {
-    const p = typeof providerId === 'string' ? providerId : (activeConvRef.current?.provider || defaultProvider || 'agy')
+    const p = typeof providerId === 'string' ? providerId : (activeConvRef.current?.provider || defaultProvider || 'antigravity')
     apiFetch<ModelsResponse>(`/api/models?provider=${p}`)
       .then(data => {
         if (data.models && data.models.length > 0) {
@@ -190,7 +190,7 @@ export default function App() {
   }
 
   const getProviderBadge = (providerId?: string, providersCatalog: Provider[] = []) => {
-    const pid = (providerId || 'agy').toLowerCase()
+    const pid = (providerId || 'antigravity').toLowerCase()
     if (pid === 'codex' || pid.includes('codex')) {
       return {
         text: 'ChatGPT Codex',
@@ -199,7 +199,7 @@ export default function App() {
         Icon: Cpu,
       }
     }
-    if (pid === 'agy' || pid === 'gemini' || pid.includes('gemini') || pid.includes('google')) {
+    if (pid === 'antigravity' || pid === 'gemini' || pid.includes('gemini') || pid.includes('google')) {
       return {
         text: 'Google Gemini',
         type: 'gemini',
@@ -1101,8 +1101,8 @@ export default function App() {
               <div className="drawer-brand">
                 <LogoIcon size={24} />
                 <div className="brand-title-group">
-                  <span className="brand-main-name">ANTIGRAVITY</span>
-                  <span className="brand-badge-sm">STUDIO</span>
+                  <span className="brand-main-name">ORBIT</span>
+                  <span className="brand-badge-sm">PANE</span>
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -1471,8 +1471,8 @@ export default function App() {
                   )
                 ) : (
                   <div className="brand-title-group compact">
-                    <span className="brand-main-name">ANTIGRAVITY</span>
-                    <span className="brand-badge-sm">STUDIO</span>
+                    <span className="brand-main-name">ORBIT</span>
+                    <span className="brand-badge-sm">PANE</span>
                   </div>
                 )}
               </div>
@@ -1553,7 +1553,7 @@ export default function App() {
                     <LogoIcon size={52} />
                   </div>
                   <h1 className="welcome-hero-title">
-                    ANTIGRAVITY <span className="title-highlight">STUDIO</span>
+                    ORBIT <span className="title-highlight">PANE</span>
                   </h1>
                   <div className="welcome-hero-badge">
                     <Sparkles size={13} className="badge-sparkle" />
@@ -1631,7 +1631,7 @@ export default function App() {
                       </div>
                     )}
                     <span className="author-name">
-                      {m.role === 'agent' ? 'Antigravity AI' : '你'}
+                      {m.role === 'agent' ? 'OrbitPane' : '你'}
                     </span>
                     {m.role === 'agent' && m.model && (
                       <span className="model-pill">{formatModelName(m.model)}</span>
@@ -1751,7 +1751,7 @@ export default function App() {
                 }, 100)
               }}
               disabled={!activeConv}
-              placeholder={!activeConv ? "选择工作区后开始" : "向 Antigravity 描述需求，或输入开发指令..."}
+              placeholder={!activeConv ? "选择工作区后开始" : "向 OrbitPane 描述需求，或输入开发指令..."}
               aria-label="消息输入框"
               rows={1}
               className="input-textarea"

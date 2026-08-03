@@ -26,7 +26,7 @@ export function WelcomeScreen({ activeConv, messages, setIsDrawerOpen }: Welcome
             </div>
 
             <h1 className="welcome-hero-title">
-              ANTIGRAVITY <span className="title-highlight">STUDIO</span>
+              ORBIT <span className="title-highlight">PANE</span>
             </h1>
 
             <p className="welcome-subtitle">
@@ -72,4 +72,3 @@ export function WelcomeScreen({ activeConv, messages, setIsDrawerOpen }: Welcome
     </>
   )
 }
-

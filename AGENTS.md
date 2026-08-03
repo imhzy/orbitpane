@@ -31,9 +31,8 @@ cd frontend && npm run lint && npm run build
 After backend changes on the deployed Linux host:
 
 ```bash
-pm2 restart agy-backend --update-env
-pm2 status agy-backend
+pm2 restart orbitpane-backend --update-env
+pm2 status orbitpane-backend
 ```
 
 After frontend changes, ensure `frontend/dist` is rebuilt.
-

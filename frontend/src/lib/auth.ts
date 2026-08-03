@@ -1,8 +1,8 @@
-export const AUTH_EXPIRED_EVENT = 'agy:auth-expired'
+export const AUTH_EXPIRED_EVENT = 'orbitpane:auth-expired'
 
 export function clearLegacyAuthState(): void {
-  localStorage.removeItem('agy-auth-token')
-  localStorage.removeItem('agy-token')
+  localStorage.removeItem('orbitpane-auth-token')
+  localStorage.removeItem('orbitpane-token')
   localStorage.removeItem('isLoggedIn')
 }
 

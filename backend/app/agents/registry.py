@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .agy import AgyProvider
+from .antigravity import AntigravityProvider
 from .base import AgentProvider, ProviderError
 from .codex import CodexCliProvider
 from ..config import Settings
@@ -9,7 +9,7 @@ from ..config import Settings
 class ProviderRegistry:
     def __init__(self, settings: Settings):
         providers: tuple[AgentProvider, ...] = (
-            AgyProvider(settings),
+            AntigravityProvider(settings),
             CodexCliProvider(settings),
         )
         self._providers = {provider.id: provider for provider in providers}
@@ -27,4 +27,3 @@ class ProviderRegistry:
 
     def catalog(self) -> list[dict[str, object]]:
         return [provider.describe() for provider in self._providers.values()]
-

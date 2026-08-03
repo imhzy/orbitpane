@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect, useRef } from 'react'
+import { lazy, Suspense, useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Sparkles, Brain, ChevronRight } from 'lucide-react'
 import './ThinkingBlock.css'
@@ -17,26 +17,7 @@ export function ThinkingBlock({
   elapsedSoFar?: number;
 }) {
   const [isOpen, setIsOpen] = useState<boolean>(true)
-  const [elapsed, setElapsed] = useState<number>(0)
-  const reqRef = useRef<number | null>(null)
-
-  useEffect(() => {
-    if (isThinking) {
-      const startTime = Date.now() - (elapsedSoFar * 1000)
-      
-      const update = () => {
-        setElapsed(Number(((Date.now() - startTime) / 1000).toFixed(1)))
-        reqRef.current = requestAnimationFrame(update)
-      }
-      reqRef.current = requestAnimationFrame(update)
-    } else if (duration !== undefined) {
-      setElapsed(duration)
-      if (reqRef.current) cancelAnimationFrame(reqRef.current)
-    }
-    return () => {
-      if (reqRef.current) cancelAnimationFrame(reqRef.current)
-    }
-  }, [isThinking, duration, elapsedSoFar])
+  const elapsed = isThinking ? elapsedSoFar : (duration ?? elapsedSoFar)
 
   useEffect(() => {
     if (!isThinking && !thought) {

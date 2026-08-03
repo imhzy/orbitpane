@@ -32,7 +32,7 @@ class ApplicationTests(IsolatedAsyncioTestCase):
     async def login_headers(self) -> dict[str, str]:
         response = await self.client.post("/api/login", json={"pin": "test-pin"})
         self.assertEqual(response.status_code, 200)
-        self.assertIn("agy_session", response.cookies)
+        self.assertIn("orbitpane_session", response.cookies)
         return {}
 
     async def test_protected_routes_require_authentication(self) -> None:
@@ -47,11 +47,11 @@ class ApplicationTests(IsolatedAsyncioTestCase):
             json={
                 "name": "Test workspace",
                 "path": str(self.workspace),
-                "provider": "agy",
+                "provider": "antigravity",
             },
         )
         self.assertEqual(response.status_code, 201, response.text)
-        self.assertEqual(response.json()["provider"], "agy")
+        self.assertEqual(response.json()["provider"], "antigravity")
 
         listed = await self.client.get("/api/conversations", headers=headers)
         self.assertEqual(listed.status_code, 200)

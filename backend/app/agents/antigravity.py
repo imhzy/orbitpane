@@ -18,8 +18,8 @@ from .process import terminate_process
 logger = logging.getLogger(__name__)
 
 
-class AgyProvider(AgentProvider):
-    id = "agy"
+class AntigravityProvider(AgentProvider):
+    id = "antigravity"
     display_name = "Google Gemini"
     _COMPLETION_GRACE_SECONDS = 30
 
@@ -30,23 +30,26 @@ class AgyProvider(AgentProvider):
 
     @property
     def models(self) -> tuple[str, ...]:
-        return self.settings.agy_models
+        return self.settings.antigravity_models
 
     @property
     def available(self) -> bool:
-        return shutil.which(self.settings.agy_command) is not None
+        return shutil.which(self.settings.antigravity_command) is not None
 
     async def run(self, request: AgentRequest, emit: EmitEvent) -> AgentResult:
         if not self.available:
-            raise ProviderError(f"AGY command not found: {self.settings.agy_command}")
+            raise ProviderError(
+                "Antigravity command not found: "
+                f"{self.settings.antigravity_command}"
+            )
         self.validate_model(request.model)
         prompt = self._build_prompt(request)
-        log_dir = Path(tempfile.gettempdir()) / "agy-web-bridge"
+        log_dir = Path(tempfile.gettempdir()) / "orbitpane"
         log_dir.mkdir(mode=0o700, exist_ok=True)
         log_path = log_dir / f"{request.run_id}.log"
 
         command = [
-            self.settings.agy_command,
+            self.settings.antigravity_command,
             "-p",
             prompt,
             "--add-dir",
@@ -58,16 +61,16 @@ class AgyProvider(AgentProvider):
             "--log-file",
             str(log_path),
         ]
-        if self.settings.agy_skip_permissions:
+        if self.settings.antigravity_skip_permissions:
             command.append("--dangerously-skip-permissions")
 
         environment = os.environ.copy()
         for key in tuple(environment):
             if key.startswith("ANTIGRAVITY_"):
                 environment.pop(key, None)
-        if self.settings.agy_proxy_url:
+        if self.settings.antigravity_proxy_url:
             for key in ("http_proxy", "https_proxy", "all_proxy"):
-                environment[key] = self.settings.agy_proxy_url
+                environment[key] = self.settings.antigravity_proxy_url
         environment["PYTHONUNBUFFERED"] = "1"
 
         process = await asyncio.create_subprocess_exec(
@@ -116,7 +119,7 @@ class AgyProvider(AgentProvider):
                     )
                     if remaining <= 0:
                         logger.warning(
-                            "AGY process remained open %ds after model completion for "
+                            "Antigravity process remained open %ds after model completion for "
                             "conversation %s; terminating process tree",
                             self._COMPLETION_GRACE_SECONDS,
                             request.conversation_id,
@@ -165,7 +168,7 @@ class AgyProvider(AgentProvider):
             ):
                 detail = "".join(stderr_lines).strip()
                 raise ProviderError(
-                    f"AGY exited with code {return_code}"
+                    f"Antigravity exited with code {return_code}"
                     + (f": {detail}" if detail else "")
                 )
             if interrupted:
@@ -183,7 +186,7 @@ class AgyProvider(AgentProvider):
                 await emit(AgentEvent("token", final_content))
             if not final_content.strip() and not interrupted:
                 raise ProviderError(
-                    "AGY completed without generating text content. "
+                    "Antigravity completed without generating text content. "
                     "This usually occurs when a requested tool operation requires permissions or failed to complete."
                 )
 
