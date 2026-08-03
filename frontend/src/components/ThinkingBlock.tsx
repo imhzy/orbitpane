@@ -1,6 +1,7 @@
 import { lazy, Suspense, useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Sparkles, Brain, ChevronUp, ChevronDown } from 'lucide-react'
+import { Sparkles, Brain, ChevronRight } from 'lucide-react'
+import './ThinkingBlock.css'
 
 const MarkdownContent = lazy(() => import('./MarkdownContent'))
 
@@ -52,31 +53,41 @@ export function ThinkingBlock({
 
   if (!isThinking && !thought && (duration === undefined || duration === 0)) return null
 
+  const formatElapsed = (seconds: number): string => {
+    if (seconds < 60) return `${seconds.toFixed(1)}s`
+    const mins = Math.floor(seconds / 60)
+    const secs = (seconds % 60).toFixed(0)
+    return `${mins}m ${secs}s`
+  }
+
   return (
-    <div className={`mb-4 !p-3 overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] transition-colors duration-300 ${isThinking ? 'border-[var(--border-focus)] shadow-[0_0_12px_rgba(99,102,241,0.15)]' : 'opacity-85'}`}>
+    <div className="thinking-block-container" data-active={isThinking}>
       <button 
-        className="w-full flex items-center justify-between !p-3 rounded-lg bg-[var(--bg-thinking)] cursor-pointer select-none text-[13px] hover:bg-[var(--bg-surface-hover)] transition-colors" 
+        className="thinking-block-header"
         onClick={() => setIsOpen(!isOpen)}
         type="button"
       >
-        <div className="flex items-center gap-2 font-medium text-[var(--text-secondary)]">
+        <div className="thinking-block-left">
           {isThinking ? (
-            <span className="text-[var(--accent-color)] animate-pulse">
-              <Sparkles size={16} />
+            <span className="thinking-icon active">
+              <Sparkles size={14} />
             </span>
           ) : (
-            <span className="text-[var(--text-tertiary)]">
-              <Brain size={16} />
+            <span className="thinking-icon done">
+              <Brain size={14} />
             </span>
           )}
-          <span>
-            {isThinking ? '思考中 / Thinking Process...' : `已思考 ${elapsed} 秒 (Thought process)`}
+          <span className="thinking-label">
+            {isThinking ? '思考中...' : '思考过程'}
           </span>
-          {isThinking && <span className="font-mono text-[var(--accent-color)] text-[11px] ml-1 px-1.5 py-0.5 rounded bg-[var(--accent-subtle-bg)]">{elapsed.toFixed(1)}s</span>}
+          <span className="thinking-duration">
+            {formatElapsed(elapsed)}
+          </span>
         </div>
-        <div className="text-[var(--text-tertiary)] opacity-60">
-          {isOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-        </div>
+        <ChevronRight 
+          size={14} 
+          className={`thinking-chevron ${isOpen ? 'open' : ''}`} 
+        />
       </button>
 
       <AnimatePresence>
@@ -86,21 +97,21 @@ export function ThinkingBlock({
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="overflow-hidden"
+            className="thinking-block-body-wrapper"
           >
-            <div className="px-4 py-3 sm:px-6 sm:py-5 text-[13px] leading-relaxed text-[var(--text-secondary)] border-t border-[var(--border-subtle)] bg-[var(--bg-card)]">
+            <div className="thinking-block-body">
               {thought ? (
-                <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-pre:my-2 prose-pre:bg-[var(--bg-code)] text-[var(--text-secondary)]">
+                <div className="thinking-content">
                   <Suspense fallback={<div>{thought}</div>}>
                     <MarkdownContent content={thought} />
                   </Suspense>
                 </div>
               ) : isThinking ? (
-                <div className="flex flex-col gap-3">
-                  <span className="text-sm italic opacity-80 text-[var(--text-secondary)]">正在分析上下文、思考解题步骤与编写回复...</span>
+                <div className="thinking-placeholder">
+                  正在分析上下文与制定策略...
                 </div>
               ) : (
-                <div className="text-sm italic opacity-80 text-[var(--text-secondary)]">思考过程已完成。</div>
+                <div className="thinking-placeholder">思考过程已完成。</div>
               )}
             </div>
           </motion.div>

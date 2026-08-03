@@ -1,14 +1,7 @@
-import { lazy, Suspense, useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { motion, AnimatePresence } from 'framer-motion'
-import { 
-  Menu, X, MessageSquare, Plus, Trash2, Folder,
-  ChevronRight, Send, Compass, FolderPlus, Sun, Moon,
-  Check, ChevronDown, Sparkles, Copy, Layers, HardDrive, Eraser, Pencil,
-  User, RotateCcw, ThumbsUp, ThumbsDown, AlertCircle, Square, RefreshCw,
-  FolderGit2, Cpu, Download
-} from 'lucide-react'
-import { LogoIcon } from './LogoIcon'
+import { Check } from 'lucide-react'
 import './App.css'
 import { apiFetch } from './lib/api'
 import { AUTH_EXPIRED_EVENT, clearLegacyAuthState } from './lib/auth'
@@ -28,97 +21,15 @@ function formatTimestamp(ts?: string | number) {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-import { ThinkingBlock } from './components/ThinkingBlock'
-
 import { Login } from './components/Login'
 import { ConfirmDialog } from './components/ConfirmDialog'
-
-const MarkdownContent = lazy(() => import('./components/MarkdownContent'))
-
-interface ModelSelectorProps {
-  selectedModel: string
-  setSelectedModel: (model: string) => void
-  models: string[]
-  formatModelName: (modelId: string) => string
-  position: 'header' | 'input'
-  onOpen?: () => void
-}
-
-function ModelSelector({ selectedModel, setSelectedModel, models, formatModelName, position, onOpen }: ModelSelectorProps) {
-  const [isOpen, setIsOpen] = useState(false)
-  const dropdownRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setIsOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
-
-  const handleToggle = () => {
-    const nextState = !isOpen
-    setIsOpen(nextState)
-    if (nextState && onOpen) {
-      onOpen()
-    }
-  }
-
-  const isInput = position === 'input'
-
-  return (
-    <div
-      className={`model-selector-container ${isInput ? 'input-position mobile-only-model-selector' : 'header-position desktop-only-model-selector'}`}
-      ref={dropdownRef}
-    >
-      <button
-        className={`model-selector-btn ${isInput ? 'input-btn' : ''}`}
-        onClick={handleToggle}
-        aria-haspopup="listbox"
-        aria-expanded={isOpen}
-        aria-label="选择 AI 模型"
-      >
-        {isInput && <Sparkles size={13} className="model-btn-sparkle" />}
-        <span className="model-selector-text">{formatModelName(selectedModel)}</span>
-        <ChevronDown size={14} className={`model-selector-chevron ${isOpen ? 'open' : ''}`} />
-      </button>
-
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: isInput ? 6 : -5, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: isInput ? 6 : -5, scale: 0.98 }}
-            transition={{ duration: 0.15 }}
-            className={`model-dropdown-menu ${isInput ? 'input-menu' : ''}`}
-            role="listbox"
-            aria-label="AI 模型列表"
-          >
-            {models.map(m => (
-              <button
-                key={m}
-                role="option"
-                aria-selected={selectedModel === m}
-                className={`model-dropdown-item ${selectedModel === m ? 'selected' : ''}`}
-                onClick={() => {
-                  setSelectedModel(m)
-                  setIsOpen(false)
-                }}
-              >
-                <div className="model-item-icon">
-                  {selectedModel === m ? <Check size={14} /> : <div style={{ width: 14 }} />}
-                </div>
-                <span className="model-item-name">{formatModelName(m)}</span>
-              </button>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  )
-}
+import { Sidebar } from './components/Sidebar'
+import { ChatHeader } from './components/ChatHeader'
+import { WelcomeScreen } from './components/WelcomeScreen'
+import { MessageList } from './components/MessageList'
+import { ChatInput } from './components/ChatInput'
+import { CommandPalette } from './components/CommandPalette'
+import { Cpu, Sparkles, MessageSquare } from 'lucide-react'
 
 export default function App() {
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
@@ -221,9 +132,9 @@ export default function App() {
   const [activeConv, setActiveConv] = useState<Conversation | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false)
+  const [isDrawerOpen, setIsDrawerOpen] = useState(window.innerWidth >= 1024)
   const [drawerMode, setDrawerMode] = useState<'sessions' | 'create'>('sessions')
-  
+
   // Create Session State
   const [currentPath, setCurrentPath] = useState<string>('/root')
   const [items, setItems] = useState<DirItem[]>([])
@@ -241,6 +152,9 @@ export default function App() {
     setToast(msg)
     setTimeout(() => setToast(null), 2000)
   }
+
+  // Command Palette State
+  const [isCmdPaletteOpen, setIsCmdPaletteOpen] = useState(false)
 
   // Confirm dialog state
   const [confirmState, setConfirmState] = useState<{
@@ -280,7 +194,6 @@ export default function App() {
   const reconnectTimerRef = useRef<any>(null)
   const reconnectAttemptRef = useRef<number>(0)
   const loadConversationsRef = useRef<(isInitial?: boolean) => void>(() => {})
-  const connectWebSocketRef = useRef<(conv: Conversation, isManual?: boolean) => void>(() => {})
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -334,7 +247,7 @@ export default function App() {
     })
   }, [scrollToBottom])
 
-  const isAgentThinking = messages.length > 0 && messages[messages.length - 1].role === 'agent' && messages[messages.length - 1].isThinking;
+  const isAgentThinking = messages.length > 0 && messages[messages.length - 1].role === 'agent' && messages[messages.length - 1].isThinking
 
   const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null)
 
@@ -354,10 +267,24 @@ export default function App() {
 
   useKeyboardShortcuts({
     onEscape: () => {
-      setIsDrawerOpen(false)
+      if (isCmdPaletteOpen) {
+        setIsCmdPaletteOpen(false)
+      } else {
+        setIsDrawerOpen(false)
+      }
     },
     onFocusInput: () => {
       textareaRef.current?.focus()
+    },
+    onCmdPalette: () => {
+      setIsCmdPaletteOpen(prev => !prev)
+    },
+    onToggleSidebar: () => {
+      setIsDrawerOpen(prev => !prev)
+    },
+    onNewWorkspace: () => {
+      setIsDrawerOpen(true)
+      setDrawerMode('create')
     }
   })
 
@@ -366,9 +293,6 @@ export default function App() {
       navigator.vibrate(50)
     }
   }
-
-  // Fluid Spring Configuration
-  const springConfig = { type: "spring" as const, damping: 25, stiffness: 250, mass: 1 }
 
   useEffect(() => {
     const updateAppHeight = () => {
@@ -407,9 +331,9 @@ export default function App() {
     activeConvRef.current = activeConv
   }, [activeConv])
 
-  const isAgentThinkingRef = useRef<boolean>(isAgentThinking)
+  const isAgentThinkingRef = useRef<boolean>(!!isAgentThinking)
   useEffect(() => {
-    isAgentThinkingRef.current = isAgentThinking
+    isAgentThinkingRef.current = !!isAgentThinking
   }, [isAgentThinking])
 
   const pendingSendMessageRef = useRef<{ content: string; model: string; provider: string } | null>(null)
@@ -423,7 +347,7 @@ export default function App() {
     }
   }, [isLoggedIn])
 
-  // Dynamic loading when sidebar drawer is open or mode changes, plus auto-refresh polling while drawer is open
+  // Dynamic loading when sidebar drawer is open or mode changes
   useEffect(() => {
     if (!isDrawerOpen || !isLoggedIn) return
 
@@ -438,78 +362,51 @@ export default function App() {
     }
   }, [isDrawerOpen, drawerMode, isLoggedIn, currentPath])
 
-
   // Window focus & tab visibility change & network online auto-reconnecting
   useEffect(() => {
     const handleFocusOrVisibility = () => {
       if (document.visibilityState === 'visible' && isLoggedIn) {
         loadConversationsRef.current(false)
         loadProviders()
-        loadModels()
-        if (activeConvRef.current) {
-          if (!isAgentThinkingRef.current) {
-            loadHistory(activeConvRef.current.id)
-          }
-          if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
-            connectWebSocketRef.current(activeConvRef.current, false)
-          }
-        }
-        if (isDrawerOpen && drawerMode === 'create') {
-          loadDir(currentPath)
-        }
       }
     }
 
     const handleOnline = () => {
-      if (isLoggedIn && activeConvRef.current) {
-        showToast('网络已连接，正在主动重连 AI agent...')
-        connectWebSocketRef.current(activeConvRef.current, true)
+      if (isLoggedIn && activeConvRef.current && !socketRef.current) {
+        connectWebSocket(activeConvRef.current, false)
       }
     }
 
     window.addEventListener('focus', handleFocusOrVisibility)
     document.addEventListener('visibilitychange', handleFocusOrVisibility)
     window.addEventListener('online', handleOnline)
+
     return () => {
       window.removeEventListener('focus', handleFocusOrVisibility)
       document.removeEventListener('visibilitychange', handleFocusOrVisibility)
       window.removeEventListener('online', handleOnline)
     }
-  }, [isLoggedIn, isDrawerOpen, drawerMode, currentPath])
-
-  // Active connection health check & background auto-reconnect polling
-  useEffect(() => {
-    if (!isLoggedIn) return
-
-    const timer = setInterval(() => {
-      if (activeConvRef.current) {
-        const currentWs = socketRef.current
-        if (!currentWs || currentWs.readyState === WebSocket.CLOSED) {
-          console.log('[WS Health Monitor] Connection closed, actively triggering reconnection...')
-          connectWebSocketRef.current(activeConvRef.current, false)
-        }
-      }
-    }, 4000)
-
-    return () => clearInterval(timer)
   }, [isLoggedIn])
 
-  useLayoutEffect(() => {
-    scheduleScrollToBottom()
-  }, [messages, scheduleScrollToBottom])
-
+  // Auto-scroll effect
   useEffect(() => {
+    if (!isLoggedIn) return
+    const container = messagesContainerRef.current
     const content = messagesContentRef.current
-    if (!content) return
+    if (!container || !content) return
 
-    const observer = new ResizeObserver(scheduleScrollToBottom)
-    observer.observe(content)
-    const mutationObserver = new MutationObserver(scheduleScrollToBottom)
-    mutationObserver.observe(content, {
-      characterData: true,
-      childList: true,
-      subtree: true,
+    const observer = new ResizeObserver(() => {
+      scheduleScrollToBottom()
     })
+
+    const mutationObserver = new MutationObserver(() => {
+      scheduleScrollToBottom()
+    })
+
+    observer.observe(content)
+    mutationObserver.observe(content, { childList: true, subtree: true, characterData: true })
+
+    scheduleScrollToBottom()
 
     return () => {
       observer.disconnect()
@@ -522,7 +419,9 @@ export default function App() {
   }, [isLoggedIn, scheduleScrollToBottom])
 
   const loadConversations = (isInitial = false) => {
-    setIsConversationsLoading(true)
+    if (isInitial) {
+      setIsConversationsLoading(true)
+    }
     apiFetch<Conversation[]>('/api/conversations')
       .then((data: Conversation[]) => {
         setConversations(data)
@@ -543,7 +442,9 @@ export default function App() {
         }
       })
       .catch(err => console.error(err))
-      .finally(() => setIsConversationsLoading(false))
+      .finally(() => {
+        setIsConversationsLoading(false)
+      })
   }
   loadConversationsRef.current = loadConversations
 
@@ -564,9 +465,15 @@ export default function App() {
       .then(data => {
         if (Array.isArray(data)) {
           setMessages(data)
+        } else {
+          setMessages([])
         }
+        setTimeout(() => scrollToBottom(false), 100)
       })
-      .catch(err => console.error(err))
+      .catch(err => {
+        console.error(err)
+        setMessages([])
+      })
   }
 
   const connectWebSocket = useCallback((conv: Conversation, isManual = false) => {
@@ -747,45 +654,19 @@ export default function App() {
     }
 
     socketRef.current = ws
-  }, [])
-  connectWebSocketRef.current = connectWebSocket
+  }, [loadModels])
 
   const selectConversation = (conv: Conversation) => {
-    shouldAutoScrollRef.current = true
+    triggerVibration()
     setActiveConv(conv)
-    setIsDrawerOpen(false)
+    if (window.innerWidth < 1024) {
+      setIsDrawerOpen(false)
+    }
     loadModels(conv.provider)
-    
     const url = new URL(window.location.href)
     url.searchParams.set('id', conv.id.toString())
     window.history.pushState({}, '', url.toString())
-
-    if (reconnectTimerRef.current) {
-      clearTimeout(reconnectTimerRef.current)
-      reconnectTimerRef.current = null
-    }
-
-    if (socketRef.current) {
-      socketRef.current.onclose = null
-      socketRef.current.close()
-      socketRef.current = null
-    }
-
-    apiFetch<Message[]>(`/api/history/${conv.id}`)
-      .then(data => {
-        if (Array.isArray(data)) {
-          setMessages(data)
-        } else {
-          setMessages([])
-        }
-        setTimeout(() => scrollToBottom(false), 100)
-      })
-      .catch(err => {
-        console.error(err)
-        setMessages([])
-      })
-
-    connectWebSocket(conv, false)
+    loadHistory(conv.id)
   }
 
   const createConversation = () => {
@@ -1079,460 +960,72 @@ export default function App() {
       </AnimatePresence>
 
       {/* Sidebar Drawer */}
-      <AnimatePresence>
-        {isDrawerOpen && (
-          <motion.div 
-            initial={{ x: '-100%' }} animate={{ x: 0 }} exit={{ x: '-100%' }}
-            transition={springConfig}
-            className="drawer"
-            role="dialog"
-            aria-modal="true"
-            aria-label="工作区菜单"
-            drag="x"
-            dragConstraints={{ left: -340, right: 0 }}
-            dragElastic={0.1}
-            onDragEnd={(_e, { offset, velocity }) => {
-              if (offset.x < -100 || velocity.x < -300) {
-                setIsDrawerOpen(false)
-              }
-            }}
-          >
-            <div className="drawer-header">
-              <div className="drawer-brand">
-                <LogoIcon size={24} />
-                <div className="brand-title-group">
-                  <span className="brand-main-name">ANTIGRAVITY</span>
-                  <span className="brand-badge-sm">STUDIO</span>
-                </div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <button 
-                  className="icon-btn" 
-                  title="刷新数据" 
-                  onClick={() => {
-                    loadConversations(false)
-                    if (drawerMode === 'create') loadDir(currentPath)
-                    showToast('最新数据已刷新')
-                  }}
-                >
-                  <RefreshCw size={16} className={isConversationsLoading ? 'animate-spin' : ''} />
-                </button>
-                <button className="icon-btn" onClick={() => setIsDrawerOpen(false)}>
-                  <X size={18} />
-                </button>
-              </div>
-            </div>
-
-            {/* Navigation Tabs */}
-            <div className="drawer-tabs">
-              <button 
-                className={`drawer-tab-btn ${drawerMode === 'sessions' ? 'active' : ''}`}
-                onClick={() => setDrawerMode('sessions')}
-              >
-                <MessageSquare size={14} />
-                <span>会话列表</span>
-              </button>
-              <button 
-                className={`drawer-tab-btn ${drawerMode === 'create' ? 'active' : ''}`}
-                onClick={() => setDrawerMode('create')}
-              >
-                <Plus size={14} />
-                <span>新建工作区</span>
-              </button>
-            </div>
-
-            {/* Sessions Mode */}
-            {drawerMode === 'sessions' && (
-              <div className="drawer-content">
-                {isConversationsLoading ? (
-                  <div className="flex flex-col gap-2 p-2">
-                    {[1, 2, 3].map(i => (
-                      <div key={i} className="h-14 bg-[var(--bg-surface-hover)] rounded-xl animate-pulse" />
-                    ))}
-                  </div>
-                ) : conversations.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-10 opacity-70">
-                    <Compass size={48} className="text-[var(--accent-color)] mb-4 opacity-50" />
-                    <div className="text-center text-[var(--text-secondary)] text-[14px] font-medium">
-                      暂无工作区
-                    </div>
-                    <div className="text-center text-[var(--text-tertiary)] text-[12px] mt-1 mb-4">
-                      点击下方按钮创建您的第一个智能工作区
-                    </div>
-                    <button 
-                      className="icon-btn" 
-                      onClick={() => setDrawerMode('create')}
-                      style={{ background: 'var(--accent-subtle-bg)', color: 'var(--accent-text)', border: '1px solid var(--accent-border)' }}
-                    >
-                      <Plus size={14} style={{ marginRight: 4 }} /> 立即创建
-                    </button>
-                  </div>
-                ) : (
-                  conversations.map(conv => {
-                    const isEditing = editingConvId === conv.id
-                    const badge = getProviderBadge(conv.provider, providers)
-                    const ProviderIcon = badge.Icon
-                    return (
-                      <div 
-                        key={conv.id} 
-                        className={`list-item ${activeConv?.id === conv.id ? 'selected' : ''}`}
-                        onClick={() => {
-                          if (!isEditing) selectConversation(conv)
-                        }}
-                      >
-                        <div className={`item-icon ${badge.type}`}>
-                          <ProviderIcon size={16} />
-                        </div>
-                        <div className="item-content">
-                          {isEditing ? (
-                            <input
-                              type="text"
-                              className="cw-input"
-                              style={{ padding: '2px 6px', fontSize: '13px', height: '26px' }}
-                              value={editingConvName}
-                              autoFocus
-                              onClick={e => e.stopPropagation()}
-                              onChange={e => setEditingConvName(e.target.value)}
-                              onKeyDown={e => {
-                                if (e.key === 'Enter') saveConvName(conv.id)
-                                if (e.key === 'Escape') setEditingConvId(null)
-                              }}
-                              onBlur={() => saveConvName(conv.id)}
-                            />
-                          ) : (
-                            <>
-                              <span className="item-title" title={conv.name}>{conv.name}</span>
-                              <div className="item-badge-row">
-                                <span className={`conv-provider-tag ${badge.className}`}>
-                                  {badge.text}
-                                </span>
-                              </div>
-                              <span className="item-subtitle" title={conv.path}>{conv.path}</span>
-                            </>
-                          )}
-                        </div>
-                        <div className="item-actions" style={{ display: 'flex', gap: '4px', alignItems: 'center' }} onClick={e => e.stopPropagation()}>
-                          {isEditing ? (
-                            <button
-                              className="icon-btn"
-                              title="保存名称"
-                              onClick={() => saveConvName(conv.id)}
-                            >
-                              <Check size={14} />
-                            </button>
-                          ) : (
-                            <>
-                              <button 
-                                className="icon-btn" 
-                                title="重命名工作区"
-                                onClick={(e) => startEditingConv(e, conv)}
-                              >
-                                <Pencil size={13} />
-                              </button>
-                              <button 
-                                className="icon-btn destructive" 
-                                title="删除会话"
-                                onClick={(e) => deleteConversation(e, conv.id)}
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })
-                )}
-              </div>
-            )}
-
-            {/* Create Workspace Mode */}
-            {drawerMode === 'create' && (
-              <div className="drawer-content cw-content">
-                <div className="cw-header">
-                  <h3 className="cw-title">配置新工作区</h3>
-                  <p className="cw-subtitle">设定工作区名称并选择项目所在的本地目录</p>
-                </div>
-
-                <div className="cw-form">
-                  <div className="cw-field-group">
-                    <label className="cw-label">工作区名称</label>
-                    <div className="cw-input-wrapper">
-                      <Layers size={14} className="cw-icon" />
-                      <input 
-                        type="text" 
-                        value={newConvName}
-                        onChange={e => setNewConvName(e.target.value)}
-                        className="cw-input"
-                        aria-label="工作区名称"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="cw-field-group">
-                    <label className="cw-label">项目路径</label>
-                    <div className="cw-input-wrapper">
-                      <Folder size={14} className="cw-icon" />
-                      <input
-                        type="text"
-                        placeholder="输入绝对路径或从下方选择"
-                        value={selectedDir}
-                        onChange={e => {
-                          setSelectedDir(e.target.value)
-                          if (e.target.value.startsWith('/')) {
-                            setCurrentPath(e.target.value)
-                          }
-                        }}
-                        className="cw-input font-mono"
-                        aria-label="项目路径"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="cw-field-group">
-                    <label className="cw-label">Agent 接入方式 (Provider)</label>
-                    <div className="cw-input-wrapper">
-                      <Cpu size={14} className="cw-icon" />
-                      <select
-                        value={selectedProvider || defaultProvider}
-                        onChange={e => setSelectedProvider(e.target.value)}
-                        className="cw-input"
-                        aria-label="Agent Provider"
-                        style={{ appearance: 'auto' }}
-                      >
-                        {providers.map(p => (
-                          <option key={p.id} value={p.id} disabled={!p.available}>
-                            {p.name} {p.available ? '' : '(不可用)'}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="cw-browser-section">
-                  <div className="cw-browser-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span className="cw-browser-title">目录浏览</span>
-                    <button 
-                      className="icon-btn" 
-                      title="刷新目录"
-                      onClick={() => {
-                        loadDir(currentPath)
-                        showToast('目录结构已刷新')
-                      }}
-                      style={{ padding: 3, width: 24, height: 24 }}
-                    >
-                      <RefreshCw size={12} />
-                    </button>
-                  </div>
-                  <div className="cw-browser">
-                    <div className="cw-crumbs">
-                      {getBreadcrumbParts(currentPath).map((part, idx, arr) => (
-                        <div key={part.fullPath} className="cw-crumb-item">
-                          <button
-                            className={`cw-crumb ${idx === arr.length - 1 ? 'active' : ''}`}
-                            onClick={() => {
-                              setCurrentPath(part.fullPath)
-                              setSelectedDir(part.fullPath)
-                            }}
-                          >
-                            {part.name === '/' ? <HardDrive size={12} /> : part.name}
-                          </button>
-                          {idx < arr.length - 1 && <ChevronRight size={10} className="cw-crumb-sep" />}
-                        </div>
-                      ))}
-                    </div>
-
-                    <div className="cw-list">
-                      {(() => {
-                        const filtered = items.filter(item => item.is_dir)
-
-                        if (filtered.length === 0) {
-                          return (
-                            <div className="cw-empty">
-                              <FolderPlus size={20} />
-                              <span>该目录下无子文件夹</span>
-                            </div>
-                          )
-                        }
-
-                        return filtered.map(item => {
-                          const isSelected = selectedDir === item.path
-                          return (
-                            <button 
-                              key={item.path}
-                              className={`cw-item ${isSelected ? 'selected' : ''}`}
-                              onClick={() => setSelectedDir(item.path)}
-                            >
-                              <Folder size={14} className="cw-item-icon" />
-                              <span className="cw-item-name">{item.name}</span>
-                              {isSelected && (
-                                <motion.span 
-                                  initial={{ scale: 0 }} 
-                                  animate={{ scale: 1 }} 
-                                  className="cw-check"
-                                >
-                                  <Check size={10} strokeWidth={3} />
-                                </motion.span>
-                              )}
-                              <span
-                                className="cw-enter"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setCurrentPath(item.path)
-                                  setSelectedDir(item.path)
-                                }}
-                                role="button"
-                                tabIndex={0}
-                                title="进入该目录"
-                              >
-                                <ChevronRight size={14} />
-                              </span>
-                            </button>
-                          )
-                        })
-                      })()}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="cw-action">
-                  <button 
-                    className="cw-create-btn"
-                    disabled={!selectedDir.trim() || !newConvName.trim()}
-                    onClick={createConversation}
-                  >
-                    <Plus size={16} strokeWidth={2.5} />
-                    <span>创建工作区</span>
-                  </button>
-                </div>
-              </div>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <Sidebar
+        isDrawerOpen={isDrawerOpen}
+        setIsDrawerOpen={setIsDrawerOpen}
+        drawerMode={drawerMode}
+        setDrawerMode={setDrawerMode}
+        conversations={conversations}
+        isConversationsLoading={isConversationsLoading}
+        activeConv={activeConv}
+        selectConversation={selectConversation}
+        editingConvId={editingConvId}
+        editingConvName={editingConvName}
+        setEditingConvName={setEditingConvName}
+        saveConvName={saveConvName}
+        startEditingConv={startEditingConv}
+        setEditingConvId={setEditingConvId}
+        deleteConversation={deleteConversation}
+        getProviderBadge={getProviderBadge}
+        providers={providers}
+        newConvName={newConvName}
+        setNewConvName={setNewConvName}
+        selectedDir={selectedDir}
+        setSelectedDir={setSelectedDir}
+        currentPath={currentPath}
+        setCurrentPath={setCurrentPath}
+        selectedProvider={selectedProvider}
+        setSelectedProvider={setSelectedProvider}
+        defaultProvider={defaultProvider}
+        items={items}
+        loadDir={loadDir}
+        getBreadcrumbParts={getBreadcrumbParts}
+        createConversation={createConversation}
+        loadConversations={loadConversations}
+        showToast={showToast}
+      />
 
       {/* Main Chat Area */}
       <div className="chat-main">
-        <div className="chat-header">
-          <div className="header-brand">
-            <motion.button 
-              whileTap={{ scale: 0.95 }}
-              className="icon-btn" 
-              onClick={() => setIsDrawerOpen(true)}
-              title="展开工作区菜单"
-            >
-              <Menu size={18} />
-            </motion.button>
-
-            <LogoIcon size={26} />
-
-            <ModelSelector
-              selectedModel={selectedModel}
-              setSelectedModel={setSelectedModel}
-              models={models}
-              formatModelName={formatModelName}
-              position="header"
-              onOpen={loadModels}
-            />
-
-            <div className="header-title-wrapper">
-              <div className="header-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                {activeConv ? (
-                  editingConvId === activeConv.id ? (
-                    <input
-                      type="text"
-                      className="cw-input"
-                      style={{ padding: '2px 8px', fontSize: '15px', fontWeight: 600, height: '28px', maxWidth: '240px' }}
-                      value={editingConvName}
-                      autoFocus
-                      onChange={e => setEditingConvName(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') saveConvName(activeConv.id)
-                        if (e.key === 'Escape') setEditingConvId(null)
-                      }}
-                      onBlur={() => saveConvName(activeConv.id)}
-                    />
-                  ) : (
-                    <>
-                      <span>{activeConv.name}</span>
-                      <span className={`conv-provider-tag ${getProviderBadge(activeConv.provider, providers).className}`}>
-                        {getProviderBadge(activeConv.provider, providers).text}
-                      </span>
-                      <button
-                        className="icon-btn edit-title-btn"
-                        title="修改工作区名称"
-                        onClick={(e) => startEditingConv(e, activeConv)}
-                        style={{ padding: 2, width: 22, height: 22, opacity: 0.6 }}
-                      >
-                        <Pencil size={12} />
-                      </button>
-                    </>
-                  )
-                ) : (
-                  <div className="brand-title-group compact">
-                    <span className="brand-main-name">ANTIGRAVITY</span>
-                    <span className="brand-badge-sm">STUDIO</span>
-                  </div>
-                )}
-              </div>
-              {activeConv && (
-                <div className="header-path">{activeConv.path}</div>
-              )}
-            </div>
-          </div>
-
-          <div className="header-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <button 
-              className="icon-btn theme-toggle-btn"
-              onClick={toggleTheme}
-              title={theme === 'dark' ? '切换至明亮模式' : '切换至暗夜模式'}
-            >
-              {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
-            </button>
-
-            {activeConv ? (
-              <div className="header-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <motion.button
-                  whileTap={{ scale: 0.95 }}
-                  className="icon-btn"
-                  disabled={isExporting || !messages.some(message => message.role !== 'system')}
-                  title={isExporting ? '正在导出对话图片' : '导出当前对话为 PNG 图片'}
-                  aria-label={isExporting ? '正在导出对话图片' : '导出当前对话为 PNG 图片'}
-                  onClick={exportConversationAsImage}
-                >
-                  <Download size={16} className={isExporting ? 'animate-pulse' : ''} />
-                </motion.button>
-                <motion.button 
-                  whileTap={{ scale: 0.95 }}
-                  className="icon-btn"
-                  title="清空会话"
-                  onClick={clearMessages}
-                >
-                  <Eraser size={16} />
-                </motion.button>
-                <div 
-                  className={`status-indicator ${!isConnected ? 'clickable' : ''}`}
-                  onClick={() => {
-                    if (!isConnected && activeConvRef.current) {
-                      connectWebSocket(activeConvRef.current, true)
-                    }
-                  }}
-                  title={isConnected ? 'AI agent 已在线连接' : isReconnecting ? '正在尝试重新连接...' : '未连接，点击主动发起重连'}
-                  style={{ cursor: isConnected ? 'default' : 'pointer' }}
-                >
-                  <div className={`status-dot ${isConnected ? 'online' : isReconnecting ? 'connecting' : 'offline'}`} />
-                  <span>{isConnected ? '在线已连接' : isReconnecting ? '正在重连...' : '未连接 (点击重连)'}</span>
-                </div>
-              </div>
-            ) : (
-              <button className="icon-btn" onClick={() => setIsDrawerOpen(true)}>
-                <Plus size={16} style={{ marginRight: 4 }} />
-                <span style={{ fontSize: 13, fontWeight: 600 }}>新建工作区</span>
-              </button>
-            )}
-          </div>
-        </div>
+        <ChatHeader
+          activeConv={activeConv}
+          editingConvId={editingConvId}
+          setEditingConvId={setEditingConvId}
+          editingConvName={editingConvName}
+          setEditingConvName={setEditingConvName}
+          saveConvName={saveConvName}
+          startEditingConv={startEditingConv}
+          getProviderBadge={getProviderBadge}
+          providers={providers}
+          isDrawerOpen={isDrawerOpen}
+          setIsDrawerOpen={setIsDrawerOpen}
+          selectedModel={selectedModel}
+          setSelectedModel={setSelectedModel}
+          models={models}
+          formatModelName={formatModelName}
+          loadModels={loadModels}
+          theme={theme}
+          toggleTheme={toggleTheme}
+          onOpenCmdPalette={() => setIsCmdPaletteOpen(true)}
+          isConnected={isConnected}
+          isReconnecting={isReconnecting}
+          connectWebSocket={connectWebSocket}
+          activeConvRef={activeConvRef}
+          isExporting={isExporting}
+          exportConversationAsImage={exportConversationAsImage}
+          messages={messages}
+          clearMessages={clearMessages}
+        />
 
         <div
           className="chat-messages"
@@ -1541,259 +1034,74 @@ export default function App() {
           onScroll={handleMessagesScroll}
         >
           <div className="chat-message-list" ref={messagesContentRef}>
-            {!activeConv && (
-              <motion.div
-                initial={{ opacity: 0, y: 15 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.4 }}
-                className="welcome-container"
-              >
-                <div className="welcome-hero-wrapper">
-                  <div className="welcome-hero-icon">
-                    <LogoIcon size={52} />
-                  </div>
-                  <h1 className="welcome-hero-title">
-                    ANTIGRAVITY <span className="title-highlight">STUDIO</span>
-                  </h1>
-                  <div className="welcome-hero-badge">
-                    <Sparkles size={13} className="badge-sparkle" />
-                    <span>NEXT-GEN AI PAIR PROGRAMMER</span>
-                  </div>
-                </div>
-                <p className="welcome-subtitle">
-                  下一代 AI 结对编程与智能工作区
-                </p>
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  className="cw-create-btn"
-                  style={{ marginTop: 4, padding: '12px 24px', fontSize: '14px', borderRadius: '12px' }}
-                  onClick={() => setIsDrawerOpen(true)}
-                >
-                  <Plus size={16} strokeWidth={2.5} />
-                  <span>选择或新建工作区</span>
-                </motion.button>
-              </motion.div>
-            )}
-
-            {activeConv && messages.filter(m => m.role !== 'system').length === 0 && (
-            <motion.div
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.4 }}
-              className="welcome-container session-empty-container"
-            >
-              <div className="session-hero-wrapper">
-                <div className="session-hero-icon">
-                  <FolderGit2 size={32} />
-                </div>
-                <h2 className="session-hero-title">
-                  {activeConv.name}
-                </h2>
-                <div className="session-path-badge">
-                  <Folder size={12} />
-                  <span className="font-mono">{activeConv.path}</span>
-                </div>
-              </div>
-            </motion.div>
-          )}
-
-            {messages.map((m, i) => {
-            if (m.role === 'system') {
-              return (
-                <div key={i} className={`system-msg ${m.isError ? 'error' : ''}`}>
-                  {m.isError ? <AlertCircle size={14} /> : <Sparkles size={14} />}
-                  <span>{m.content}</span>
-                </div>
-              )
-            }
-
-            const isLastAgentMessage = m.role === 'agent' && i === messages.length - 1;
-
-            return (
-              <motion.div 
-                key={i} 
-                initial={{ opacity: 0, y: 14, scale: 0.99 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                transition={springConfig}
-                className={`message-row ${m.role}`}
-              >
-                <div className="message-header">
-                  <div className="message-author">
-                    {m.role === 'agent' ? (
-                      <div className="avatar agent-avatar">
-                        <LogoIcon size={16} />
-                        <span className="avatar-pulse-ring" />
-                      </div>
-                    ) : (
-                      <div className="avatar user-avatar">
-                        <User size={14} />
-                      </div>
-                    )}
-                    <span className="author-name">
-                      {m.role === 'agent' ? 'Antigravity AI' : '你'}
-                    </span>
-                    {m.role === 'agent' && m.model && (
-                      <span className="model-pill">{formatModelName(m.model)}</span>
-                    )}
-                  </div>
-                  {m.timestamp && (
-                    <span className="message-time">{formatTimestamp(m.timestamp)}</span>
-                  )}
-                </div>
-
-                <div className="message-bubble">
-                  {m.role === 'agent' ? (
-                    <div className="agent-container">
-                      <ThinkingBlock 
-                        thought={m.thought || ''} 
-                        isThinking={!!m.isThinking} 
-                        duration={m.thinkingDuration} 
-                        elapsedSoFar={m.elapsedSoFar}
-                      />
-
-                      {m.content ? (
-                        <div className="markdown-body">
-                          <Suspense fallback={<div>{m.content}</div>}>
-                            <MarkdownContent
-                              content={m.content}
-                              enableCodeBlocks
-                            />
-                          </Suspense>
-                        </div>
-                      ) : null}
-
-                      {m.isThinking && m.content && (
-                        <span className="streaming-cursor" />
-                      )}
-
-                      {!m.isThinking && m.content && (
-                        <div className="message-toolbar">
-                          <button 
-                            className={`toolbar-btn ${copiedMsgIdx === i ? 'copied' : ''}`}
-                            title={copiedMsgIdx === i ? '已复制' : '复制全文'}
-                            onClick={() => copyMessageText(m.content, i)}
-                          >
-                            {copiedMsgIdx === i ? <Check size={14} className="text-success" /> : <Copy size={14} />}
-                            <span className="toolbar-btn-text">{copiedMsgIdx === i ? '已复制' : '复制'}</span>
-                          </button>
-
-                          <button 
-                            className={`toolbar-btn ${feedbackState[i] === 'up' ? 'active-up' : ''}`}
-                            title="好评"
-                            onClick={() => handleFeedback(i, 'up')}
-                          >
-                            <ThumbsUp size={14} />
-                          </button>
-
-                          <button 
-                            className={`toolbar-btn ${feedbackState[i] === 'down' ? 'active-down' : ''}`}
-                            title="差评"
-                            onClick={() => handleFeedback(i, 'down')}
-                          >
-                            <ThumbsDown size={14} />
-                          </button>
-
-                          {isLastAgentMessage && (
-                            <button 
-                              className="toolbar-btn regenerate-btn"
-                              title="重新生成"
-                              onClick={regenerateLastResponse}
-                            >
-                              <RotateCcw size={14} />
-                              <span className="toolbar-btn-text">重新生成</span>
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="user-content-wrapper">
-                      <div className="user-text-content">{m.content}</div>
-                      <button 
-                        className="user-copy-btn"
-                        title="复制发送内容"
-                        onClick={() => copyMessageText(m.content, i)}
-                      >
-                        {copiedMsgIdx === i ? <Check size={13} /> : <Copy size={13} />}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </motion.div>
-            )
-            })}
-            <div ref={messagesEndRef} />
-          </div>
-        </div>
-
-        <div className="input-area">
-          <div
-            className="input-box"
-            onClick={() => {
-              if (!activeConv) {
-                setIsDrawerOpen(true)
-              }
-            }}
-          >
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={handleInput}
-              onKeyDown={handleKeyDown}
-              onFocus={() => {
-                window.scrollTo(0, 0)
-                setTimeout(() => {
-                  window.scrollTo(0, 0)
-                  if (isNearBottom()) {
-                    scrollToBottom(true)
-                  }
-                }, 100)
-              }}
-              disabled={!activeConv}
-              placeholder={!activeConv ? "选择工作区后开始" : "向 Antigravity 描述需求，或输入开发指令..."}
-              aria-label="消息输入框"
-              rows={1}
-              className="input-textarea"
-            />
-            
-            <div className="input-bottom-bar">
-              <ModelSelector
-                selectedModel={selectedModel}
-                setSelectedModel={setSelectedModel}
-                models={models}
-                formatModelName={formatModelName}
-                position="input"
-                onOpen={loadModels}
+            {(!activeConv || messages.filter(m => m.role !== 'system').length === 0) ? (
+              <WelcomeScreen
+                activeConv={activeConv}
+                messages={messages}
+                setIsDrawerOpen={setIsDrawerOpen}
+                onQuickPrompt={(prompt) => {
+                  setInput(prompt)
+                  setTimeout(() => textareaRef.current?.focus(), 50)
+                }}
               />
-
-              <div className="input-bottom-right">
-                <button
-                  className={`send-btn ${isAgentThinking ? 'interrupt' : ''}`}
-                  onClick={() => {
-                    if (!activeConv) { showToast('请先选择一个工作区会话'); return }
-                    if (!isConnected) {
-                      showToast('AI 后台未连接，已为你发起重连...')
-                      connectWebSocket(activeConv, true)
-                      return
-                    }
-                    if (isAgentThinking) {
-                      socketRef.current?.send(JSON.stringify({ action: "interrupt" }))
-                      return
-                    }
-                    sendMessage()
-                  }}
-                  disabled={!isAgentThinking && !input.trim()}
-                  title={!activeConv ? '请先选择工作区' : !isConnected ? '未连接' : isAgentThinking ? '中断生成' : '发送消息'}
-                  aria-label={isAgentThinking ? '中断生成' : '发送消息'}
-                >
-                  {isAgentThinking ? <Square size={14} fill="currentColor" /> : <Send size={16} />}
-                </button>
-              </div>
-            </div>
+            ) : (
+              <MessageList
+                messages={messages}
+                copiedMsgIdx={copiedMsgIdx}
+                feedbackState={feedbackState}
+                isAgentThinking={!!isAgentThinking}
+                copyMessageText={copyMessageText}
+                handleFeedback={handleFeedback}
+                regenerateLastResponse={regenerateLastResponse}
+                formatModelName={formatModelName}
+                formatTimestamp={formatTimestamp}
+                messagesEndRef={messagesEndRef}
+              />
+            )}
           </div>
         </div>
+
+        <ChatInput
+          activeConv={activeConv}
+          input={input}
+          handleInput={handleInput}
+          handleKeyDown={handleKeyDown}
+          sendMessage={sendMessage}
+          isAgentThinking={!!isAgentThinking}
+          isConnected={isConnected}
+          textareaRef={textareaRef}
+          isNearBottom={isNearBottom}
+          scrollToBottom={scrollToBottom}
+          selectedModel={selectedModel}
+          setSelectedModel={setSelectedModel}
+          models={models}
+          formatModelName={formatModelName}
+          loadModels={loadModels}
+          socketRef={socketRef}
+          connectWebSocket={connectWebSocket}
+          showToast={showToast}
+          setIsDrawerOpen={setIsDrawerOpen}
+        />
       </div>
+
+      {/* Command Palette */}
+      <CommandPalette
+        isOpen={isCmdPaletteOpen}
+        onClose={() => setIsCmdPaletteOpen(false)}
+        onNewWorkspace={() => {
+          setIsDrawerOpen(true)
+          setDrawerMode('create')
+        }}
+        onToggleTheme={toggleTheme}
+        theme={theme}
+        onClearMessages={clearMessages}
+        onExportImage={exportConversationAsImage}
+        onSelectConv={(id) => {
+          const found = conversations.find(c => c.id === id)
+          if (found) selectConversation(found)
+        }}
+        conversations={conversations}
+      />
 
       {/* Toast Notification */}
       <AnimatePresence>

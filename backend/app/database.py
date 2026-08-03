@@ -48,6 +48,7 @@ class Database:
             self._add_column(connection, "messages", "thought", "TEXT NOT NULL DEFAULT ''")
             self._add_column(connection, "messages", "model", "TEXT NOT NULL DEFAULT ''")
             self._add_column(connection, "messages", "provider", "TEXT NOT NULL DEFAULT 'agy'")
+            self._add_column(connection, "messages", "duration", "REAL NOT NULL DEFAULT 0.0")
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_messages_conversation_id "
                 "ON messages(conversation_id, id)"
@@ -133,7 +134,8 @@ class Database:
         with self.connect() as connection:
             rows = connection.execute(
                 "SELECT role, content, COALESCE(thought, '') AS thought, timestamp, "
-                "COALESCE(model, '') AS model, COALESCE(provider, 'agy') AS provider "
+                "COALESCE(model, '') AS model, COALESCE(provider, 'agy') AS provider, "
+                "COALESCE(duration, 0.0) AS duration "
                 "FROM messages WHERE conversation_id = ? ORDER BY id ASC",
                 (conversation_id,),
             ).fetchall()
@@ -146,15 +148,16 @@ class Database:
         content: str,
         *,
         thought: str = "",
+        duration: float = 0.0,
         model: str = "",
         provider: str = "agy",
     ) -> None:
         with self.connect() as connection:
             connection.execute(
                 "INSERT INTO messages("
-                "conversation_id, role, content, thought, model, provider"
-                ") VALUES (?, ?, ?, ?, ?, ?)",
-                (conversation_id, role, content, thought, model, provider),
+                "conversation_id, role, content, thought, duration, model, provider"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (conversation_id, role, content, thought, duration, model, provider),
             )
 
     def clear_messages(self, conversation_id: int) -> None:

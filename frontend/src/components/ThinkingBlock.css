@@ -1,0 +1,134 @@
+/* === ThinkingBlock Component === */
+.thinking-block-container {
+  margin-bottom: 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  overflow: hidden;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.thinking-block-container[data-active="true"] {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 1px var(--accent-subtle-bg);
+}
+
+.thinking-block-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  transition: background-color 0.15s ease;
+}
+
+.thinking-block-header:hover {
+  background: var(--bg-surface-hover);
+}
+
+.thinking-block-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.thinking-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.thinking-icon.active {
+  color: var(--accent-color);
+  background: var(--accent-subtle-bg);
+  animation: thinkingPulse 2s ease-in-out infinite;
+}
+
+.thinking-icon.done {
+  color: var(--text-tertiary);
+  background: var(--bg-surface-hover);
+}
+
+@keyframes thinkingPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.thinking-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.thinking-duration {
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-surface-hover);
+}
+
+.thinking-block-container[data-active="true"] .thinking-duration {
+  color: var(--accent-color);
+  background: var(--accent-subtle-bg);
+}
+
+.thinking-chevron {
+  color: var(--text-tertiary);
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.thinking-chevron.open {
+  transform: rotate(90deg);
+}
+
+.thinking-block-body-wrapper {
+  overflow: hidden;
+}
+
+.thinking-block-body {
+  padding: 0 14px 14px;
+  border-top: 1px solid var(--border-subtle);
+  margin-top: 0;
+  padding-top: 12px;
+}
+
+.thinking-content {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  max-height: 400px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.thinking-content p {
+  margin-bottom: 8px;
+}
+
+.thinking-content p:last-child {
+  margin-bottom: 0;
+}
+
+.thinking-placeholder {
+  font-size: 13px;
+  font-style: italic;
+  color: var(--text-tertiary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking-icon.active {
+    animation: none;
+  }
+}

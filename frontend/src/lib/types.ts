@@ -12,6 +12,7 @@ export interface Message {
   thought?: string
   isThinking?: boolean
   thinkingDuration?: number
+  duration?: number
   elapsedSoFar?: number
   isError?: boolean
   timestamp?: string

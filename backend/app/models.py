@@ -22,6 +22,8 @@ class Message:
     timestamp: str
     model: str
     provider: str = "agy"
+    duration: float = 0.0
+
 
 
 class LoginRequest(BaseModel):

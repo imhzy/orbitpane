@@ -2,16 +2,31 @@ import { useEffect } from 'react'
 
 export function useKeyboardShortcuts({
   onEscape,
-  onFocusInput
+  onFocusInput,
+  onCmdPalette,
+  onToggleSidebar,
+  onNewWorkspace
 }: {
-  onEscape?: () => void;
-  onFocusInput?: () => void;
+  onEscape?: () => void
+  onFocusInput?: () => void
+  onCmdPalette?: () => void
+  onToggleSidebar?: () => void
+  onNewWorkspace?: () => void
 }) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         onEscape?.()
-      } else if (e.key === '/' && (e.ctrlKey || e.metaKey)) {
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        onCmdPalette?.()
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b') {
+        e.preventDefault()
+        onToggleSidebar?.()
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'n') {
+        e.preventDefault()
+        onNewWorkspace?.()
+      } else if ((e.metaKey || e.ctrlKey) && e.key === '/') {
         e.preventDefault()
         onFocusInput?.()
       }
@@ -19,5 +34,5 @@ export function useKeyboardShortcuts({
     
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onEscape, onFocusInput])
+  }, [onEscape, onFocusInput, onCmdPalette, onToggleSidebar, onNewWorkspace])
 }

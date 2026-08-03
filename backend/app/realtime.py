@@ -141,11 +141,13 @@ class AgentCoordinator:
                     "Agent completed without generating text output. "
                     "This usually occurs when a requested tool operation requires permissions or failed to complete."
                 )
+            duration = round(time.monotonic() - state.start_time, 1)
             self.database.add_message(
                 conversation_id,
                 "agent",
                 result.content,
                 thought=result.thought,
+                duration=duration,
                 model=state.model,
                 provider=state.provider,
             )
@@ -159,12 +161,14 @@ class AgentCoordinator:
                 conversation_id,
                 {"type": "error", "code": "provider_error", "content": str(exc)},
             )
+            duration = round(time.monotonic() - state.start_time, 1)
             if state.content and state.content.strip():
                 self.database.add_message(
                     conversation_id,
                     "agent",
                     state.content,
                     thought=state.thought,
+                    duration=duration,
                     model=state.model,
                     provider=state.provider,
                 )
