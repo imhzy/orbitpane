@@ -73,6 +73,8 @@ class AntigravityProvider(AgentProvider):
                 environment[key] = self.settings.antigravity_proxy_url
         environment["PYTHONUNBUFFERED"] = "1"
 
+        logger.error(f"Executing command: {command}")
+
         process = await asyncio.create_subprocess_exec(
             *command,
             cwd=request.working_directory,
