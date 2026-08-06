@@ -136,6 +136,42 @@
   gap: 6px;
 }
 
+/* Sidebar Footer */
+.sidebar-footer {
+  flex-shrink: 0;
+  padding: 16px;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-surface);
+}
+
+.sidebar-footer-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.sidebar-footer-btn:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+.sidebar-footer-btn.destructive:hover {
+  background: var(--danger-bg);
+  color: var(--danger-color);
+  border-color: var(--danger-border);
+}
+
 /* List Items (Sessions / Folders) */
 .list-item {
   display: flex;
@@ -1369,10 +1405,7 @@
   padding: 28px 24px 48px 24px;
   display: flex;
   flex-direction: column;
-  gap: 26px;
-  max-width: min(860px, 90%);
   width: 100%;
-  margin: 0 auto;
   scrollbar-width: thin;
 }
 
@@ -1382,6 +1415,8 @@
   gap: 26px;
   min-height: 100%;
   width: 100%;
+  max-width: min(860px, 90%);
+  margin: 0 auto;
 }
 
 .icon-btn:disabled {
@@ -3149,5 +3184,35 @@
   .recent-workspaces-grid {
     grid-template-columns: 1fr;
   }
+}
+
+.provider-selector-container {
+  flex: 1;
+  position: relative;
+  display: flex;
+}
+
+.provider-selector-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  padding: 0;
+}
+
+.provider-selector-chevron {
+  transition: transform 0.2s ease;
+  opacity: 0.7;
+}
+
+.provider-selector-chevron.open {
+  transform: rotate(180deg);
+}
+
+.provider-dropdown-menu {
+  top: calc(100% + 10px);
+  width: calc(100% + 36px);
+  left: -26px;
 }
 

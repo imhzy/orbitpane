@@ -338,11 +338,16 @@ export default function App() {
   // Initial data load when logged in
   useEffect(() => {
     if (isLoggedIn) {
-      loadConversations(true)
+      loadConversations(true)?.then((conv: Conversation | null) => {
+        if (conv) {
+          loadHistory(conv.id)
+          connectWebSocket(conv, false)
+        }
+      })
       loadProviders()
       loadModels()
     }
-  }, [isLoggedIn, loadConversations, loadProviders, loadModels])
+  }, [isLoggedIn, loadConversations, loadProviders, loadModels, loadHistory, connectWebSocket])
 
   // Dynamic data polling when drawer is open
   useEffect(() => {

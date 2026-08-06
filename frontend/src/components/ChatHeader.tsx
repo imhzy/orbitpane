@@ -47,6 +47,7 @@ export function ChatHeader({
   setEditingConvId,
   getProviderBadge,
   providers,
+  isDrawerOpen,
   setIsDrawerOpen,
   setDrawerMode,
   selectedModel,
@@ -86,6 +87,7 @@ export function ChatHeader({
       <div className="header-brand">
         <button 
           className="icon-btn" 
+          style={{ visibility: isDrawerOpen ? 'hidden' : 'visible' }}
           onClick={() => setIsDrawerOpen(true)}
           title="展开工作区菜单 (⌘B)"
           aria-label="展开工作区菜单"
@@ -139,7 +141,10 @@ export function ChatHeader({
                     className="icon-btn edit-title-btn"
                     title="修改工作区名称"
                     aria-label="修改工作区名称"
-                    onClick={(e) => startEditingConv(e, activeConv)}
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      startEditingConv(e, activeConv)
+                    }}
                   >
                     <Pencil size={14} />
                   </button>
@@ -161,28 +166,29 @@ export function ChatHeader({
       </div>
 
       <div className="header-actions">
-        {/* Command Palette trigger */}
-        <button
-          className="icon-btn cmd-trigger-btn"
-          onClick={onOpenCmdPalette}
-          title="快捷指令 (⌘K)"
-        >
-          <Command size={14} />
-          <span className="cmd-btn-label hide-on-mobile">⌘K</span>
-        </button>
+        {/* Global Desktop Actions */}
+        <div className="desktop-only-action" style={{ display: 'flex', gap: '8px' }}>
+          <button
+            className="icon-btn cmd-trigger-btn"
+            onClick={onOpenCmdPalette}
+            title="快捷指令 (⌘K)"
+          >
+            <Command size={14} />
+            <span className="cmd-btn-label hide-on-mobile">⌘K</span>
+          </button>
 
-        {/* Theme toggle button */}
-        <button 
-          className="icon-btn theme-toggle-btn"
-          onClick={toggleTheme}
-          title={theme === 'dark' ? '切换至明亮模式' : '切换至暗夜模式'}
-        >
-          {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
-        </button>
+          <button 
+            className="icon-btn theme-toggle-btn"
+            onClick={toggleTheme}
+            title={theme === 'dark' ? '切换至明亮模式' : '切换至暗夜模式'}
+          >
+            {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+          </button>
+        </div>
 
         {activeConv ? (
           <div className="header-actions-group">
-            {/* Desktop Actions */}
+            {/* Desktop Actions for Conversation */}
             <div className="desktop-only-action">
               <button
                 className="icon-btn"
@@ -212,63 +218,7 @@ export function ChatHeader({
                 <span className="action-btn-text">清空</span>
               </button>
             </div>
-
-            {/* Mobile Actions Dropdown */}
-            <div className="mobile-only-action actions-dropdown-wrapper" ref={actionsMenuRef}>
-              <button 
-                className="icon-btn"
-                title="更多选项"
-                onClick={() => setIsActionsMenuOpen(!isActionsMenuOpen)}
-              >
-                <MoreVertical size={16} />
-              </button>
-              
-              <AnimatePresence>
-                {isActionsMenuOpen && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -5, scale: 0.98 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: -5, scale: 0.98 }}
-                    transition={{ duration: 0.15 }}
-                    className="actions-dropdown-menu"
-                  >
-                    <button
-                      className="actions-dropdown-item"
-                      disabled={isExporting || !messages.some(message => message.role !== 'system')}
-                      onClick={() => {
-                        exportConversationAsImage();
-                        setIsActionsMenuOpen(false);
-                      }}
-                    >
-                      <Download size={14} className={isExporting ? 'animate-pulse' : ''} />
-                      <span>导出</span>
-                    </button>
-                    <button 
-                      className="actions-dropdown-item"
-                      disabled={!messages.some(message => message.role !== 'system')}
-                      onClick={() => {
-                        summarizeMessages();
-                        setIsActionsMenuOpen(false);
-                      }}
-                    >
-                      <FileText size={14} />
-                      <span>总结</span>
-                    </button>
-                    <button 
-                      className="actions-dropdown-item destructive"
-                      onClick={() => {
-                        clearMessages();
-                        setIsActionsMenuOpen(false);
-                      }}
-                    >
-                      <Eraser size={14} />
-                      <span>清空</span>
-                    </button>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-
+            
             <div 
               className={`status-indicator ${!isConnected ? 'clickable' : ''}`}
               onClick={() => {
@@ -294,6 +244,88 @@ export function ChatHeader({
             <span className="hide-on-mobile new-ws-text">新建工作区</span>
           </button>
         )}
+
+        {/* Mobile Actions Dropdown (Global + Conversation) */}
+        <div className="mobile-only-action actions-dropdown-wrapper" ref={actionsMenuRef}>
+          <button 
+            className="icon-btn"
+            title="更多选项"
+            onClick={() => setIsActionsMenuOpen(!isActionsMenuOpen)}
+          >
+            <MoreVertical size={16} />
+          </button>
+          
+          <AnimatePresence>
+            {isActionsMenuOpen && (
+              <motion.div
+                initial={{ opacity: 0, y: -5, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -5, scale: 0.98 }}
+                transition={{ duration: 0.15 }}
+                className="actions-dropdown-menu"
+              >
+                <button
+                  className="actions-dropdown-item"
+                  onClick={() => {
+                    onOpenCmdPalette();
+                    setIsActionsMenuOpen(false);
+                  }}
+                >
+                  <Command size={14} />
+                  <span>快捷指令</span>
+                </button>
+                <button
+                  className="actions-dropdown-item"
+                  onClick={() => {
+                    toggleTheme();
+                    setIsActionsMenuOpen(false);
+                  }}
+                >
+                  {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+                  <span>切换主题</span>
+                </button>
+                
+                {activeConv && (
+                  <>
+                    <button
+                      className="actions-dropdown-item"
+                      disabled={isExporting || !messages.some(message => message.role !== 'system')}
+                      onClick={() => {
+                        exportConversationAsImage();
+                        setIsActionsMenuOpen(false);
+                      }}
+                    >
+                      <Download size={14} className={isExporting ? 'animate-pulse' : ''} />
+                      <span>导出</span>
+                    </button>
+                    <button 
+                      className="actions-dropdown-item"
+                      disabled={!messages.some(message => message.role !== 'system')}
+                      onClick={() => {
+                        summarizeMessages();
+                        setIsActionsMenuOpen(false);
+                      }}
+                    >
+                      <FileText size={14} />
+                      <span>总结</span>
+                    </button>
+                    <button 
+                      className="actions-dropdown-item"
+                      onClick={() => {
+                        clearMessages();
+                        setIsActionsMenuOpen(false);
+                      }}
+                    >
+                      <Eraser size={14} />
+                      <span>清空</span>
+                    </button>
+                  </>
+                )}
+
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
     </div>
   )

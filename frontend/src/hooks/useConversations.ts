@@ -68,7 +68,7 @@ export function useConversations(showToast: (msg: string) => void) {
     if (isInitial) {
       setIsConversationsLoading(true)
     }
-    apiFetch<Conversation[]>('/api/conversations')
+    return apiFetch<Conversation[]>('/api/conversations')
       .then((data: Conversation[]) => {
         setConversations(data)
         if (isInitial) {
@@ -80,6 +80,7 @@ export function useConversations(showToast: (msg: string) => void) {
               setActiveConv(found)
               activeConvRef.current = found
               loadModels(found.provider)
+              return found
             }
           }
         } else if (activeConvRef.current) {
@@ -89,8 +90,12 @@ export function useConversations(showToast: (msg: string) => void) {
             activeConvRef.current = updated
           }
         }
+        return null
       })
-      .catch(err => console.error(err))
+      .catch(err => {
+        console.error(err)
+        return null
+      })
       .finally(() => {
         setIsConversationsLoading(false)
       })
@@ -116,10 +121,13 @@ export function useConversations(showToast: (msg: string) => void) {
 
   const saveConvName = useCallback((convId: number) => {
     const trimmed = editingConvName.trim()
-    if (!trimmed) {
+    const originalConv = conversations.find(c => c.id === convId)
+    
+    if (!trimmed || (originalConv && originalConv.name === trimmed)) {
       setEditingConvId(null)
       return
     }
+    
     apiFetch<Conversation>(`/api/conversations/${convId}`, {
       method: 'PUT',
       body: JSON.stringify({ name: trimmed })
@@ -139,7 +147,7 @@ export function useConversations(showToast: (msg: string) => void) {
         showToast('更新失败')
         setEditingConvId(null)
       })
-  }, [editingConvName, showToast])
+  }, [editingConvName, conversations, showToast])
 
   return {
     conversations,

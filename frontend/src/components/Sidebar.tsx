@@ -4,10 +4,12 @@ import {
   X, MessageSquare, Plus, Trash2, Folder,
   ChevronRight, Compass, FolderPlus,
   Check, Pencil, Layers, HardDrive, RefreshCw, Cpu,
-  Search, Star
+  Search, Star, LogOut, ChevronDown
 } from 'lucide-react'
 import { LogoIcon } from '../LogoIcon'
 import type { Conversation, DirItem, Provider, ProviderBadge } from '../lib/types'
+import { apiFetch } from '../lib/api'
+import { AUTH_EXPIRED_EVENT } from '../lib/auth'
 
 interface SidebarProps {
   isDrawerOpen: boolean
@@ -45,6 +47,76 @@ interface SidebarProps {
 }
 
 const springConfig = { type: 'spring' as const, damping: 25, stiffness: 250, mass: 1 }
+
+function ProviderDropdown({ providers, selectedProvider, defaultProvider, setSelectedProvider }: {
+  providers: Provider[],
+  selectedProvider: string,
+  defaultProvider: string,
+  setSelectedProvider: (provider: string) => void
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  const dropdownRef = React.useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  const currentProvider = providers.find(p => p.id === (selectedProvider || defaultProvider))
+  const displaySelectedProvider = selectedProvider || defaultProvider
+
+  return (
+    <div ref={dropdownRef} className="provider-selector-container">
+      <button
+        className="cw-input provider-selector-btn"
+        onClick={(e) => { e.preventDefault(); setIsOpen(!isOpen) }}
+        type="button"
+      >
+        <span>{currentProvider ? currentProvider.name : 'Select Provider'}</span>
+        <ChevronDown size={14} className={`provider-selector-chevron ${isOpen ? 'open' : ''}`} />
+      </button>
+
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -5, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -5, scale: 0.98 }}
+            transition={{ duration: 0.15 }}
+            className="model-dropdown-menu provider-dropdown-menu"
+          >
+            {providers.map(p => (
+              <button
+                key={p.id}
+                disabled={!p.available}
+                className={`model-dropdown-item ${displaySelectedProvider === p.id ? 'selected' : ''}`}
+                onClick={(e) => {
+                  e.preventDefault()
+                  if (p.available) {
+                    setSelectedProvider(p.id)
+                    setIsOpen(false)
+                  }
+                }}
+                type="button"
+                style={{ opacity: p.available ? 1 : 0.5, cursor: p.available ? 'pointer' : 'not-allowed' }}
+              >
+                <div className="model-item-icon">
+                  {displaySelectedProvider === p.id ? <Check size={14} /> : <div style={{ width: 14 }} />}
+                </div>
+                <span className="model-item-name">{p.name} {!p.available && '(不可用)'}</span>
+              </button>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
 
 export function Sidebar({
   isDrawerOpen,
@@ -135,7 +207,7 @@ export function Sidebar({
     <AnimatePresence>
       {isDrawerOpen && (
         <motion.div 
-          initial={{ x: '-100%', marginLeft: -340 }} animate={{ x: 0, marginLeft: 0 }} exit={{ x: '-100%', marginLeft: -340 }}
+          initial={{ x: '-100%', marginLeft: -320 }} animate={{ x: 0, marginLeft: 0 }} exit={{ x: '-100%', marginLeft: -320 }}
           transition={springConfig}
           className={`drawer ${isHighlighting ? 'drawer-highlight' : ''}`}
           role="dialog"
@@ -383,7 +455,6 @@ export function Sidebar({
             <div className="drawer-content cw-content">
               <div className="cw-header">
                 <h3 className="cw-title">配置新工作区</h3>
-                <p className="cw-subtitle">设定工作区名称并选择项目所在的本地目录</p>
               </div>
 
               <div className="cw-form">
@@ -426,19 +497,12 @@ export function Sidebar({
                   <label className="cw-label">Agent 接入方式 (Provider)</label>
                   <div className="cw-input-wrapper">
                     <Cpu size={14} className="cw-icon" />
-                    <select
-                      value={selectedProvider || defaultProvider}
-                      onChange={e => setSelectedProvider(e.target.value)}
-                      className="cw-input"
-                      aria-label="Agent Provider"
-                      style={{ appearance: 'auto' }}
-                    >
-                      {providers.map(p => (
-                        <option key={p.id} value={p.id} disabled={!p.available}>
-                          {p.name} {p.available ? '' : '(不可用)'}
-                        </option>
-                      ))}
-                    </select>
+                    <ProviderDropdown
+                      providers={providers}
+                      selectedProvider={selectedProvider}
+                      defaultProvider={defaultProvider}
+                      setSelectedProvider={setSelectedProvider}
+                    />
                   </div>
                 </div>
               </div>
@@ -549,6 +613,22 @@ export function Sidebar({
               </div>
             </div>
           )}
+
+          {/* Sidebar Global Footer */}
+          <div className="sidebar-footer">
+            <button 
+              className="sidebar-footer-btn destructive"
+              onClick={() => {
+                apiFetch('/api/logout', { method: 'POST' }).finally(() => {
+                  window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
+                })
+              }}
+              title="退出登录"
+            >
+              <LogOut size={16} />
+              <span>退出系统</span>
+            </button>
+          </div>
         </motion.div>
       )}
     </AnimatePresence>

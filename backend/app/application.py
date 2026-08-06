@@ -128,6 +128,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def session():
         return {"authenticated": True}
 
+    @app.post("/api/logout")
+    async def logout(response: Response):
+        response.delete_cookie(
+            key=SESSION_COOKIE_NAME,
+            path="/",
+            httponly=True,
+            secure=resolved_settings.environment == "production",
+            samesite="strict",
+        )
+        return {"success": True}
+
     @app.get("/api/agents", dependencies=[Depends(require_auth)])
     async def agent_catalog():
         return {
