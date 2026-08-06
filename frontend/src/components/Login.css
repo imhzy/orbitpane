@@ -8,7 +8,7 @@
   background: var(--bg-primary);
   position: relative;
   overflow: hidden;
-  padding: 20px;
+  padding: var(--space-5);
 }
 
 /* Background animated elements */
@@ -83,14 +83,14 @@
   -webkit-backdrop-filter: blur(24px);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-xl, 20px);
-  padding: 48px 40px;
+  padding: var(--space-12) var(--space-10);
   width: 100%;
   max-width: 420px;
   box-shadow: var(--shadow-float);
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 32px;
+  gap: var(--space-8);
 }
 
 .login-card-enhanced::before {
@@ -118,7 +118,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
+  gap: var(--space-4);
   text-align: center;
 }
 
@@ -172,20 +172,20 @@
   font-size: 14px;
   color: var(--text-secondary);
   font-weight: 500;
-  margin-top: 4px;
+  margin-top: var(--space-1);
 }
 
 /* Form */
 .login-form-area {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--space-5);
 }
 
 .login-input-group {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .login-input-label {
@@ -203,7 +203,7 @@
 
 .login-input-icon {
   position: absolute;
-  left: 14px;
+  left: var(--space-3);
   color: var(--text-tertiary);
   transition: color var(--transition-fast);
 }
@@ -213,7 +213,7 @@
   background: rgba(0, 0, 0, 0.2);
   border: 1px solid var(--border-color);
   color: var(--text-primary);
-  padding: 14px 14px 14px 42px;
+  padding: var(--space-3) var(--space-3) var(--space-3) 42px;
   border-radius: var(--radius-md);
   font-size: 15px;
   font-family: var(--font-sans);
@@ -256,24 +256,24 @@
   color: var(--danger-color);
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 4px;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
 }
 
 .login-submit-btn {
   width: 100%;
-  padding: 14px 16px;
+  padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-md);
   border: none;
   background: var(--brand-gradient);
-  color: #ffffff;
+  color: var(--text-inverse);
   font-family: var(--font-sans);
   font-size: 15px;
   font-weight: 600;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--space-2);
   cursor: pointer;
   box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
   transition: all var(--transition-normal);
@@ -335,7 +335,7 @@
 /* Mobile adjustments */
 @media (max-width: 480px) {
   .login-card-enhanced {
-    padding: 40px 24px;
+    padding: var(--space-10) var(--space-6);
     border-radius: 24px;
     border: none;
     background: transparent;

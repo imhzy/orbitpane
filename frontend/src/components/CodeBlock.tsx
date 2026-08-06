@@ -40,9 +40,9 @@ export function CodeBlock({ children, className, ...props }: CodeBlockProps) {
   }
 
   return match ? (
-    <div className="my-4 rounded-xl overflow-hidden border border-[var(--border-color)] bg-[var(--bg-code)] shadow-sm group">
-      <div className="flex items-center justify-between px-3.5 py-2 bg-[var(--bg-code-header)] border-b border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] font-mono">
-        <div className="flex items-center gap-2">
+    <div className="my-4 rounded-md overflow-hidden border border-[var(--border-color)] bg-[var(--bg-code)] shadow-sm group">
+      <div className="flex items-center justify-between px-4 py-2.5 bg-[var(--bg-code-header)] border-b border-[var(--border-subtle)] text-[13px] text-[var(--text-secondary)] font-mono">
+        <div className="flex items-center gap-2.5">
           <Code size={13} className="text-[var(--accent-color)]" />
           <span className="font-medium capitalize">{match[1]}</span>
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-surface-hover)] text-[var(--text-tertiary)]">

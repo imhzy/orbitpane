@@ -7,43 +7,14 @@ import {
   Search, Star, LogOut, ChevronDown
 } from 'lucide-react'
 import { LogoIcon } from '../LogoIcon'
-import type { Conversation, DirItem, Provider, ProviderBadge } from '../lib/types'
+import type { Conversation, Provider } from '../lib/types'
 import { apiFetch } from '../lib/api'
 import { AUTH_EXPIRED_EVENT } from '../lib/auth'
 
+import { useAppContext } from '../contexts/AppContext'
+
 interface SidebarProps {
-  isDrawerOpen: boolean
-  setIsDrawerOpen: (open: boolean) => void
-  drawerMode: 'sessions' | 'create'
-  setDrawerMode: (mode: 'sessions' | 'create') => void
-  conversations: Conversation[]
-  isConversationsLoading: boolean
-  activeConv: Conversation | null
-  selectConversation: (conv: Conversation) => void
-  editingConvId: number | null
-  editingConvName: string
-  setEditingConvName: (name: string) => void
-  saveConvName: (id: number) => void
-  startEditingConv: (e: React.MouseEvent, conv: Conversation) => void
-  setEditingConvId: (id: number | null) => void
-  deleteConversation: (e: React.MouseEvent, id: number) => void
-  getProviderBadge: (providerId?: string, providersCatalog?: Provider[]) => ProviderBadge
-  providers: Provider[]
-  newConvName: string
-  setNewConvName: (name: string) => void
-  selectedDir: string
-  setSelectedDir: (dir: string) => void
-  currentPath: string
-  setCurrentPath: (path: string) => void
-  selectedProvider: string
-  setSelectedProvider: (provider: string) => void
-  defaultProvider: string
-  items: DirItem[]
-  loadDir: (path: string) => void
-  getBreadcrumbParts: (pathStr: string) => { name: string; fullPath: string }[]
-  createConversation: () => void
-  loadConversations: (isInitial: boolean) => void
-  showToast: (msg: string) => void
+  // Props moved to context
 }
 
 const springConfig = { type: 'spring' as const, damping: 25, stiffness: 250, mass: 1 }
@@ -118,40 +89,18 @@ function ProviderDropdown({ providers, selectedProvider, defaultProvider, setSel
   )
 }
 
-export function Sidebar({
-  isDrawerOpen,
-  setIsDrawerOpen,
-  drawerMode,
-  setDrawerMode,
-  conversations,
-  isConversationsLoading,
-  activeConv,
-  selectConversation,
-  editingConvId,
-  editingConvName,
-  setEditingConvName,
-  saveConvName,
-  startEditingConv,
-  setEditingConvId,
-  deleteConversation,
-  getProviderBadge,
-  providers,
-  newConvName,
-  setNewConvName,
-  selectedDir,
-  setSelectedDir,
-  currentPath,
-  setCurrentPath,
-  selectedProvider,
-  setSelectedProvider,
-  defaultProvider,
-  items,
-  loadDir,
-  getBreadcrumbParts,
-  createConversation,
-  loadConversations,
-  showToast,
-}: SidebarProps) {
+export function Sidebar(_props: SidebarProps) {
+  const {
+    isDrawerOpen, setIsDrawerOpen, drawerMode, setDrawerMode,
+    conversations, isConversationsLoading, activeConv, selectConversation,
+    editingConvId, editingConvName, setEditingConvName, saveConvName,
+    startEditingConv, setEditingConvId, deleteConversation, getProviderBadge,
+    providers, newConvName, setNewConvName, selectedDir, setSelectedDir,
+    currentPath, setCurrentPath, selectedProvider, setSelectedProvider,
+    defaultProvider, items, loadDir, getBreadcrumbParts, createConversation,
+    loadConversations, showToast
+  } = useAppContext()
+
   const [searchTerm, setSearchTerm] = useState('')
   const isCancelingRef = React.useRef(false)
   const [pinnedIds, setPinnedIds] = useState<number[]>(() => {

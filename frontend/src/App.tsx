@@ -17,6 +17,9 @@ import { WelcomeScreen } from './components/WelcomeScreen'
 import { MessageList } from './components/MessageList'
 import { ChatInput } from './components/ChatInput'
 import { CommandPalette } from './components/CommandPalette'
+import { AppContext } from './contexts/AppContext'
+import type { AppContextType } from './contexts/AppContext'
+
 
 function formatTimestamp(ts?: string | number) {
   if (!ts) return ''
@@ -140,6 +143,19 @@ export default function App() {
   // Drawer state
   const [isDrawerOpen, setIsDrawerOpen] = useState(window.innerWidth >= 1024)
   const [drawerMode, setDrawerMode] = useState<'sessions' | 'create'>('sessions')
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth >= 1024) {
+        setIsDrawerOpen(true)
+      } else {
+        setIsDrawerOpen(false)
+      }
+    }
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
+
 
   // Command Palette State
   const [isCmdPaletteOpen, setIsCmdPaletteOpen] = useState(false)
@@ -720,8 +736,27 @@ export default function App() {
     return <Login onLogin={handleLogin} />
   }
 
+  const contextValue: AppContextType = {
+    theme, toggleTheme, toast, showToast, isDrawerOpen, setIsDrawerOpen,
+    drawerMode, setDrawerMode, isCmdPaletteOpen, setIsCmdPaletteOpen,
+    conversations, isConversationsLoading, activeConv, setActiveConv,
+    deleteConversation, createConversation, loadConversations, selectConversation,
+    editingConvId, setEditingConvId, editingConvName, setEditingConvName,
+    startEditingConv, saveConvName, providers, defaultProvider,
+    selectedProvider, setSelectedProvider, models, selectedModel,
+    setSelectedModel, loadModels, loadProviders, getProviderBadge,
+    formatModelName, currentPath, setCurrentPath, items, selectedDir,
+    setSelectedDir, newConvName, setNewConvName, loadDir,
+    getBreadcrumbParts, messages, setMessages, clearMessages, summarizeMessages,
+    isConnected, isReconnecting, connectWebSocket, disconnectCurrentSocket,
+    activeConvRef, isExporting, exportConversationAsImage, historyRequestRef,
+    isAgentThinking, isAgentThinkingRef, pendingSendMessagesRef, loadHistory,
+    socketRef, socketConversationIdRef
+  };
+
   return (
-    <div className="app-container">
+    <AppContext.Provider value={contextValue}>
+      <div className="app-container">
       {/* Sidebar Drawer Scrim */}
       <AnimatePresence>
         {isDrawerOpen && (
@@ -748,74 +783,11 @@ export default function App() {
       </AnimatePresence>
 
       {/* Sidebar Drawer */}
-      <Sidebar
-        isDrawerOpen={isDrawerOpen}
-        setIsDrawerOpen={setIsDrawerOpen}
-        drawerMode={drawerMode}
-        setDrawerMode={setDrawerMode}
-        conversations={conversations}
-        isConversationsLoading={isConversationsLoading}
-        activeConv={activeConv}
-        selectConversation={selectConversation}
-        editingConvId={editingConvId}
-        editingConvName={editingConvName}
-        setEditingConvName={setEditingConvName}
-        saveConvName={saveConvName}
-        startEditingConv={startEditingConv}
-        setEditingConvId={setEditingConvId}
-        deleteConversation={deleteConversation}
-        getProviderBadge={getProviderBadge}
-        providers={providers}
-        newConvName={newConvName}
-        setNewConvName={setNewConvName}
-        selectedDir={selectedDir}
-        setSelectedDir={setSelectedDir}
-        currentPath={currentPath}
-        setCurrentPath={setCurrentPath}
-        selectedProvider={selectedProvider}
-        setSelectedProvider={setSelectedProvider}
-        defaultProvider={defaultProvider}
-        items={items}
-        loadDir={loadDir}
-        getBreadcrumbParts={getBreadcrumbParts}
-        createConversation={createConversation}
-        loadConversations={loadConversations}
-        showToast={showToast}
-      />
+      <Sidebar />
 
       {/* Main Chat Area */}
       <div className="chat-main">
-        <ChatHeader
-          activeConv={activeConv}
-          editingConvId={editingConvId}
-          setEditingConvId={setEditingConvId}
-          editingConvName={editingConvName}
-          setEditingConvName={setEditingConvName}
-          saveConvName={saveConvName}
-          startEditingConv={startEditingConv}
-          getProviderBadge={getProviderBadge}
-          providers={providers}
-          isDrawerOpen={isDrawerOpen}
-          setIsDrawerOpen={setIsDrawerOpen}
-          setDrawerMode={setDrawerMode}
-          selectedModel={selectedModel}
-          setSelectedModel={setSelectedModel}
-          models={models}
-          formatModelName={formatModelName}
-          loadModels={loadModels}
-          theme={theme}
-          toggleTheme={toggleTheme}
-          onOpenCmdPalette={() => setIsCmdPaletteOpen(true)}
-          isConnected={isConnected}
-          isReconnecting={isReconnecting}
-          connectWebSocket={connectWebSocket}
-          activeConvRef={activeConvRef}
-          isExporting={isExporting}
-          exportConversationAsImage={exportConversationAsImage}
-          messages={messages}
-          clearMessages={clearMessages}
-          summarizeMessages={summarizeMessages}
-        />
+        <ChatHeader />
 
         <div
           className="chat-messages"
@@ -916,6 +888,7 @@ export default function App() {
         conversations={conversations}
       />
 
+
       {/* Toast Notification */}
       <AnimatePresence>
         {toast && (
@@ -948,5 +921,6 @@ export default function App() {
         onCancel={() => setConfirmState(prev => ({ ...prev, isOpen: false }))}
       />
     </div>
+    </AppContext.Provider>
   )
 }

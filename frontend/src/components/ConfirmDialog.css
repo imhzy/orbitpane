@@ -9,7 +9,7 @@
   z-index: 9999;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  padding: 20px;
+  padding: var(--space-5);
   animation: confirmOverlayIn 0.2s ease-out;
 }
 
@@ -21,8 +21,8 @@
 .confirm-card {
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg, 14px);
-  padding: 24px;
+  border-radius: var(--radius-lg, var(--radius-lg));
+  padding: var(--space-6);
   width: 100%;
   max-width: 380px;
   box-shadow: var(--shadow-lg);
@@ -49,26 +49,26 @@
   font-size: 16px;
   font-weight: 700;
   color: var(--text-primary);
-  margin: 4px 0 8px 0;
+  margin: var(--space-1) 0 var(--space-2) 0;
   letter-spacing: -0.01em;
 }
 
 .confirm-card p {
   font-size: 13px;
   color: var(--text-secondary);
-  margin: 0 0 24px 0;
+  margin: 0 0 var(--space-6) 0;
   line-height: 1.5;
 }
 
 .confirm-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .confirm-cancel-btn {
-  padding: 8px 16px;
-  border-radius: var(--radius-sm, 6px);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-sm, var(--radius-sm));
   border: 1px solid var(--border-color);
   background: var(--bg-surface-hover);
   color: var(--text-primary);
@@ -88,10 +88,10 @@
 }
 
 .confirm-delete-btn {
-  padding: 8px 16px;
-  border-radius: var(--radius-sm, 6px);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-sm, var(--radius-sm));
   border: none;
-  background: var(--danger-color, #ef4444);
+  background: var(--danger-color, var(--danger-color));
   color: white;
   font-size: 13px;
   font-weight: 600;
@@ -115,7 +115,7 @@
   height: 4px;
   background: var(--border-color);
   border-radius: 999px;
-  margin: -8px auto 16px auto;
+  margin: -var(--space-2) auto var(--space-4) auto;
 }
 
 @media (max-width: 640px) {
@@ -124,7 +124,7 @@
     padding: 0;
   }
   .confirm-card {
-    padding: 24px 20px 32px 20px;
+    padding: var(--space-6) var(--space-5) var(--space-8) var(--space-5);
     border-radius: 20px 20px 0 0;
     max-width: 100%;
     border-bottom: none;
@@ -134,7 +134,7 @@
   }
   .confirm-actions {
     flex-direction: column-reverse;
-    gap: 10px;
+    gap: var(--space-3);
   }
   .confirm-cancel-btn,
   .confirm-delete-btn {

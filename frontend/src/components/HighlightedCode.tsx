@@ -56,7 +56,7 @@ export default function HighlightedCode({
       PreTag="div"
       customStyle={{
         margin: 0,
-        padding: '1rem',
+        padding: '1.25rem',
         background: 'transparent',
         fontSize: '13px',
       }}

@@ -1,73 +1,28 @@
-import React, { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Menu, Pencil, Sun, Moon, Eraser, Plus, Download, Command, FileText, MoreVertical } from 'lucide-react'
 import { LogoIcon } from '../LogoIcon'
 import { ModelSelector } from './ModelSelector'
-import type { Conversation, Provider, Message, ProviderBadge } from '../lib/types'
+
 import { motion, AnimatePresence } from 'framer-motion'
 
+import { useAppContext } from '../contexts/AppContext'
+
 interface ChatHeaderProps {
-  activeConv: Conversation | null
-  editingConvId: number | null
-  setEditingConvId: (id: number | null) => void
-  editingConvName: string
-  setEditingConvName: (name: string) => void
-  saveConvName: (id: number) => void
-  startEditingConv: (e: React.MouseEvent, conv: Conversation) => void
-  getProviderBadge: (providerId?: string, providersCatalog?: Provider[]) => ProviderBadge
-  providers: Provider[]
-  isDrawerOpen: boolean
-  setIsDrawerOpen: (open: boolean) => void
-  setDrawerMode: (mode: 'sessions' | 'create') => void
-  selectedModel: string
-  setSelectedModel: (model: string) => void
-  models: string[]
-  formatModelName: (modelId: string) => string
-  loadModels: () => void
-  theme: 'dark' | 'light'
-  toggleTheme: () => void
-  onOpenCmdPalette: () => void
-  isConnected: boolean
-  isReconnecting: boolean
-  connectWebSocket: (conv: Conversation, isManual?: boolean) => void
-  activeConvRef: React.MutableRefObject<Conversation | null>
-  isExporting: boolean
-  exportConversationAsImage: () => void
-  messages: Message[]
-  clearMessages: () => void
-  summarizeMessages: () => void
+  // Props moved to context
 }
 
-export function ChatHeader({
-  activeConv,
-  editingConvId,
-  editingConvName,
-  setEditingConvName,
-  saveConvName,
-  startEditingConv,
-  setEditingConvId,
-  getProviderBadge,
-  providers,
-  isDrawerOpen,
-  setIsDrawerOpen,
-  setDrawerMode,
-  selectedModel,
-  setSelectedModel,
-  models,
-  formatModelName,
-  loadModels,
-  theme,
-  toggleTheme,
-  onOpenCmdPalette,
-  isConnected,
-  isReconnecting,
-  connectWebSocket,
-  activeConvRef,
-  isExporting,
-  exportConversationAsImage,
-  messages,
-  clearMessages,
-  summarizeMessages
-}: ChatHeaderProps) {
+export function ChatHeader(_props: ChatHeaderProps) {
+  const {
+    activeConv, editingConvId, editingConvName, setEditingConvName, saveConvName,
+    startEditingConv, setEditingConvId, getProviderBadge, providers, isDrawerOpen,
+    setIsDrawerOpen, setDrawerMode, selectedModel, setSelectedModel, models,
+    formatModelName, loadModels, theme, toggleTheme, setIsCmdPaletteOpen,
+    isConnected, isReconnecting, connectWebSocket, activeConvRef, isExporting,
+    exportConversationAsImage, messages, clearMessages, summarizeMessages
+  } = useAppContext()
+  
+  const onOpenCmdPalette = () => setIsCmdPaletteOpen(true)
+
   const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false)
   const actionsMenuRef = useRef<HTMLDivElement>(null)
   const isCancelingRef = useRef(false)

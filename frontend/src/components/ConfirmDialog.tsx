@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { AlertTriangle } from 'lucide-react'
 import './ConfirmDialog.css'
@@ -23,6 +24,24 @@ export function ConfirmDialog({
   onConfirm,
   onCancel
 }: ConfirmDialogProps) {
+
+  useEffect(() => {
+    if (!isOpen) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        onCancel()
+      } else if (e.key === 'Enter') {
+        e.preventDefault()
+        onConfirm()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, onCancel, onConfirm])
+
   return (
     <AnimatePresence>
       {isOpen && (
