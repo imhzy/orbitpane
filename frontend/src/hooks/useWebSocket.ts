@@ -264,6 +264,7 @@ export function useWebSocket(
   scrollToBottom: (smooth?: boolean) => void
 ) {
   const [messages, setMessages] = useState<Message[]>([])
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false)
   const [isConnected, setIsConnected] = useState(false)
   const [isReconnecting, setIsReconnecting] = useState(false)
   const socketRef = useRef<WebSocket | null>(null)
@@ -306,7 +307,8 @@ export function useWebSocket(
     setIsReconnecting(false)
   }, [])
 
-  const loadHistory = useCallback((convId: number) => {
+  const loadHistory = useCallback((convId: number, silent = false) => {
+    if (!silent) setIsHistoryLoading(true)
     const requestId = ++historyRequestRef.current
     apiFetch<Message[]>(`/api/history/${convId}`)
       .then(data => {
@@ -314,6 +316,7 @@ export function useWebSocket(
           requestId !== historyRequestRef.current
           || activeConvRef.current?.id !== convId
         ) return
+        if (!silent) setIsHistoryLoading(false)
         const history = Array.isArray(data) ? data : []
         setMessages(current => {
           const merged = mergeHistoryWithTransientMessages(history, current)
@@ -330,6 +333,7 @@ export function useWebSocket(
           requestId === historyRequestRef.current
           && activeConvRef.current?.id === convId
         ) {
+          if (!silent) setIsHistoryLoading(false)
           setMessages(current => {
             const merged = mergeHistoryWithTransientMessages([], current)
             isAgentThinkingRef.current = merged.some(message => (
@@ -424,7 +428,7 @@ export function useWebSocket(
                 : message
             )))
           }
-          loadHistory(conv.id)
+          loadHistory(conv.id, true)
           return
         }
 
@@ -448,7 +452,7 @@ export function useWebSocket(
           })
           if (data.type === 'done') {
             loadConversations(false)
-            loadHistory(conv.id)
+            loadHistory(conv.id, true)
           }
           return
         }
@@ -517,6 +521,7 @@ export function useWebSocket(
   return {
     messages,
     setMessages,
+    isHistoryLoading,
     isConnected,
     isReconnecting,
     socketRef,

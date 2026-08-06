@@ -39,7 +39,13 @@ logger = logging.getLogger(__name__)
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     resolved_settings = settings or Settings.from_env()
-    database = Database(resolved_settings.database_path)
+    database = Database(
+        host=resolved_settings.mysql_host,
+        port=resolved_settings.mysql_port,
+        user=resolved_settings.mysql_user,
+        password=resolved_settings.mysql_password,
+        db_name=resolved_settings.mysql_db_name,
+    )
     providers = ProviderRegistry(resolved_settings)
     hub = ConnectionHub()
     coordinator = AgentCoordinator(database, providers, hub)

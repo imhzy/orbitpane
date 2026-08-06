@@ -31,7 +31,11 @@ def _paths(value: str | None) -> tuple[Path, ...]:
 @dataclass(frozen=True, slots=True)
 class Settings:
     environment: str
-    database_path: Path
+    mysql_host: str
+    mysql_port: int
+    mysql_user: str
+    mysql_password: str
+    mysql_db_name: str
     allowed_roots: tuple[Path, ...]
     cors_origins: tuple[str, ...]
     auth_pin: str
@@ -74,9 +78,11 @@ class Settings:
 
         return cls(
             environment=environment,
-            database_path=Path(
-                os.getenv("ORBITPANE_DATABASE_PATH", str(PROJECT_ROOT / "history.db"))
-            ).expanduser().resolve(),
+            mysql_host=os.getenv("MYSQL_HOST", "127.0.0.1").strip(),
+            mysql_port=int(os.getenv("MYSQL_PORT", "3306")),
+            mysql_user=os.getenv("MYSQL_USER", "root").strip(),
+            mysql_password=os.getenv("MYSQL_PASSWORD", "REDACTED_PASSWORD").strip(),
+            mysql_db_name=os.getenv("MYSQL_DB_NAME", "orbitpane").strip(),
             allowed_roots=_paths(os.getenv("ORBITPANE_ALLOWED_ROOTS")),
             cors_origins=_csv(os.getenv("ORBITPANE_CORS_ORIGINS")),
             auth_pin=auth_pin,

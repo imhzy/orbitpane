@@ -3,7 +3,7 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useConversations } from './hooks/useConversations'
 import { useWebSocket } from './hooks/useWebSocket'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Check, ArrowDown, Cpu, MessageSquare } from 'lucide-react'
+import { Check, ArrowDown, Cpu, MessageSquare, Loader2 } from 'lucide-react'
 import './App.css'
 import { apiFetch } from './lib/api'
 import { AUTH_EXPIRED_EVENT, clearLegacyAuthState } from './lib/auth'
@@ -127,6 +127,7 @@ export default function App() {
   const {
     messages,
     setMessages,
+    isHistoryLoading,
     isConnected,
     isReconnecting,
     socketRef,
@@ -751,7 +752,7 @@ export default function App() {
     isConnected, isReconnecting, connectWebSocket, disconnectCurrentSocket,
     activeConvRef, isExporting, exportConversationAsImage, historyRequestRef,
     isAgentThinking, isAgentThinkingRef, pendingSendMessagesRef, loadHistory,
-    socketRef, socketConversationIdRef
+    socketRef, socketConversationIdRef, isHistoryLoading
   };
 
   return (
@@ -796,7 +797,12 @@ export default function App() {
           onScroll={handleMessagesScroll}
         >
           <div className="chat-message-list" ref={messagesContentRef}>
-            {(!activeConv || messages.filter(m => m.role !== 'system').length === 0) ? (
+            {(isHistoryLoading && (!activeConv || messages.filter(m => m.role !== 'system').length === 0)) ? (
+              <div className="chat-history-loading">
+                <Loader2 className="spinner-icon" size={32} />
+                <p>正在加载对话...</p>
+              </div>
+            ) : (!activeConv || messages.filter(m => m.role !== 'system').length === 0) ? (
               <WelcomeScreen
                 activeConv={activeConv}
                 messages={messages}

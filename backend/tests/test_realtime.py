@@ -72,7 +72,13 @@ class AgentCoordinatorTests(IsolatedAsyncioTestCase):
 
     async def test_busy_message_is_not_persisted(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            database = Database(Path(temp_dir) / "history.db")
+            database = Database(
+                host="127.0.0.1",
+                port=3306,
+                user="root",
+                password="REDACTED_PASSWORD",
+                db_name="orbitpane_test",
+            )
             database.migrate()
             conversation = database.create_conversation("Test", temp_dir, "fake")
             provider = BlockingProvider()
@@ -124,7 +130,13 @@ class AgentCoordinatorTests(IsolatedAsyncioTestCase):
 
     async def test_elapsed_time_and_stream_identity_are_server_authoritative(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            database = Database(Path(temp_dir) / "history.db")
+            database = Database(
+                host="127.0.0.1",
+                port=3306,
+                user="root",
+                password="REDACTED_PASSWORD",
+                db_name="orbitpane_test",
+            )
             database.migrate()
             conversation = database.create_conversation("Test", temp_dir, "fake")
             provider = BlockingProvider()

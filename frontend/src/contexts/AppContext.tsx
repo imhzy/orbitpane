@@ -66,6 +66,7 @@ export interface AppContextType {
   // Chat & WebSocket (from useWebSocket)
   messages: Message[];
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
+  isHistoryLoading: boolean;
   clearMessages: () => void;
   summarizeMessages: () => void;
   isConnected: boolean;
@@ -81,7 +82,7 @@ export interface AppContextType {
   isAgentThinking: boolean;
   isAgentThinkingRef: React.MutableRefObject<boolean>;
   pendingSendMessagesRef: React.MutableRefObject<Map<number, { content: string; model: string; provider: string }>>;
-  loadHistory: (convId: number) => void;
+  loadHistory: (convId: number, silent?: boolean) => void;
   socketRef: React.MutableRefObject<WebSocket | null>;
   socketConversationIdRef: React.MutableRefObject<number | null>;
 }
