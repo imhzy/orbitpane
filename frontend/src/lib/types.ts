@@ -7,7 +7,7 @@ export interface DirItem {
 }
 
 export interface Message {
-  role: 'user' | 'agent' | 'system'
+  role: 'user' | 'agent' | 'system' | 'summary'
   content: string
   thought?: string
   isThinking?: boolean
@@ -48,3 +48,12 @@ export interface AgentsResponse {
   default_provider: string
   providers: Provider[]
 }
+
+export interface ProviderBadge {
+  text: string
+  type: string
+  className: string
+  Icon: React.ComponentType<{ size?: number; className?: string }>
+}
+
+

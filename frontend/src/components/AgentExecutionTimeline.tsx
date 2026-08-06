@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronDown, ChevronRight, Play, Terminal, FileEdit, Search, ListTodo, Brain, Check, Sparkles } from 'lucide-react'
+import { ChevronDown, ChevronRight, Play, Terminal, FileEdit, Search, ListTodo, Brain, Check, Activity } from 'lucide-react'
 import MarkdownContent from './MarkdownContent'
 import './AgentExecutionTimeline.css'
 
@@ -139,7 +139,7 @@ export function AgentExecutionTimeline({
         <div className="header-left">
           {isThinking ? (
             <span className="execution-icon active">
-              <Sparkles size={14} className="sparkle-pulse" />
+              <Activity size={14} className="icon-pulse" />
             </span>
           ) : (
             <span className="execution-icon done">
@@ -201,7 +201,7 @@ export function AgentExecutionTimeline({
                     else if (step.type === 'tool') Icon = Terminal
                     
                     return (
-                      <div key={step.id} className="timeline-step">
+                      <div key={step.id} className="timeline-step" data-type={step.type}>
                         <div className="step-indicator">
                           <div className={`step-dot ${step.isComplete ? 'complete' : 'active'}`}>
                             {step.isComplete ? <Check size={8} /> : <div className="dot-pulse" />}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   X, MessageSquare, Plus, Trash2, Folder,
@@ -7,7 +7,7 @@ import {
   Search, Star
 } from 'lucide-react'
 import { LogoIcon } from '../LogoIcon'
-import type { Conversation, DirItem, Provider } from '../lib/types'
+import type { Conversation, DirItem, Provider, ProviderBadge } from '../lib/types'
 
 interface SidebarProps {
   isDrawerOpen: boolean
@@ -25,7 +25,7 @@ interface SidebarProps {
   startEditingConv: (e: React.MouseEvent, conv: Conversation) => void
   setEditingConvId: (id: number | null) => void
   deleteConversation: (e: React.MouseEvent, id: number) => void
-  getProviderBadge: (providerId?: string, providersCatalog?: Provider[]) => any
+  getProviderBadge: (providerId?: string, providersCatalog?: Provider[]) => ProviderBadge
   providers: Provider[]
   newConvName: string
   setNewConvName: (name: string) => void
@@ -81,6 +81,7 @@ export function Sidebar({
   showToast,
 }: SidebarProps) {
   const [searchTerm, setSearchTerm] = useState('')
+  const isCancelingRef = React.useRef(false)
   const [pinnedIds, setPinnedIds] = useState<number[]>(() => {
     try {
       return JSON.parse(localStorage.getItem('orbitpane_pinned_convs') || '[]')
@@ -88,6 +89,27 @@ export function Sidebar({
       return []
     }
   })
+
+  const [isHighlighting, setIsHighlighting] = useState(false)
+
+  useEffect(() => {
+    if (isDrawerOpen && window.innerWidth < 1024) {
+      const originalOverflow = document.body.style.overflow
+      document.body.style.overflow = 'hidden'
+      return () => {
+        document.body.style.overflow = originalOverflow
+      }
+    }
+  }, [isDrawerOpen])
+
+  useEffect(() => {
+    const handleHighlight = () => {
+      setIsHighlighting(true)
+      setTimeout(() => setIsHighlighting(false), 800) // Remove class after animation
+    }
+    window.addEventListener('highlight-drawer', handleHighlight)
+    return () => window.removeEventListener('highlight-drawer', handleHighlight)
+  }, [])
 
   const togglePin = (e: React.MouseEvent, id: number) => {
     e.stopPropagation()
@@ -115,7 +137,7 @@ export function Sidebar({
         <motion.div 
           initial={{ x: '-100%', marginLeft: -340 }} animate={{ x: 0, marginLeft: 0 }} exit={{ x: '-100%', marginLeft: -340 }}
           transition={springConfig}
-          className="drawer"
+          className={`drawer ${isHighlighting ? 'drawer-highlight' : ''}`}
           role="dialog"
           aria-modal="true"
           aria-label="工作区菜单"
@@ -136,7 +158,7 @@ export function Sidebar({
                 <span className="brand-badge-sm">PANE</span>
               </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div className="header-actions">
               <button 
                 className="icon-btn" 
                 title="刷新数据" 
@@ -146,10 +168,10 @@ export function Sidebar({
                   showToast('最新数据已刷新')
                 }}
               >
-                <RefreshCw size={16} className={isConversationsLoading ? 'animate-spin' : ''} />
+                <RefreshCw size={14} className={isConversationsLoading ? 'animate-spin' : ''} />
               </button>
               <button className="icon-btn" onClick={() => setIsDrawerOpen(false)}>
-                <X size={18} />
+                <X size={14} />
               </button>
             </div>
           </div>
@@ -197,7 +219,7 @@ export function Sidebar({
               {isConversationsLoading ? (
                 <div className="flex flex-col gap-2 p-2">
                   {[1, 2, 3].map(i => (
-                    <div key={i} className="h-14 bg-[var(--bg-surface-hover)] rounded-xl animate-pulse" />
+                    <div key={i} className="h-14 rounded-xl skeleton-shimmer" />
                   ))}
                 </div>
               ) : filteredConvs.length === 0 ? (
@@ -209,104 +231,149 @@ export function Sidebar({
                   <div className="text-center text-[var(--text-tertiary)] text-[12px] mt-1 mb-4">
                     {searchTerm ? '尝试更改搜索关键词' : '点击下方按钮创建您的第一个工程工作区'}
                   </div>
-                  {!searchTerm && (
+                  {searchTerm ? (
+                    <button 
+                      className="secondary-text-btn" 
+                      onClick={() => setSearchTerm('')}
+                      style={{ marginTop: 8 }}
+                    >
+                      清空搜索词
+                    </button>
+                  ) : (
                     <button 
                       className="cw-create-btn" 
                       onClick={() => setDrawerMode('create')}
-                      style={{ padding: '8px 16px', fontSize: '13px' }}
                     >
-                      <Plus size={14} style={{ marginRight: 4 }} /> 立即创建
+                      <Plus size={14} className="btn-icon" /> 立即创建
                     </button>
                   )}
                 </div>
               ) : (
-                filteredConvs.map(conv => {
-                  const isEditing = editingConvId === conv.id
-                  const isPinned = pinnedIds.includes(conv.id)
-                  const badge = getProviderBadge(conv.provider, providers)
-                  const ProviderIcon = badge.Icon
-                  return (
-                    <div 
-                      key={conv.id} 
-                      className={`list-item ${activeConv?.id === conv.id ? 'selected' : ''} ${isPinned ? 'pinned-item' : ''}`}
-                      onClick={() => {
-                        if (!isEditing) {
-                          selectConversation(conv)
-                        }
-                      }}
-                    >
-                      <div className={`item-icon ${badge.type}`}>
-                        <ProviderIcon size={16} />
-                      </div>
-                      <div className="item-content">
-                        {isEditing ? (
-                          <input
-                            type="text"
-                            className="cw-input"
-                            style={{ padding: '2px 6px', fontSize: '13px', height: '26px' }}
-                            value={editingConvName}
-                            autoFocus
-                            onClick={e => e.stopPropagation()}
-                            onChange={e => setEditingConvName(e.target.value)}
-                            onKeyDown={e => {
-                              if (e.key === 'Enter') saveConvName(conv.id)
-                              if (e.key === 'Escape') setEditingConvId(null)
-                            }}
-                            onBlur={() => saveConvName(conv.id)}
-                          />
-                        ) : (
-                          <>
-                            <div className="item-title-row">
-                              <span className="item-title" title={conv.name}>{conv.name}</span>
-                              {isPinned && <Star size={11} className="pin-star-icon" fill="currentColor" />}
-                            </div>
-                            <div className="item-badge-row">
-                              <span className={`conv-provider-tag ${badge.className}`}>
-                                {badge.text}
-                              </span>
-                            </div>
-                            <span className="item-subtitle" title={conv.path}>{conv.path}</span>
-                          </>
-                        )}
-                      </div>
-                      <div className="item-actions" style={{ display: 'flex', gap: '3px', alignItems: 'center' }} onClick={e => e.stopPropagation()}>
-                        {isEditing ? (
-                          <button
-                            className="icon-btn"
-                            title="保存名称"
-                            onClick={() => saveConvName(conv.id)}
-                          >
-                            <Check size={14} />
-                          </button>
-                        ) : (
-                          <>
+                (() => {
+                  const pinnedConvs = filteredConvs.filter(c => pinnedIds.includes(c.id))
+                  const unpinnedConvs = filteredConvs.filter(c => !pinnedIds.includes(c.id))
+
+                  const renderConvItem = (conv: Conversation) => {
+                    const isEditing = editingConvId === conv.id
+                    const isPinned = pinnedIds.includes(conv.id)
+                    const badge = getProviderBadge(conv.provider, providers)
+                    const ProviderIcon = badge.Icon
+                    return (
+                      <div 
+                        key={conv.id} 
+                        className={`list-item ${activeConv?.id === conv.id ? 'selected' : ''} ${isPinned ? 'pinned-item' : ''}`}
+                        onClick={() => {
+                          if (!isEditing) {
+                            selectConversation(conv)
+                          }
+                        }}
+                      >
+                        <div className={`item-icon ${badge.type}`}>
+                          <ProviderIcon size={16} />
+                        </div>
+                        <div className="item-content">
+                          {isEditing ? (
+                            <input
+                              type="text"
+                              className="cw-input conv-title-input"
+                              value={editingConvName}
+                              autoFocus
+                              onClick={e => e.stopPropagation()}
+                              onChange={e => setEditingConvName(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') saveConvName(conv.id)
+                                if (e.key === 'Escape') {
+                                  isCancelingRef.current = true
+                                  setEditingConvId(null)
+                                }
+                              }}
+                              onBlur={() => {
+                                if (isCancelingRef.current) {
+                                  isCancelingRef.current = false
+                                  return
+                                }
+                                saveConvName(conv.id)
+                              }}
+                            />
+                          ) : (
+                            <>
+                              <div className="item-title-row">
+                                <span className="item-title" title={conv.name}>{conv.name}</span>
+                                {isPinned && <Star size={11} className="pin-star-icon" fill="currentColor" />}
+                              </div>
+                              <div className="item-badge-row">
+                                <span className={`conv-provider-tag ${badge.className}`}>
+                                  {badge.text}
+                                </span>
+                              </div>
+                              <span className="item-subtitle" title={conv.path}>{conv.path}</span>
+                            </>
+                          )}
+                        </div>
+                        <div className="item-actions header-actions" onClick={e => e.stopPropagation()}>
+                          {isEditing ? (
                             <button
-                              className={`icon-btn pin-btn ${isPinned ? 'pinned' : ''}`}
-                              title={isPinned ? '取消星标' : '星标置顶'}
-                              onClick={(e) => togglePin(e, conv.id)}
+                              className="icon-btn"
+                              title="保存名称"
+                              onClick={() => saveConvName(conv.id)}
                             >
-                              <Star size={13} fill={isPinned ? 'currentColor' : 'none'} />
+                              <Check size={14} />
                             </button>
-                            <button 
-                              className="icon-btn" 
-                              title="重命名工作区"
-                              onClick={(e) => startEditingConv(e, conv)}
-                            >
-                              <Pencil size={13} />
-                            </button>
-                            <button 
-                              className="icon-btn destructive" 
-                              title="删除会话"
-                              onClick={(e) => deleteConversation(e, conv.id)}
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </>
-                        )}
+                          ) : (
+                            <>
+                              <button
+                                className={`icon-btn pin-btn ${isPinned ? 'pinned' : ''}`}
+                                title={isPinned ? '取消星标' : '星标置顶'}
+                                onClick={(e) => togglePin(e, conv.id)}
+                              >
+                                <Star size={13} fill={isPinned ? 'currentColor' : 'none'} />
+                              </button>
+                              <button 
+                                className="icon-btn" 
+                                title="重命名工作区"
+                                onClick={(e) => startEditingConv(e, conv)}
+                              >
+                                <Pencil size={13} />
+                              </button>
+                              <button 
+                                className="icon-btn destructive" 
+                                title="删除会话"
+                                onClick={(e) => deleteConversation(e, conv.id)}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </div>
+                    )
+                  }
+
+                  return (
+                    <div className="flex flex-col gap-3">
+                      {pinnedConvs.length > 0 && (
+                        <div className="sidebar-section-group">
+                          <div className="sidebar-section-title">
+                            <Star size={12} className="text-warning fill-warning" />
+                            <span>星标置顶 ({pinnedConvs.length})</span>
+                          </div>
+                          {pinnedConvs.map(renderConvItem)}
+                        </div>
+                      )}
+
+                      {unpinnedConvs.length > 0 && (
+                        <div className="sidebar-section-group">
+                          {pinnedConvs.length > 0 && (
+                            <div className="sidebar-section-title">
+                              <span>所有工作区 ({unpinnedConvs.length})</span>
+                            </div>
+                          )}
+                          {unpinnedConvs.map(renderConvItem)}
+                        </div>
+                      )}
                     </div>
                   )
-                })
+                })()
               )}
             </div>
           )}
@@ -430,7 +497,12 @@ export function Sidebar({
                             className={`cw-item ${isSelected ? 'selected' : ''}`}
                             onClick={() => {
                               setSelectedDir(item.path)
+                              setCurrentPath(item.path)
+                              if (!newConvName.trim()) {
+                                setNewConvName(item.name)
+                              }
                             }}
+                            aria-label={`选择并进入目录 ${item.name}`}
                           >
                             <Folder size={14} className="cw-item-icon" />
                             <span className="cw-item-name">{item.name}</span>
@@ -453,6 +525,7 @@ export function Sidebar({
                               role="button"
                               tabIndex={0}
                               title="进入该目录"
+                              aria-label={`进入目录 ${item.name}`}
                             >
                               <ChevronRight size={14} />
                             </span>

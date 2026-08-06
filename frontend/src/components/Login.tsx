@@ -1,7 +1,6 @@
 import React, { useState } from 'react'
 import { motion } from 'framer-motion'
 import { LogoIcon } from '../LogoIcon'
-import { Sparkles } from 'lucide-react'
 import { apiFetch } from '../lib/api'
 import './Login.css'
 
@@ -36,30 +35,15 @@ export function Login({ onLogin }: { onLogin: () => void }) {
 
   return (
     <div className="login-screen">
-      {/* Animated background orbs */}
-      <div className="login-bg-effects">
-        <div className="login-orb login-orb-1" />
-        <div className="login-orb login-orb-2" />
-        <div className="login-orb login-orb-3" />
-      </div>
-
       <motion.div 
-        initial={{ opacity: 0, scale: 0.92, y: 20 }}
-        animate={error ? { x: [-10, 10, -10, 10, 0], opacity: 1, scale: 1, y: 0 } : { opacity: 1, scale: 1, y: 0, x: 0 }}
-        transition={error ? { duration: 0.4 } : { duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+        initial={{ opacity: 0, scale: 0.96, y: 12 }}
+        animate={error ? { x: [-8, 8, -8, 8, 0], opacity: 1, scale: 1, y: 0 } : { opacity: 1, scale: 1, y: 0, x: 0 }}
+        transition={error ? { duration: 0.3 } : { duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
         className="login-card-enhanced"
       >
         <div className="login-logo-area">
-          <motion.div 
-            className="login-logo-ring"
-            initial={{ rotate: 0 }}
-            animate={{ rotate: 360 }}
-            transition={{ duration: 20, repeat: Infinity, ease: 'linear' }}
-          >
-            <div className="login-logo-ring-inner" />
-          </motion.div>
           <div className="login-logo-icon">
-            <LogoIcon size={40} />
+            <LogoIcon size={36} />
           </div>
         </div>
 
@@ -69,8 +53,7 @@ export function Login({ onLogin }: { onLogin: () => void }) {
             <span className="login-brand-badge">PANE</span>
           </h2>
           <div className="login-brand-tagline">
-            <Sparkles size={12} style={{ opacity: 0.7 }} />
-            <span>Next-Gen AI Pair Programmer</span>
+            <span>Self-hosted Agent Workspace</span>
           </div>
         </div>
 
@@ -104,12 +87,12 @@ export function Login({ onLogin }: { onLogin: () => void }) {
             className="login-submit-btn"
             aria-label={loading ? '验证中' : '提交密码验证'}
           >
-            {loading ? '验证中...' : '立即解锁验证'}
+            {loading ? '验证中...' : '验证并进入'}
           </button>
         </form>
 
         <div className="login-footer">
-          Self-hosted Coding Agent Workspace
+          OrbitPane Workspace v1.0
         </div>
       </motion.div>
     </div>

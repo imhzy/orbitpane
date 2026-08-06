@@ -1,8 +1,9 @@
-import React from 'react'
-import { Menu, Pencil, Sun, Moon, Eraser, Plus, Download, Command } from 'lucide-react'
+import React, { useState, useRef, useEffect } from 'react'
+import { Menu, Pencil, Sun, Moon, Eraser, Plus, Download, Command, FileText, MoreVertical } from 'lucide-react'
 import { LogoIcon } from '../LogoIcon'
 import { ModelSelector } from './ModelSelector'
-import type { Conversation, Provider, Message } from '../lib/types'
+import type { Conversation, Provider, Message, ProviderBadge } from '../lib/types'
+import { motion, AnimatePresence } from 'framer-motion'
 
 interface ChatHeaderProps {
   activeConv: Conversation | null
@@ -12,10 +13,11 @@ interface ChatHeaderProps {
   setEditingConvName: (name: string) => void
   saveConvName: (id: number) => void
   startEditingConv: (e: React.MouseEvent, conv: Conversation) => void
-  getProviderBadge: (providerId?: string, providersCatalog?: Provider[]) => any
+  getProviderBadge: (providerId?: string, providersCatalog?: Provider[]) => ProviderBadge
   providers: Provider[]
   isDrawerOpen: boolean
   setIsDrawerOpen: (open: boolean) => void
+  setDrawerMode: (mode: 'sessions' | 'create') => void
   selectedModel: string
   setSelectedModel: (model: string) => void
   models: string[]
@@ -32,6 +34,7 @@ interface ChatHeaderProps {
   exportConversationAsImage: () => void
   messages: Message[]
   clearMessages: () => void
+  summarizeMessages: () => void
 }
 
 export function ChatHeader({
@@ -45,6 +48,7 @@ export function ChatHeader({
   getProviderBadge,
   providers,
   setIsDrawerOpen,
+  setDrawerMode,
   selectedModel,
   setSelectedModel,
   models,
@@ -60,8 +64,23 @@ export function ChatHeader({
   isExporting,
   exportConversationAsImage,
   messages,
-  clearMessages
+  clearMessages,
+  summarizeMessages
 }: ChatHeaderProps) {
+  const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false)
+  const actionsMenuRef = useRef<HTMLDivElement>(null)
+  const isCancelingRef = useRef(false)
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (actionsMenuRef.current && !actionsMenuRef.current.contains(e.target as Node)) {
+        setIsActionsMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
   return (
     <div className="chat-header">
       <div className="header-brand">
@@ -69,6 +88,7 @@ export function ChatHeader({
           className="icon-btn" 
           onClick={() => setIsDrawerOpen(true)}
           title="展开工作区菜单 (⌘B)"
+          aria-label="展开工作区菜单"
         >
           <Menu size={18} />
         </button>
@@ -85,21 +105,29 @@ export function ChatHeader({
         />
 
         <div className="header-title-wrapper">
-          <div className="header-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div className="header-title">
             {activeConv ? (
               editingConvId === activeConv.id ? (
                 <input
                   type="text"
-                  className="cw-input"
-                  style={{ padding: '2px 8px', fontSize: '14px', fontWeight: 600, height: '28px', maxWidth: '240px' }}
+                  className="cw-input conv-title-input"
                   value={editingConvName}
                   autoFocus
                   onChange={e => setEditingConvName(e.target.value)}
                   onKeyDown={e => {
                     if (e.key === 'Enter') saveConvName(activeConv.id)
-                    if (e.key === 'Escape') setEditingConvId(null)
+                    if (e.key === 'Escape') {
+                      isCancelingRef.current = true
+                      setEditingConvId(null)
+                    }
                   }}
-                  onBlur={() => saveConvName(activeConv.id)}
+                  onBlur={() => {
+                    if (isCancelingRef.current) {
+                      isCancelingRef.current = false
+                      return
+                    }
+                    saveConvName(activeConv.id)
+                  }}
                 />
               ) : (
                 <>
@@ -110,10 +138,10 @@ export function ChatHeader({
                   <button
                     className="icon-btn edit-title-btn"
                     title="修改工作区名称"
+                    aria-label="修改工作区名称"
                     onClick={(e) => startEditingConv(e, activeConv)}
-                    style={{ padding: 2, width: 22, height: 22, opacity: 0.6 }}
                   >
-                    <Pencil size={12} />
+                    <Pencil size={14} />
                   </button>
                 </>
               )
@@ -125,12 +153,14 @@ export function ChatHeader({
             )}
           </div>
           {activeConv && (
-            <div className="header-path">{activeConv.path}</div>
+            <div className="header-path" title={activeConv.path}>
+              {activeConv.path}
+            </div>
           )}
         </div>
       </div>
 
-      <div className="header-actions" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+      <div className="header-actions">
         {/* Command Palette trigger */}
         <button
           className="icon-btn cmd-trigger-btn"
@@ -138,7 +168,7 @@ export function ChatHeader({
           title="快捷指令 (⌘K)"
         >
           <Command size={14} />
-          <span className="cmd-btn-label">⌘K</span>
+          <span className="cmd-btn-label hide-on-mobile">⌘K</span>
         </button>
 
         {/* Theme toggle button */}
@@ -151,23 +181,93 @@ export function ChatHeader({
         </button>
 
         {activeConv ? (
-          <div className="header-actions" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <button
-              className="icon-btn"
-              disabled={isExporting || !messages.some(message => message.role !== 'system')}
-              title={isExporting ? '正在导出对话图片' : '导出当前对话为 PNG 图片'}
-              aria-label={isExporting ? '正在导出对话图片' : '导出当前对话为 PNG 图片'}
-              onClick={exportConversationAsImage}
-            >
-              <Download size={16} className={isExporting ? 'animate-pulse' : ''} />
-            </button>
-            <button 
-              className="icon-btn"
-              title="清空会话"
-              onClick={clearMessages}
-            >
-              <Eraser size={16} />
-            </button>
+          <div className="header-actions-group">
+            {/* Desktop Actions */}
+            <div className="desktop-only-action">
+              <button
+                className="icon-btn"
+                disabled={isExporting || !messages.some(message => message.role !== 'system')}
+                title={isExporting ? '正在导出对话图片' : '导出当前对话为 PNG 图片'}
+                aria-label={isExporting ? '正在导出对话图片' : '导出当前对话为 PNG 图片'}
+                onClick={exportConversationAsImage}
+              >
+                <Download size={14} className={isExporting ? 'animate-pulse' : ''} />
+                <span className="action-btn-text">导出</span>
+              </button>
+              <button 
+                className="icon-btn"
+                title="生成对话总结"
+                onClick={summarizeMessages}
+                disabled={!messages.some(message => message.role !== 'system')}
+              >
+                <FileText size={14} />
+                <span className="action-btn-text">总结</span>
+              </button>
+              <button 
+                className="icon-btn"
+                title="清空会话"
+                onClick={clearMessages}
+              >
+                <Eraser size={14} />
+                <span className="action-btn-text">清空</span>
+              </button>
+            </div>
+
+            {/* Mobile Actions Dropdown */}
+            <div className="mobile-only-action actions-dropdown-wrapper" ref={actionsMenuRef}>
+              <button 
+                className="icon-btn"
+                title="更多选项"
+                onClick={() => setIsActionsMenuOpen(!isActionsMenuOpen)}
+              >
+                <MoreVertical size={16} />
+              </button>
+              
+              <AnimatePresence>
+                {isActionsMenuOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -5, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -5, scale: 0.98 }}
+                    transition={{ duration: 0.15 }}
+                    className="actions-dropdown-menu"
+                  >
+                    <button
+                      className="actions-dropdown-item"
+                      disabled={isExporting || !messages.some(message => message.role !== 'system')}
+                      onClick={() => {
+                        exportConversationAsImage();
+                        setIsActionsMenuOpen(false);
+                      }}
+                    >
+                      <Download size={14} className={isExporting ? 'animate-pulse' : ''} />
+                      <span>导出</span>
+                    </button>
+                    <button 
+                      className="actions-dropdown-item"
+                      disabled={!messages.some(message => message.role !== 'system')}
+                      onClick={() => {
+                        summarizeMessages();
+                        setIsActionsMenuOpen(false);
+                      }}
+                    >
+                      <FileText size={14} />
+                      <span>总结</span>
+                    </button>
+                    <button 
+                      className="actions-dropdown-item destructive"
+                      onClick={() => {
+                        clearMessages();
+                        setIsActionsMenuOpen(false);
+                      }}
+                    >
+                      <Eraser size={14} />
+                      <span>清空</span>
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
 
             <div 
               className={`status-indicator ${!isConnected ? 'clickable' : ''}`}
@@ -176,8 +276,7 @@ export function ChatHeader({
                   connectWebSocket(activeConvRef.current, true)
                 }
               }}
-              title={isConnected ? 'AI agent 已在线' : isReconnecting ? '正在重连...' : '未连接，点击重连'}
-              style={{ cursor: isConnected ? 'default' : 'pointer' }}
+              title={isConnected ? 'Agent 在线' : isReconnecting ? '正在重连...' : '未连接，点击重连'}
             >
               <div className={`status-dot ${isConnected ? 'online' : isReconnecting ? 'connecting' : 'offline'}`} />
               <span className="status-text">{isConnected ? '在线' : isReconnecting ? '重连中...' : '重连'}</span>
@@ -186,10 +285,13 @@ export function ChatHeader({
         ) : (
           <button 
             className="icon-btn new-ws-header-btn" 
-            onClick={() => setIsDrawerOpen(true)}
+            onClick={() => {
+              setIsDrawerOpen(true);
+              setDrawerMode('create');
+            }}
           >
-            <Plus size={14} style={{ marginRight: 4 }} />
-            <span style={{ fontSize: 13, fontWeight: 600 }}>新建工作区</span>
+            <Plus size={14} className="btn-icon" />
+            <span className="hide-on-mobile new-ws-text">新建工作区</span>
           </button>
         )}
       </div>

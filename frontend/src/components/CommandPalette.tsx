@@ -30,16 +30,37 @@ export function CommandPalette({
 }: CommandPaletteProps) {
   const [query, setQuery] = useState('')
   const [showHelp, setShowHelp] = useState(false)
+  const [selectedIndex, setSelectedIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (isOpen) {
+      const originalOverflow = document.body.style.overflow
+      document.body.style.overflow = 'hidden'
       setTimeout(() => inputRef.current?.focus(), 50)
+      setSelectedIndex(0)
+      return () => {
+        document.body.style.overflow = originalOverflow
+      }
     } else {
       setQuery('')
       setShowHelp(false)
+      setSelectedIndex(0)
     }
   }, [isOpen])
+
+  useEffect(() => {
+    setSelectedIndex(0)
+  }, [query])
+
+  useEffect(() => {
+    if (!listRef.current) return
+    const activeEl = listRef.current.querySelector<HTMLElement>('.cmd-item.active')
+    if (activeEl) {
+      activeEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }
+  }, [selectedIndex])
 
   if (!isOpen) return null
 
@@ -51,6 +72,48 @@ export function CommandPalette({
   const handleAction = (action: () => void) => {
     action()
     onClose()
+  }
+
+  // Combine items for keyboard navigation
+  const staticActions = [
+    { type: 'new', label: '新建工程工作区', icon: Plus, action: onNewWorkspace, kbd: '⌘ N' },
+    { type: 'theme', label: `切换至${theme === 'dark' ? '明亮' : '暗夜'}主题模式`, icon: theme === 'dark' ? Sun : Moon, action: onToggleTheme },
+    { type: 'export', label: '导出当前对话为 PNG 图片', icon: Download, action: onExportImage },
+    { type: 'clear', label: '清空当前会话记录', icon: Eraser, action: onClearMessages, isDanger: true },
+    { type: 'help', label: '查看键盘快捷键说明', icon: HelpCircle, action: () => setShowHelp(true), kbd: '?' },
+  ]
+
+  const itemsCount = !query
+    ? staticActions.length + filteredConvs.slice(0, 5).length
+    : filteredConvs.slice(0, 5).length
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape') {
+      onClose()
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setSelectedIndex(prev => (itemsCount > 0 ? (prev + 1) % itemsCount : 0))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setSelectedIndex(prev => (itemsCount > 0 ? (prev - 1 + itemsCount) % itemsCount : 0))
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      if (showHelp) {
+        setShowHelp(false)
+        return
+      }
+      if (!query) {
+        if (selectedIndex < staticActions.length) {
+          handleAction(staticActions[selectedIndex].action)
+        } else {
+          const conv = filteredConvs[selectedIndex - staticActions.length]
+          if (conv) handleAction(() => onSelectConv(conv.id))
+        }
+      } else {
+        const conv = filteredConvs[selectedIndex]
+        if (conv) handleAction(() => onSelectConv(conv.id))
+      }
+    }
   }
 
   return (
@@ -73,14 +136,12 @@ export function CommandPalette({
               placeholder="搜索会话、常用指令或按 Esc 退出..."
               value={query}
               onChange={e => setQuery(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Escape') onClose()
-              }}
+              onKeyDown={handleKeyDown}
             />
             <kbd className="cmd-kbd">ESC</kbd>
           </div>
 
-          <div className="cmd-body">
+          <div className="cmd-body" ref={listRef}>
             {showHelp ? (
               <div className="cmd-help-section">
                 <div className="cmd-section-title">
@@ -110,7 +171,7 @@ export function CommandPalette({
                   </div>
                 </div>
                 <button
-                  className="cmd-item"
+                  className="cmd-item active"
                   onClick={() => setShowHelp(false)}
                   style={{ marginTop: 12, justifyContent: 'center' }}
                 >
@@ -122,47 +183,46 @@ export function CommandPalette({
                 {!query && (
                   <div className="cmd-section">
                     <div className="cmd-section-title">快捷操作</div>
-                    <button className="cmd-item" onClick={() => handleAction(onNewWorkspace)}>
-                      <Plus size={15} className="cmd-item-icon" />
-                      <span>新建工程工作区</span>
-                      <kbd>⌘ N</kbd>
-                    </button>
-                    <button className="cmd-item" onClick={() => handleAction(onToggleTheme)}>
-                      {theme === 'dark' ? <Sun size={15} className="cmd-item-icon" /> : <Moon size={15} className="cmd-item-icon" />}
-                      <span>切换至{theme === 'dark' ? '明亮' : '暗夜'}主题模式</span>
-                    </button>
-                    <button className="cmd-item" onClick={() => handleAction(onExportImage)}>
-                      <Download size={15} className="cmd-item-icon" />
-                      <span>导出当前对话为 PNG 图片</span>
-                    </button>
-                    <button className="cmd-item" onClick={() => handleAction(onClearMessages)}>
-                      <Eraser size={15} className="cmd-item-icon text-danger" />
-                      <span className="text-danger">清空当前会话记录</span>
-                    </button>
-                    <button className="cmd-item" onClick={() => setShowHelp(true)}>
-                      <HelpCircle size={15} className="cmd-item-icon" />
-                      <span>查看键盘快捷键说明</span>
-                      <kbd>?</kbd>
-                    </button>
+                    {staticActions.map((act, idx) => {
+                      const IconComp = act.icon
+                      const isActive = selectedIndex === idx
+                      return (
+                        <button
+                          key={act.type}
+                          className={`cmd-item ${isActive ? 'active' : ''}`}
+                          onClick={() => handleAction(act.action)}
+                          onMouseEnter={() => setSelectedIndex(idx)}
+                        >
+                          <IconComp size={15} className={`cmd-item-icon ${act.isDanger ? 'text-danger' : ''}`} />
+                          <span className={act.isDanger ? 'text-danger' : ''}>{act.label}</span>
+                          {act.kbd && <kbd>{act.kbd}</kbd>}
+                        </button>
+                      )
+                    })}
                   </div>
                 )}
 
                 {filteredConvs.length > 0 && (
                   <div className="cmd-section">
                     <div className="cmd-section-title">会话工作区 ({filteredConvs.length})</div>
-                    {filteredConvs.slice(0, 5).map(c => (
-                      <button
-                        key={c.id}
-                        className="cmd-item"
-                        onClick={() => handleAction(() => onSelectConv(c.id))}
-                      >
-                        <MessageSquare size={15} className="cmd-item-icon" />
-                        <div className="cmd-conv-text">
-                          <div className="cmd-conv-name">{c.name}</div>
-                          <div className="cmd-conv-path">{c.path}</div>
-                        </div>
-                      </button>
-                    ))}
+                    {filteredConvs.slice(0, 5).map((c, idx) => {
+                      const itemIdx = !query ? staticActions.length + idx : idx
+                      const isActive = selectedIndex === itemIdx
+                      return (
+                        <button
+                          key={c.id}
+                          className={`cmd-item ${isActive ? 'active' : ''}`}
+                          onClick={() => handleAction(() => onSelectConv(c.id))}
+                          onMouseEnter={() => setSelectedIndex(itemIdx)}
+                        >
+                          <MessageSquare size={15} className="cmd-item-icon" />
+                          <div className="cmd-conv-text">
+                            <div className="cmd-conv-name">{c.name}</div>
+                            <div className="cmd-conv-path">{c.path}</div>
+                          </div>
+                        </button>
+                      )
+                    })}
                   </div>
                 )}
 
@@ -180,3 +240,4 @@ export function CommandPalette({
     </AnimatePresence>
   )
 }
+

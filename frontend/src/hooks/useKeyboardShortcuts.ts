@@ -15,6 +15,9 @@ export function useKeyboardShortcuts({
 }) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      const isInputElem = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+
       if (e.key === 'Escape') {
         onEscape?.()
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
@@ -27,8 +30,10 @@ export function useKeyboardShortcuts({
         e.preventDefault()
         onNewWorkspace?.()
       } else if ((e.metaKey || e.ctrlKey) && e.key === '/') {
-        e.preventDefault()
-        onFocusInput?.()
+        if (!isInputElem) {
+          e.preventDefault()
+          onFocusInput?.()
+        }
       }
     }
     

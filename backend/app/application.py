@@ -227,6 +227,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         database.clear_messages(conversation_id)
         return {"status": "ok"}
 
+    @app.post(
+        "/api/conversations/{conversation_id}/summarize",
+        dependencies=[Depends(require_auth)],
+    )
+    async def summarize_conversation(conversation_id: int):
+        if coordinator.is_running(conversation_id):
+            raise HTTPException(status_code=409, detail="Conversation is currently running")
+        conversation = database.get_conversation(conversation_id)
+        if conversation is None:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        try:
+            await coordinator.start(
+                conversation,
+                content="Please summarize the conversation history so far into a concise 'Current Context / State' document. This summary will be used as the sole memory for our future turns. Include key technical decisions, current progress, and pending tasks. Start directly with the summary content and reply in the same language as the conversation.",
+                model=None,
+                provider_id=None,
+                is_summary=True,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"status": "ok"}
+
     @app.get("/api/ls", dependencies=[Depends(require_auth)])
     async def list_directory(
         path: str = Query(default="/root", min_length=1, max_length=4096),

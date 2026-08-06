@@ -1,65 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
-  <defs>
-    <!-- Background Gradient -->
-    <linearGradient id="bgGlow" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0f0c20"/>
-      <stop offset="50%" stop-color="#151030"/>
-      <stop offset="100%" stop-color="#090514"/>
-    </linearGradient>
+  <rect width="512" height="512" rx="112" fill="#09090b"/>
+  <rect x="8" y="8" width="496" height="496" rx="104" fill="none" stroke="rgba(255, 255, 255, 0.08)" stroke-width="4"/>
 
-    <!-- Core Brand Neon Gradient -->
-    <linearGradient id="neonGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#6366F1"/>
-      <stop offset="40%" stop-color="#8B5CF6"/>
-      <stop offset="80%" stop-color="#D946EF"/>
-      <stop offset="100%" stop-color="#3B82F6"/>
-    </linearGradient>
+  <!-- Outer Orbital Ring -->
+  <circle cx="256" cy="256" r="180" fill="none" stroke="#27272a" stroke-width="16"/>
+  <circle cx="256" cy="256" r="180" fill="none" stroke="#2563eb" stroke-width="16" stroke-dasharray="140 400" stroke-linecap="round"/>
 
-    <linearGradient id="sparkleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#FFFFFF"/>
-      <stop offset="60%" stop-color="#E0E7FF"/>
-      <stop offset="100%" stop-color="#C084FC"/>
-    </linearGradient>
+  <!-- Central Workspace Pane (Node Grid) -->
+  <rect x="160" y="160" width="192" height="192" rx="40" fill="#121215" stroke="#3b82f6" stroke-width="20"/>
 
-    <linearGradient id="accentGrad" x1="0%" y1="100%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#06B6D4"/>
-      <stop offset="100%" stop-color="#3B82F6"/>
-    </linearGradient>
+  <!-- Center Active Kernel Node -->
+  <circle cx="256" cy="256" r="36" fill="#3b82f6"/>
 
-    <!-- Glow Filters -->
-    <filter id="coreGlow" x="-30%" y="-30%" width="160%" height="160%">
-      <feGaussianBlur stdDeviation="16" result="blur"/>
-      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
-    </filter>
-
-    <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur stdDeviation="24" result="blur"/>
-    </filter>
-  </defs>
-
-  <!-- Base Rounded Container -->
-  <rect width="512" height="512" rx="128" fill="url(#bgGlow)"/>
-  
-  <!-- Outer Glow Halo -->
-  <circle cx="256" cy="256" r="160" fill="url(#neonGrad)" opacity="0.25" filter="url(#softGlow)"/>
-
-  <!-- Orbital Rings (Representing OrbitPane's connected agent workspace) -->
-  <g transform="translate(256, 256) rotate(-25)">
-    <ellipse cx="0" cy="0" rx="180" ry="60" fill="none" stroke="url(#neonGrad)" stroke-width="8" opacity="0.4" stroke-dasharray="12 16"/>
-    <ellipse cx="0" cy="0" rx="180" ry="60" fill="none" stroke="url(#accentGrad)" stroke-width="12" stroke-linecap="round" stroke-dasharray="80 300" filter="url(#coreGlow)"/>
-  </g>
-
-  <!-- Central OrbitPane Symbol: Floating Diamond-Sparkle Core -->
-  <g transform="translate(256, 256)">
-    <!-- Central Glowing Core Star -->
-    <path d="M 0 -130 Q 0 0 -130 0 Q 0 0 0 130 Q 0 0 130 0 Q 0 0 0 -130 Z" fill="url(#neonGrad)" filter="url(#coreGlow)"/>
-    
-    <!-- Inner Radiant Sparkle -->
-    <path d="M 0 -85 Q 0 0 -85 0 Q 0 0 0 85 Q 0 0 85 0 Q 0 0 0 -85 Z" fill="url(#sparkleGrad)"/>
-    
-    <!-- Small Orbiting Satellites / Nodes -->
-    <circle cx="-110" cy="-90" r="14" fill="url(#sparkleGrad)" filter="url(#coreGlow)"/>
-    <circle cx="120" cy="80" r="10" fill="url(#accentGrad)" filter="url(#coreGlow)"/>
-    <circle cx="100" cy="-110" r="8" fill="#E0E7FF"/>
-  </g>
+  <!-- Orbiting Agent Node -->
+  <circle cx="390" cy="140" r="32" fill="#3b82f6"/>
 </svg>

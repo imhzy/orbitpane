@@ -1,6 +1,6 @@
 import React, { Suspense, lazy } from 'react'
 import { motion } from 'framer-motion'
-import { AlertCircle, Sparkles, User, Check, Copy, ThumbsUp, ThumbsDown, RotateCcw, Clock } from 'lucide-react'
+import { AlertCircle, Info, FileText, User, Check, Copy, ThumbsUp, ThumbsDown, RotateCcw, Clock } from 'lucide-react'
 import { LogoIcon } from '../LogoIcon'
 import { AgentExecutionTimeline } from './AgentExecutionTimeline'
 import type { Message } from '../lib/types'
@@ -37,7 +37,7 @@ export function MessageList({
         if (m.role === 'system') {
           return (
             <div key={i} className={`system-msg ${m.isError ? 'error' : ''}`}>
-              {m.isError ? <AlertCircle size={14} /> : <Sparkles size={14} />}
+              {m.isError ? <AlertCircle size={14} /> : <Info size={14} />}
               <span>{m.content}</span>
             </div>
           )
@@ -59,28 +59,32 @@ export function MessageList({
                   <div className="avatar agent-avatar">
                     <LogoIcon size={16} />
                   </div>
+                ) : m.role === 'summary' ? (
+                  <div className="avatar summary-avatar">
+                    <FileText size={15} />
+                  </div>
                 ) : (
                   <div className="avatar user-avatar">
                     <User size={14} />
                   </div>
                 )}
                 <span className="author-name">
-                  {m.role === 'agent' ? 'OrbitPane' : '你'}
+                  {m.role === 'agent' ? 'OrbitPane' : (m.role === 'summary' ? '对话总结 (Summary)' : '你')}
                 </span>
-                {m.role === 'agent' && m.model && (
+                {(m.role === 'agent' || m.role === 'summary') && m.model && (
                   <span className="model-pill">{formatModelName(m.model)}</span>
                 )}
               </div>
               {m.timestamp && (
                 <span className="message-time">
-                  <Clock size={11} style={{ marginRight: 3, opacity: 0.6 }} />
+                  <Clock size={12} className="msg-time-icon" />
                   {formatTimestamp(m.timestamp)}
                 </span>
               )}
             </div>
 
             <div className="message-bubble">
-              {m.role === 'agent' ? (
+              {(m.role === 'agent' || m.role === 'summary') ? (
                 <div className="agent-container">
                   <AgentExecutionTimeline 
                     thought={m.thought || ''} 
@@ -152,7 +156,7 @@ export function MessageList({
                     title="复制发送内容"
                     onClick={() => copyMessageText(m.content, i)}
                   >
-                    {copiedMsgIdx === i ? <Check size={13} /> : <Copy size={13} />}
+                    {copiedMsgIdx === i ? <Check size={14} /> : <Copy size={14} />}
                   </button>
                 </div>
               )}

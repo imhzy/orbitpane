@@ -1,279 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
+import { useConversations } from './hooks/useConversations'
+import { useWebSocket } from './hooks/useWebSocket'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Check } from 'lucide-react'
+import { Check, ArrowDown, Cpu, MessageSquare } from 'lucide-react'
 import './App.css'
 import { apiFetch } from './lib/api'
 import { AUTH_EXPIRED_EVENT, clearLegacyAuthState } from './lib/auth'
-import type {
-  Conversation,
-  DirItem,
-  Message,
-  ModelsResponse,
-  AgentsResponse,
-  Provider,
-} from './lib/types'
-
-function formatTimestamp(ts?: string | number) {
-  if (!ts) return ''
-  const d = new Date(ts.toString().includes(' ') ? ts + ' UTC' : ts)
-  if (isNaN(d.getTime())) return ''
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-}
-
-interface RealtimeEvent {
-  type: string
-  conversation_id?: number
-  run_id?: string
-  sequence?: number
-  user_content?: string
-  content?: string
-  thought?: string
-  full_content?: string
-  full_thought?: string
-  elapsed?: number
-  duration?: number
-  model?: string
-  provider?: string
-  code?: string
-}
-
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value)
-}
-
-function ensureRunAgent(
-  messages: Message[],
-  event: RealtimeEvent,
-): { messages: Message[]; agentIndex: number } {
-  const next = [...messages]
-  const runId = event.run_id
-  const existingAgentIndex = runId
-    ? next.findIndex(message => message.role === 'agent' && message.run_id === runId)
-    : -1
-  let userIndex = runId
-    ? next.findIndex(message => message.role === 'user' && message.run_id === runId)
-    : -1
-
-  if (runId && userIndex < 0 && typeof event.user_content === 'string') {
-    for (let index = next.length - 1; index >= 0; index -= 1) {
-      const message = next[index]
-      if (
-        message.role === 'user'
-        && !message.run_id
-        && message.content === event.user_content
-      ) {
-        userIndex = index
-        next[index] = { ...message, run_id: runId, isOptimistic: false }
-        break
-      }
-    }
-    if (userIndex < 0) {
-      const userMessage: Message = {
-        role: 'user',
-        content: event.user_content,
-        timestamp: new Date().toISOString(),
-        provider: event.provider,
-        run_id: runId,
-      }
-      if (existingAgentIndex >= 0) {
-        userIndex = existingAgentIndex
-        next.splice(existingAgentIndex, 0, userMessage)
-      } else {
-        userIndex = next.length
-        next.push(userMessage)
-      }
-    }
-  }
-
-  let agentIndex = runId
-    ? next.findIndex(message => message.role === 'agent' && message.run_id === runId)
-    : -1
-
-  if (agentIndex < 0 && runId && userIndex >= 0) {
-    const candidateIndex = userIndex + 1
-    const candidate = next[candidateIndex]
-    if (
-      candidate
-      && candidate.role === 'agent'
-      && !candidate.run_id
-      && candidate.isThinking
-    ) {
-      agentIndex = candidateIndex
-      next[agentIndex] = {
-        ...candidate,
-        run_id: runId,
-        isOptimistic: false,
-      }
-    }
-  }
-
-  if (agentIndex < 0 && !runId) {
-    for (let index = next.length - 1; index >= 0; index -= 1) {
-      if (next[index].role === 'agent' && next[index].isThinking) {
-        agentIndex = index
-        break
-      }
-    }
-  }
-
-  if (agentIndex < 0) {
-    agentIndex = next.length
-    next.push({
-      role: 'agent',
-      content: '',
-      thought: '',
-      isThinking: true,
-      elapsedSoFar: isFiniteNumber(event.elapsed) ? event.elapsed : 0,
-      model: event.model,
-      provider: event.provider,
-      run_id: runId,
-      streamSequence: -1,
-    })
-  }
-
-  return { messages: next, agentIndex }
-}
-
-function applyRealtimeEvent(messages: Message[], event: RealtimeEvent): Message[] {
-  const ensured = ensureRunAgent(messages, event)
-  const next = ensured.messages
-  const current = next[ensured.agentIndex]
-  const currentSequence = current.streamSequence ?? -1
-  const incomingSequence = isFiniteNumber(event.sequence)
-    ? event.sequence
-    : currentSequence + 1
-  const elapsed = isFiniteNumber(event.elapsed)
-    ? Math.max(current.elapsedSoFar ?? 0, event.elapsed)
-    : current.elapsedSoFar
-  const common = {
-    ...(event.run_id ? { run_id: event.run_id } : {}),
-    ...(event.model ? { model: event.model } : {}),
-    ...(event.provider ? { provider: event.provider } : {}),
-    ...(elapsed !== undefined ? { elapsedSoFar: elapsed } : {}),
-    isOptimistic: false,
-  }
-
-  if (event.type !== 'done' && current.streamFinished) {
-    return next
-  }
-
-  if (event.type === 'start') {
-    if (incomingSequence < currentSequence) return next
-    next[ensured.agentIndex] = {
-      ...current,
-      ...common,
-      isThinking: true,
-      streamSequence: incomingSequence,
-    }
-  } else if (event.type === 'sync_state') {
-    if (incomingSequence < currentSequence) return next
-    next[ensured.agentIndex] = {
-      ...current,
-      ...common,
-      content: event.content ?? '',
-      thought: event.thought ?? '',
-      isThinking: true,
-      streamSequence: incomingSequence,
-    }
-  } else if (event.type === 'elapsed') {
-    next[ensured.agentIndex] = {
-      ...current,
-      ...common,
-      isThinking: true,
-    }
-  } else if (event.type === 'thought' || event.type === 'token' || event.type === 'answer') {
-    if (incomingSequence <= currentSequence) {
-      next[ensured.agentIndex] = { ...current, ...common }
-      return next
-    }
-    const content = event.content ?? ''
-    next[ensured.agentIndex] = {
-      ...current,
-      ...common,
-      content: event.full_content ?? (
-        event.type === 'thought' ? current.content : current.content + content
-      ),
-      thought: event.full_thought ?? (
-        event.type === 'thought' ? (current.thought ?? '') + content : current.thought
-      ),
-      isThinking: true,
-      streamSequence: incomingSequence,
-    }
-  } else if (event.type === 'done') {
-    const duration = isFiniteNumber(event.duration)
-      ? event.duration
-      : (isFiniteNumber(event.elapsed) ? event.elapsed : current.elapsedSoFar)
-    const hasCurrentNewerContent = incomingSequence < currentSequence
-    next[ensured.agentIndex] = {
-      ...current,
-      ...common,
-      content: hasCurrentNewerContent ? current.content : (event.content ?? current.content),
-      thought: hasCurrentNewerContent ? current.thought : (event.thought ?? current.thought),
-      isThinking: false,
-      streamFinished: true,
-      streamSequence: Math.max(currentSequence, incomingSequence),
-      ...(duration !== undefined
-        ? { thinkingDuration: duration, elapsedSoFar: duration }
-        : {}),
-    }
-  }
-
-  return next
-}
-
-function mergeHistoryWithTransientMessages(
-  history: Message[],
-  current: Message[],
-): Message[] {
-  const merged = history.map(message => ({ ...message }))
-  const trackedRunIds = new Set(current.flatMap(message => (
-    message.run_id
-    && (
-      message.isThinking
-      || message.streamSequence !== undefined
-    )
-      ? [message.run_id]
-      : []
-  )))
-  const transient = current.filter(message => (
-    message.isOptimistic
-    || (message.run_id !== undefined && trackedRunIds.has(message.run_id))
-    || (message.isThinking && !message.run_id)
-    || message.role === 'system'
-  ))
-
-  for (const message of transient) {
-    let matchingIndex = -1
-    if (message.run_id) {
-      matchingIndex = merged.findIndex(candidate => (
-        candidate.role === message.role && candidate.run_id === message.run_id
-      ))
-    } else if (message.role === 'user' && message.isOptimistic) {
-      for (let index = merged.length - 1; index >= 0; index -= 1) {
-        if (merged[index].role === 'user' && merged[index].content === message.content) {
-          matchingIndex = index
-          break
-        }
-      }
-    }
-
-    if (matchingIndex < 0) {
-      merged.push(message)
-      continue
-    }
-
-    if (message.role === 'agent') {
-      merged[matchingIndex] = {
-        ...merged[matchingIndex],
-        isThinking: false,
-        streamFinished: true,
-      }
-    }
-  }
-
-  return merged
-}
+import type { Conversation, Provider } from './lib/types'
 
 import { Login } from './components/Login'
 import { ConfirmDialog } from './components/ConfirmDialog'
@@ -283,7 +17,13 @@ import { WelcomeScreen } from './components/WelcomeScreen'
 import { MessageList } from './components/MessageList'
 import { ChatInput } from './components/ChatInput'
 import { CommandPalette } from './components/CommandPalette'
-import { Cpu, Sparkles, MessageSquare } from 'lucide-react'
+
+function formatTimestamp(ts?: string | number) {
+  if (!ts) return ''
+  const d = new Date(ts.toString().includes(' ') ? ts + ' UTC' : ts)
+  if (isNaN(d.getTime())) return ''
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
 
 export default function App() {
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
@@ -293,49 +33,149 @@ export default function App() {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
     localStorage.setItem('theme', theme)
+    const metaThemeColor = document.querySelector('meta[name="theme-color"]')
+    if (metaThemeColor) {
+      metaThemeColor.setAttribute('content', theme === 'dark' ? '#09090b' : '#f8fafc')
+    }
   }, [theme])
 
   const toggleTheme = () => {
-    setTheme(prev => prev === 'dark' ? 'light' : 'dark')
+    setTheme(prev => (prev === 'dark' ? 'light' : 'dark'))
   }
 
-  const [models, setModels] = useState<string[]>([])
-  const [selectedModel, setSelectedModel] = useState<string>('gemini-3.1-pro-high')
+  // Toast Notification state
+  const [toast, setToast] = useState<string | null>(null)
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const showToast = useCallback((msg: string) => {
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current)
+    }
+    setToast(msg)
+    toastTimerRef.current = setTimeout(() => {
+      setToast(null)
+      toastTimerRef.current = null
+    }, 2200)
+  }, [])
 
-  const [providers, setProviders] = useState<Provider[]>([])
-  const [defaultProvider, setDefaultProvider] = useState<string>('antigravity')
-  const modelsRequestRef = useRef(0)
+  // Login State
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null)
 
-  const loadProviders = () => {
-    apiFetch<AgentsResponse>('/api/agents')
-      .then(data => {
-        if (data.providers) {
-          setProviders(data.providers)
-        }
-        if (data.default_provider) {
-          setDefaultProvider(data.default_provider)
-          setSelectedProvider(prev => prev || data.default_provider)
-        }
-      })
-      .catch(console.error)
-  }
+  // Custom Hooks
+  const {
+    conversations,
+    isConversationsLoading,
+    activeConv,
+    setActiveConv,
+    activeConvRef,
+    providers,
+    defaultProvider,
+    models,
+    selectedModel,
+    setSelectedModel,
+    currentPath,
+    setCurrentPath,
+    items,
+    selectedDir,
+    setSelectedDir,
+    newConvName,
+    setNewConvName,
+    selectedProvider,
+    setSelectedProvider,
+    editingConvId,
+    setEditingConvId,
+    editingConvName,
+    setEditingConvName,
+    loadProviders,
+    loadModels,
+    loadConversations,
+    loadDir,
+    startEditingConv,
+    saveConvName,
+  } = useConversations(showToast)
 
-  const loadModels = (providerId?: string) => {
-    const p = typeof providerId === 'string' ? providerId : (activeConvRef.current?.provider || defaultProvider || 'antigravity')
-    const requestId = ++modelsRequestRef.current
-    apiFetch<ModelsResponse>(`/api/models?provider=${p}`)
-      .then(data => {
-        if (requestId !== modelsRequestRef.current) return
-        if (data.models && data.models.length > 0) {
-          setModels(data.models)
-          setSelectedModel(prev => data.models.includes(prev) ? prev : data.models[0])
-        } else {
-          setModels([])
-        }
-      })
-      .catch(error => {
-        if (requestId === modelsRequestRef.current) console.error(error)
-      })
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
+  const messagesContentRef = useRef<HTMLDivElement>(null)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const shouldAutoScrollRef = useRef(true)
+  const scrollAnimationFrameRef = useRef<number | null>(null)
+  const pendingAutoScrollTopRef = useRef<number | null>(null)
+
+  const isNearBottom = useCallback(() => {
+    const container = messagesContainerRef.current
+    if (!container) return true
+    return container.scrollHeight - container.scrollTop - container.clientHeight < 150
+  }, [])
+
+  const scrollToBottom = useCallback((smooth = true) => {
+    const container = messagesContainerRef.current
+    if (container) {
+      if (smooth) {
+        container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' })
+      } else {
+        const target = Math.max(0, container.scrollHeight - container.clientHeight)
+        pendingAutoScrollTopRef.current = target
+        container.scrollTop = target
+      }
+    }
+  }, [])
+
+  const {
+    messages,
+    setMessages,
+    isConnected,
+    isReconnecting,
+    socketRef,
+    socketConversationIdRef,
+    isAgentThinking,
+    isAgentThinkingRef,
+    pendingSendMessagesRef,
+    historyRequestRef,
+    loadHistory,
+    connectWebSocket,
+    disconnectCurrentSocket,
+  } = useWebSocket(activeConv, showToast, loadConversations, scrollToBottom)
+
+  // Drawer state
+  const [isDrawerOpen, setIsDrawerOpen] = useState(window.innerWidth >= 1024)
+  const [drawerMode, setDrawerMode] = useState<'sessions' | 'create'>('sessions')
+
+  // Command Palette State
+  const [isCmdPaletteOpen, setIsCmdPaletteOpen] = useState(false)
+
+  // Confirm dialog state
+  const [confirmState, setConfirmState] = useState<{
+    isOpen: boolean
+    title: string
+    description: string
+    onConfirm: () => void
+  }>({ isOpen: false, title: '', description: '', onConfirm: () => {} })
+
+  // Interactive feedback states
+  const [input, setInput] = useState('')
+  const [copiedMsgIdx, setCopiedMsgIdx] = useState<number | null>(null)
+  const [feedbackState, setFeedbackState] = useState<Record<number, 'up' | 'down'>>({})
+  const [isExporting, setIsExporting] = useState(false)
+  const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false)
+
+  const getBreadcrumbParts = (pathStr: string) => {
+    const segments = pathStr.split('/').filter(Boolean)
+    let result: { name: string; fullPath: string }[] = [{ name: '/', fullPath: '/' }]
+    let acc = ''
+    segments.forEach(seg => {
+      acc += '/' + seg
+      result.push({ name: seg, fullPath: acc })
+    })
+    if (result.length > 5) {
+      const first = result[0]
+      const second = result[1]
+      const ellipsis = { name: '...', fullPath: result[result.length - 3].fullPath }
+      const secondLast = result[result.length - 2]
+      const last = result[result.length - 1]
+      result = [first, second, ellipsis, secondLast, last]
+    }
+    return result
   }
 
   const formatModelName = (id: string) => {
@@ -374,7 +214,7 @@ export default function App() {
         text: 'Google Gemini',
         type: 'gemini',
         className: 'badge-gemini',
-        Icon: Sparkles,
+        Icon: Cpu,
       }
     }
     const matched = providersCatalog.find(p => p.id === providerId)
@@ -386,107 +226,6 @@ export default function App() {
     }
   }
 
-  const [conversations, setConversations] = useState<Conversation[]>([])
-  const [isConversationsLoading, setIsConversationsLoading] = useState(true)
-  const [activeConv, setActiveConv] = useState<Conversation | null>(null)
-  const [messages, setMessages] = useState<Message[]>([])
-  
-  const [isDrawerOpen, setIsDrawerOpen] = useState(window.innerWidth >= 1024)
-  const [drawerMode, setDrawerMode] = useState<'sessions' | 'create'>('sessions')
-
-  // Create Session State
-  const [currentPath, setCurrentPath] = useState<string>('/root')
-  const [items, setItems] = useState<DirItem[]>([])
-  const [selectedDir, setSelectedDir] = useState<string>('/root')
-  const [newConvName, setNewConvName] = useState('')
-  const [selectedProvider, setSelectedProvider] = useState<string>('')
-
-  // Edit Workspace Name State
-  const [editingConvId, setEditingConvId] = useState<number | null>(null)
-  const [editingConvName, setEditingConvName] = useState<string>('')
-
-  // Toast notification
-  const [toast, setToast] = useState<string | null>(null)
-  const showToast = (msg: string) => {
-    setToast(msg)
-    setTimeout(() => setToast(null), 2000)
-  }
-
-  // Command Palette State
-  const [isCmdPaletteOpen, setIsCmdPaletteOpen] = useState(false)
-
-  // Confirm dialog state
-  const [confirmState, setConfirmState] = useState<{
-    isOpen: boolean
-    title: string
-    description: string
-    onConfirm: () => void
-  }>({ isOpen: false, title: '', description: '', onConfirm: () => {} })
-
-  const getBreadcrumbParts = (pathStr: string) => {
-    const segments = pathStr.split('/').filter(Boolean)
-    let result: { name: string; fullPath: string }[] = [{ name: '/', fullPath: '/' }]
-    let acc = ''
-    segments.forEach(seg => {
-      acc += '/' + seg
-      result.push({ name: seg, fullPath: acc })
-    })
-    if (result.length > 5) {
-      const first = result[0]
-      const second = result[1]
-      const ellipsis = { name: '...', fullPath: result[result.length - 3].fullPath }
-      const secondLast = result[result.length - 2]
-      const last = result[result.length - 1]
-      result = [first, second, ellipsis, secondLast, last]
-    }
-    return result
-  }
-  
-  // Chat State
-  const [input, setInput] = useState('')
-  const [copiedMsgIdx, setCopiedMsgIdx] = useState<number | null>(null)
-  const [feedbackState, setFeedbackState] = useState<Record<number, 'up' | 'down'>>({})
-  const [isExporting, setIsExporting] = useState(false)
-  const socketRef = useRef<WebSocket | null>(null)
-  const socketConversationIdRef = useRef<number | null>(null)
-  const [isConnected, setIsConnected] = useState(false)
-  const [isReconnecting, setIsReconnecting] = useState(false)
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const reconnectAttemptRef = useRef<number>(0)
-  const historyRequestRef = useRef(0)
-  const loadConversationsRef = useRef<(isInitial?: boolean) => void>(() => {})
-  const loadHistoryRef = useRef<(conversationId: number) => void>(() => {})
-  const loadModelsRef = useRef<(providerId?: string) => void>(() => {})
-  const connectWebSocketRef = useRef<(conv: Conversation, isManual?: boolean) => void>(() => {})
-  loadModelsRef.current = loadModels
-  
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const messagesContainerRef = useRef<HTMLDivElement>(null)
-  const messagesContentRef = useRef<HTMLDivElement>(null)
-  const shouldAutoScrollRef = useRef(true)
-  const scrollAnimationFrameRef = useRef<number | null>(null)
-  const pendingAutoScrollTopRef = useRef<number | null>(null)
-
-  const isNearBottom = useCallback(() => {
-    const container = messagesContainerRef.current
-    if (!container) return true
-    return container.scrollHeight - container.scrollTop - container.clientHeight < 150
-  }, [])
-
-  const scrollToBottom = useCallback((smooth = true) => {
-    const container = messagesContainerRef.current
-    if (container) {
-      if (smooth) {
-        container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' })
-      } else {
-        const target = Math.max(0, container.scrollHeight - container.clientHeight)
-        pendingAutoScrollTopRef.current = target
-        container.scrollTop = target
-      }
-    }
-  }, [])
-
   const handleMessagesScroll = useCallback(() => {
     const container = messagesContainerRef.current
     if (!container) return
@@ -495,10 +234,13 @@ export default function App() {
     pendingAutoScrollTopRef.current = null
     if (pendingTarget !== null && Math.abs(container.scrollTop - pendingTarget) < 2) {
       shouldAutoScrollRef.current = true
+      setShowScrollBottomBtn(false)
       return
     }
 
-    shouldAutoScrollRef.current = isNearBottom()
+    const nearBottom = isNearBottom()
+    shouldAutoScrollRef.current = nearBottom
+    setShowScrollBottomBtn(!nearBottom)
   }, [isNearBottom])
 
   const scheduleScrollToBottom = useCallback(() => {
@@ -512,24 +254,12 @@ export default function App() {
     })
   }, [scrollToBottom])
 
-  const isAgentThinking = [...messages]
-    .reverse()
-    .find(message => message.role === 'agent')
-    ?.isThinking
-
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null)
-
+  // Authentication status check
   useEffect(() => {
     const handleExpiredAuth = () => {
       setIsLoggedIn(false)
-      socketRef.current?.close()
-      socketRef.current = null
-      socketConversationIdRef.current = null
+      disconnectCurrentSocket()
       pendingSendMessagesRef.current.clear()
-      if (reconnectTimerRef.current) {
-        clearTimeout(reconnectTimerRef.current)
-        reconnectTimerRef.current = null
-      }
     }
     window.addEventListener(AUTH_EXPIRED_EVENT, handleExpiredAuth)
     clearLegacyAuthState()
@@ -537,12 +267,16 @@ export default function App() {
       .then(() => setIsLoggedIn(true))
       .catch(() => setIsLoggedIn(false))
     return () => window.removeEventListener(AUTH_EXPIRED_EVENT, handleExpiredAuth)
-  }, [])
+  }, [disconnectCurrentSocket, pendingSendMessagesRef])
 
+  // Keyboard Shortcuts
   useKeyboardShortcuts({
     onEscape: () => {
       if (isCmdPaletteOpen) {
         setIsCmdPaletteOpen(false)
+      } else if (isAgentThinkingRef.current) {
+        socketRef.current?.send(JSON.stringify({ action: 'interrupt' }))
+        showToast('已中断 Agent 生成')
       } else {
         setIsDrawerOpen(false)
       }
@@ -568,6 +302,7 @@ export default function App() {
     }
   }
 
+  // Dynamic Viewport Height for Mobile Browser / PWA Keyboard
   useEffect(() => {
     const updateAppHeight = () => {
       const vv = window.visualViewport
@@ -600,57 +335,42 @@ export default function App() {
     }
   }, [isNearBottom, scrollToBottom])
 
-  const activeConvRef = useRef<Conversation | null>(activeConv)
-  useEffect(() => {
-    activeConvRef.current = activeConv
-  }, [activeConv])
-
-  const isAgentThinkingRef = useRef<boolean>(!!isAgentThinking)
-  useEffect(() => {
-    isAgentThinkingRef.current = !!isAgentThinking
-  }, [isAgentThinking])
-
-  const pendingSendMessagesRef = useRef(new Map<
-    number,
-    { content: string; model: string; provider: string }
-  >())
-
-  // Initial data loading on login
+  // Initial data load when logged in
   useEffect(() => {
     if (isLoggedIn) {
-      loadConversationsRef.current(true)
+      loadConversations(true)
       loadProviders()
-      loadModelsRef.current()
+      loadModels()
     }
-  }, [isLoggedIn])
+  }, [isLoggedIn, loadConversations, loadProviders, loadModels])
 
-  // Dynamic loading when sidebar drawer is open or mode changes
+  // Dynamic data polling when drawer is open
   useEffect(() => {
     if (!isDrawerOpen || !isLoggedIn) return
 
     if (drawerMode === 'sessions') {
-      loadConversationsRef.current(false)
+      loadConversations(false)
       const timer = setInterval(() => {
-        loadConversationsRef.current(false)
+        loadConversations(false)
       }, 5000)
       return () => clearInterval(timer)
     } else if (drawerMode === 'create') {
       loadDir(currentPath)
     }
-  }, [isDrawerOpen, drawerMode, isLoggedIn, currentPath])
+  }, [isDrawerOpen, drawerMode, isLoggedIn, currentPath, loadConversations, loadDir])
 
-  // Window focus & tab visibility change & network online auto-reconnecting
+  // Visibility and reconnection listener
   useEffect(() => {
     const handleFocusOrVisibility = () => {
       if (document.visibilityState === 'visible' && isLoggedIn) {
-        loadConversationsRef.current(false)
+        loadConversations(false)
         loadProviders()
       }
     }
 
     const handleOnline = () => {
       if (isLoggedIn && activeConvRef.current && !socketRef.current) {
-        connectWebSocketRef.current(activeConvRef.current, false)
+        connectWebSocket(activeConvRef.current, false)
       }
     }
 
@@ -663,9 +383,9 @@ export default function App() {
       document.removeEventListener('visibilitychange', handleFocusOrVisibility)
       window.removeEventListener('online', handleOnline)
     }
-  }, [isLoggedIn])
+  }, [isLoggedIn, loadConversations, loadProviders, activeConvRef, socketRef, connectWebSocket])
 
-  // Auto-scroll effect
+  // ResizeObserver for message list auto-scrolling
   useEffect(() => {
     if (!isLoggedIn) return
     const container = messagesContainerRef.current
@@ -676,295 +396,17 @@ export default function App() {
       scheduleScrollToBottom()
     })
 
-    const mutationObserver = new MutationObserver(() => {
-      scheduleScrollToBottom()
-    })
-
     observer.observe(content)
-    mutationObserver.observe(content, { childList: true, subtree: true, characterData: true })
-
     scheduleScrollToBottom()
 
     return () => {
       observer.disconnect()
-      mutationObserver.disconnect()
       if (scrollAnimationFrameRef.current !== null) {
         cancelAnimationFrame(scrollAnimationFrameRef.current)
         scrollAnimationFrameRef.current = null
       }
     }
   }, [isLoggedIn, scheduleScrollToBottom])
-
-  const loadConversations = (isInitial = false) => {
-    if (isInitial) {
-      setIsConversationsLoading(true)
-    }
-    apiFetch<Conversation[]>('/api/conversations')
-      .then((data: Conversation[]) => {
-        setConversations(data)
-        if (isInitial) {
-          const params = new URLSearchParams(window.location.search)
-          const convId = params.get('id')
-          if (convId) {
-            const found = data.find(c => c.id === Number(convId))
-            if (found) {
-              selectConversation(found)
-            }
-          }
-        } else if (activeConvRef.current) {
-          const updated = data.find(c => c.id === activeConvRef.current?.id)
-          if (updated) {
-            setActiveConv(updated)
-          }
-        }
-      })
-      .catch(err => console.error(err))
-      .finally(() => {
-        setIsConversationsLoading(false)
-      })
-  }
-  loadConversationsRef.current = loadConversations
-
-  const loadDir = (path: string) => {
-    apiFetch<{ items: DirItem[] }>(`/api/ls?path=${encodeURIComponent(path)}`)
-      .then(data => {
-        if (data && Array.isArray(data.items)) {
-          setItems(data.items)
-        } else {
-          setItems([])
-        }
-      })
-      .catch(err => console.error(err))
-  }
-
-  const loadHistory = (convId: number) => {
-    const requestId = ++historyRequestRef.current
-    apiFetch<Message[]>(`/api/history/${convId}`)
-      .then(data => {
-        if (
-          requestId !== historyRequestRef.current
-          || activeConvRef.current?.id !== convId
-        ) return
-        const history = Array.isArray(data) ? data : []
-        setMessages(current => {
-          const merged = mergeHistoryWithTransientMessages(history, current)
-          isAgentThinkingRef.current = merged.some(message => (
-            message.role === 'agent' && message.isThinking
-          ))
-          return merged
-        })
-        setTimeout(() => scrollToBottom(false), 100)
-      })
-      .catch(err => {
-        console.error(err)
-        if (
-          requestId === historyRequestRef.current
-          && activeConvRef.current?.id === convId
-        ) {
-          setMessages(current => {
-            const merged = mergeHistoryWithTransientMessages([], current)
-            isAgentThinkingRef.current = merged.some(message => (
-              message.role === 'agent' && message.isThinking
-            ))
-            return merged
-          })
-        }
-      })
-  }
-  loadHistoryRef.current = loadHistory
-
-  const disconnectCurrentSocket = useCallback(() => {
-    if (reconnectTimerRef.current) {
-      clearTimeout(reconnectTimerRef.current)
-      reconnectTimerRef.current = null
-    }
-    const currentSocket = socketRef.current
-    socketRef.current = null
-    socketConversationIdRef.current = null
-    if (currentSocket) {
-      currentSocket.onopen = null
-      currentSocket.onmessage = null
-      currentSocket.onerror = null
-      currentSocket.onclose = null
-      try { currentSocket.close() } catch {}
-    }
-    setIsConnected(false)
-    setIsReconnecting(false)
-  }, [])
-
-  const connectWebSocket = useCallback((conv: Conversation, isManual = false) => {
-    if (reconnectTimerRef.current) {
-      clearTimeout(reconnectTimerRef.current)
-      reconnectTimerRef.current = null
-    }
-
-    const currentSocket = socketRef.current
-    const isCurrentConversation = socketConversationIdRef.current === conv.id
-    if (
-      currentSocket
-      && isCurrentConversation
-      && !isManual
-      && (
-        currentSocket.readyState === WebSocket.OPEN
-        || currentSocket.readyState === WebSocket.CONNECTING
-      )
-    ) {
-      if (currentSocket.readyState === WebSocket.OPEN) {
-        setIsConnected(true)
-        setIsReconnecting(false)
-      }
-      return
-    }
-
-    disconnectCurrentSocket()
-    setIsReconnecting(true)
-    if (isManual) showToast('正在尝试连接 AI 后台 agent...')
-
-    const loc = window.location
-    const wsProtocol = loc.protocol === 'https:' ? 'wss:' : 'ws:'
-    let ws: WebSocket
-    try {
-      ws = new WebSocket(`${wsProtocol}//${loc.host}/api/chat`)
-    } catch (err) {
-      console.error('WS construction error:', err)
-      setIsReconnecting(false)
-      return
-    }
-
-    socketRef.current = ws
-    socketConversationIdRef.current = conv.id
-    let awaitingPendingStart = false
-
-    const belongsToActiveConversation = () => (
-      socketRef.current === ws
-      && socketConversationIdRef.current === conv.id
-      && activeConvRef.current?.id === conv.id
-    )
-
-    ws.onopen = () => {
-      if (!belongsToActiveConversation()) return
-      setIsConnected(true)
-      setIsReconnecting(false)
-      reconnectAttemptRef.current = 0
-      if (isManual) showToast('已成功连接后台 AI agent')
-      ws.send(JSON.stringify({ conversation_id: conv.id }))
-
-      const pending = pendingSendMessagesRef.current.get(conv.id)
-      if (pending) {
-        awaitingPendingStart = true
-        pendingSendMessagesRef.current.delete(conv.id)
-        ws.send(JSON.stringify(pending))
-      }
-    }
-
-    ws.onmessage = event => {
-      if (!belongsToActiveConversation()) return
-      try {
-        const data = JSON.parse(event.data) as RealtimeEvent
-        if (
-          isFiniteNumber(data.conversation_id)
-          && data.conversation_id !== conv.id
-        ) return
-
-        if (data.type === 'ready') {
-          if (!awaitingPendingStart) {
-            isAgentThinkingRef.current = false
-            setMessages(previous => previous.map(message => (
-              message.isThinking
-                ? { ...message, isThinking: false, streamFinished: true }
-                : message
-            )))
-          }
-          loadHistoryRef.current(conv.id)
-          return
-        }
-
-        if (
-          data.type === 'start'
-          || data.type === 'sync_state'
-          || data.type === 'elapsed'
-          || data.type === 'thought'
-          || data.type === 'token'
-          || data.type === 'answer'
-          || data.type === 'done'
-        ) {
-          if (data.type === 'start') awaitingPendingStart = false
-          setMessages(previous => {
-            if (activeConvRef.current?.id !== conv.id) return previous
-            const updated = applyRealtimeEvent(previous, data)
-            isAgentThinkingRef.current = updated.some(message => (
-              message.role === 'agent' && message.isThinking
-            ))
-            return updated
-          })
-          if (data.type === 'done') {
-            loadConversationsRef.current(false)
-            loadHistoryRef.current(conv.id)
-          }
-          return
-        }
-
-        if (data.type === 'error') {
-          if (data.code === 'unauthorized') {
-            window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
-            return
-          }
-          const requestRejected = (
-            data.code === 'busy'
-            || data.code === 'invalid_request'
-            || data.code === 'not_found'
-          )
-          if (requestRejected) awaitingPendingStart = false
-          setMessages(previous => {
-            if (activeConvRef.current?.id !== conv.id) return previous
-            const next = requestRejected
-              ? previous.filter(message => !message.isOptimistic)
-              : [...previous]
-            next.push({
-              role: 'system',
-              content: `处理异常: ${data.content ?? '未知错误'}`,
-              isError: true,
-            })
-            if (requestRejected) {
-              isAgentThinkingRef.current = next.some(message => (
-                message.role === 'agent' && message.isThinking
-              ))
-            }
-            return next
-          })
-        }
-      } catch (err) {
-        console.error('WS message parse error:', err)
-      }
-    }
-
-    ws.onerror = err => {
-      if (socketRef.current === ws) console.error('WS error:', err)
-    }
-
-    ws.onclose = event => {
-      if (
-        socketRef.current !== ws
-        || socketConversationIdRef.current !== conv.id
-      ) return
-      socketRef.current = null
-      socketConversationIdRef.current = null
-      setIsConnected(false)
-      setIsReconnecting(false)
-
-      if (activeConvRef.current?.id !== conv.id) return
-      const attempt = reconnectAttemptRef.current
-      reconnectAttemptRef.current = attempt + 1
-      const delay = Math.min(1000 * Math.pow(1.5, Math.min(attempt, 6)), 10000)
-      console.log(`[WS] Disconnected (code ${event.code}). Auto-reconnecting in ${Math.round(delay)}ms (attempt ${attempt + 1})`)
-      reconnectTimerRef.current = setTimeout(() => {
-        if (!socketRef.current && activeConvRef.current?.id === conv.id) {
-          connectWebSocketRef.current(activeConvRef.current, false)
-        }
-      }, delay)
-    }
-  }, [disconnectCurrentSocket])
-  connectWebSocketRef.current = connectWebSocket
 
   const selectConversation = (conv: Conversation) => {
     triggerVibration()
@@ -1001,19 +443,19 @@ export default function App() {
         provider: selectedProvider || defaultProvider,
       })
     })
-    .then(data => {
-      loadConversations()
-      setDrawerMode('sessions')
-      setNewConvName('')
-      setCurrentPath('/root')
-      setSelectedDir('/root')
-      setSelectedProvider(defaultProvider)
-      selectConversation(data)
-    })
-    .catch(err => {
-      console.error(err)
-      showToast('创建工作区失败')
-    })
+      .then(data => {
+        loadConversations()
+        setDrawerMode('sessions')
+        setNewConvName('')
+        setCurrentPath('/root')
+        setSelectedDir('/root')
+        setSelectedProvider(defaultProvider)
+        selectConversation(data)
+      })
+      .catch(err => {
+        console.error(err)
+        showToast('创建工作区失败')
+      })
   }
 
   const deleteConversation = (e: React.MouseEvent, convId: number) => {
@@ -1045,39 +487,6 @@ export default function App() {
             showToast('删除工作区失败')
           })
       }
-    })
-  }
-
-  const startEditingConv = (e: React.MouseEvent, conv: Conversation) => {
-    e.stopPropagation()
-    setEditingConvId(conv.id)
-    setEditingConvName(conv.name)
-  }
-
-  const saveConvName = (convId: number) => {
-    const trimmed = editingConvName.trim()
-    if (!trimmed) {
-      setEditingConvId(null)
-      return
-    }
-    apiFetch<Conversation>(`/api/conversations/${convId}`, {
-      method: 'PUT',
-      body: JSON.stringify({ name: trimmed })
-    })
-    .then(() => {
-      setConversations(prev => prev.map(c => c.id === convId ? { ...c, name: trimmed } : c))
-      if (activeConvRef.current?.id === convId) {
-        const updatedConversation = { ...activeConvRef.current, name: trimmed }
-        activeConvRef.current = updatedConversation
-        setActiveConv(updatedConversation)
-      }
-      setEditingConvId(null)
-      showToast('工作区名称已更新')
-    })
-    .catch(err => {
-      console.error(err)
-      showToast('更新失败')
-      setEditingConvId(null)
     })
   }
 
@@ -1131,7 +540,7 @@ export default function App() {
     if (
       !currentSocket
       || currentSocket.readyState !== WebSocket.OPEN
-      || socketConversationIdRef.current !== conversation.id
+      || socketConversationIdRef.current === undefined
     ) {
       pendingSendMessagesRef.current.set(conversation.id, payload)
       showToast('连接中，重连成功后将自动发送...')
@@ -1174,6 +583,19 @@ export default function App() {
     })
   }
 
+  const summarizeMessages = () => {
+    if (!activeConv) return
+    const conversationId = activeConv.id
+    apiFetch<{ status: string }>(`/api/conversations/${conversationId}/summarize`, { method: 'POST' })
+      .then(() => {
+        showToast('已发起总结请求')
+      })
+      .catch(err => {
+        console.error(err)
+        showToast('发起总结失败')
+      })
+  }
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -1205,7 +627,7 @@ export default function App() {
       const height = container.scrollHeight
       const backgroundColor = getComputedStyle(document.documentElement)
         .getPropertyValue('--bg-primary')
-        .trim() || '#0b0b12'
+        .trim() || '#09090b'
 
       const blob = await toBlob(container, {
         width,
@@ -1251,10 +673,15 @@ export default function App() {
   }
 
   const handleFeedback = (idx: number, type: 'up' | 'down') => {
-    setFeedbackState(prev => ({
-      ...prev,
-      [idx]: prev[idx] === type ? (undefined as any) : type
-    }))
+    setFeedbackState(prev => {
+      const copy = { ...prev }
+      if (copy[idx] === type) {
+        delete copy[idx]
+      } else {
+        copy[idx] = type
+      }
+      return copy
+    })
     showToast(type === 'up' ? '感谢你的好评反馈！' : '已收到反馈，我们将持续优化')
   }
 
@@ -1365,6 +792,7 @@ export default function App() {
           providers={providers}
           isDrawerOpen={isDrawerOpen}
           setIsDrawerOpen={setIsDrawerOpen}
+          setDrawerMode={setDrawerMode}
           selectedModel={selectedModel}
           setSelectedModel={setSelectedModel}
           models={models}
@@ -1381,6 +809,7 @@ export default function App() {
           exportConversationAsImage={exportConversationAsImage}
           messages={messages}
           clearMessages={clearMessages}
+          summarizeMessages={summarizeMessages}
         />
 
         <div
@@ -1395,6 +824,9 @@ export default function App() {
                 activeConv={activeConv}
                 messages={messages}
                 setIsDrawerOpen={setIsDrawerOpen}
+                setDrawerMode={setDrawerMode}
+                conversations={conversations}
+                selectConversation={selectConversation}
                 onQuickPrompt={(prompt) => {
                   setInput(prompt)
                   setTimeout(() => textareaRef.current?.focus(), 50)
@@ -1418,27 +850,46 @@ export default function App() {
           </div>
         </div>
 
-        <ChatInput
-          activeConv={activeConv}
-          input={input}
-          handleInput={handleInput}
-          handleKeyDown={handleKeyDown}
-          sendMessage={sendMessage}
-          isAgentThinking={!!isAgentThinking}
-          isConnected={isConnected}
-          textareaRef={textareaRef}
-          isNearBottom={isNearBottom}
-          scrollToBottom={scrollToBottom}
-          selectedModel={selectedModel}
-          setSelectedModel={setSelectedModel}
-          models={models}
-          formatModelName={formatModelName}
-          loadModels={loadModels}
-          socketRef={socketRef}
-          connectWebSocket={connectWebSocket}
-          showToast={showToast}
-          setIsDrawerOpen={setIsDrawerOpen}
-        />
+        <div className="chat-footer-wrapper">
+          <AnimatePresence>
+            {showScrollBottomBtn && activeConv && messages.length > 0 && (
+              <motion.button
+                initial={{ opacity: 0, y: 10, scale: 0.9 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 10, scale: 0.9 }}
+                transition={{ duration: 0.15 }}
+                className="floating-scroll-bottom-btn"
+                onClick={() => scrollToBottom(true)}
+                title="回到底部"
+              >
+                <ArrowDown size={16} />
+                {isAgentThinking && <span className="scroll-btn-pulse" />}
+              </motion.button>
+            )}
+          </AnimatePresence>
+
+          <ChatInput
+            activeConv={activeConv}
+            input={input}
+            handleInput={handleInput}
+            handleKeyDown={handleKeyDown}
+            sendMessage={sendMessage}
+            isAgentThinking={!!isAgentThinking}
+            isConnected={isConnected}
+            textareaRef={textareaRef}
+            isNearBottom={isNearBottom}
+            scrollToBottom={scrollToBottom}
+            selectedModel={selectedModel}
+            setSelectedModel={setSelectedModel}
+            models={models}
+            formatModelName={formatModelName}
+            loadModels={loadModels}
+            socketRef={socketRef}
+            connectWebSocket={connectWebSocket}
+            showToast={showToast}
+            setIsDrawerOpen={setIsDrawerOpen}
+          />
+        </div>
       </div>
 
       {/* Command Palette */}
@@ -1464,11 +915,13 @@ export default function App() {
       <AnimatePresence>
         {toast && (
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
+            exit={{ opacity: 0, y: -20 }}
             transition={{ duration: 0.2 }}
             className="toast-container"
+            role="status"
+            aria-live="polite"
           >
             <div className="toast">
               <Check size={14} style={{ color: '#10B981' }} />

@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Sparkles, Brain, ChevronRight } from 'lucide-react'
+import { Activity, Brain, ChevronRight } from 'lucide-react'
 import './ThinkingBlock.css'
 
 const MarkdownContent = lazy(() => import('./MarkdownContent'))
@@ -51,7 +51,7 @@ export function ThinkingBlock({
         <div className="thinking-block-left">
           {isThinking ? (
             <span className="thinking-icon active">
-              <Sparkles size={14} />
+              <Activity size={14} className="icon-pulse" />
             </span>
           ) : (
             <span className="thinking-icon done">

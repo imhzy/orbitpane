@@ -15,8 +15,8 @@ export default defineConfig({
         name: 'OrbitPane',
         short_name: 'OrbitPane',
         description: 'OrbitPane - Secure, self-hosted coding agent workspace',
-        theme_color: '#0f0c20',
-        background_color: '#0f0c20',
+        theme_color: '#09090b',
+        background_color: '#09090b',
         display: 'standalone',
         icons: [
           {

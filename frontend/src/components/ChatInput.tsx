@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { Square, Send, CornerDownLeft } from 'lucide-react'
 import { ModelSelector } from './ModelSelector'
 import { playSendSound, playClickSound } from '../lib/sound'
@@ -47,6 +47,13 @@ export function ChatInput({
   showToast,
   setIsDrawerOpen
 }: ChatInputProps) {
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto'
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 400)}px`
+    }
+  }, [input, textareaRef])
+
   const handleSendClick = () => {
     if (!activeConv) {
       showToast('请先选择或新建一个工作区会话')
@@ -54,7 +61,7 @@ export function ChatInput({
       return
     }
     if (!isConnected) {
-      showToast('AI 后台未连接，已为你发起重连...')
+      showToast('服务未连接，已为你发起重连...')
       connectWebSocket(activeConv, true)
       return
     }
@@ -99,7 +106,7 @@ export function ChatInput({
             }, 100)
           }}
           disabled={!activeConv}
-          placeholder={!activeConv ? "选择工程工作区后开启智能对话..." : "向 OrbitPane 描述开发需求，按 Enter 发送，Shift + Enter 换行..."}
+          placeholder={!activeConv ? "选择工程工作区后开启对话..." : "向 OrbitPane 描述开发需求，按 Enter 发送，Shift + Enter 换行..."}
           aria-label="消息输入框"
           rows={1}
           className="input-textarea"
@@ -121,7 +128,7 @@ export function ChatInput({
           </div>
 
           <div className="input-bottom-right">
-            <div className="input-hint-badge">
+            <div className="input-hint-badge hide-on-mobile">
               <CornerDownLeft size={11} />
               <span>发送</span>
             </div>

@@ -45,6 +45,8 @@ export function ConfirmDialog({
             className="confirm-card"
             onClick={e => e.stopPropagation()}
           >
+            <div className="confirm-sheet-handle" />
+
             {variant === 'destructive' && (
               <div style={{ 
                 width: 40, height: 40, borderRadius: 12, 

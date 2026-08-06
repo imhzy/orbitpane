@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Sparkles, ChevronDown, Check } from 'lucide-react'
+import { Cpu, ChevronDown, Check } from 'lucide-react'
 
 export interface ModelSelectorProps {
   selectedModel: string
@@ -45,9 +45,9 @@ export function ModelSelector({ selectedModel, setSelectedModel, models, formatM
         onClick={handleToggle}
         aria-haspopup="listbox"
         aria-expanded={isOpen}
-        aria-label="选择 AI 模型"
+        aria-label="选择模型"
       >
-        {isInput && <Sparkles size={13} className="model-btn-sparkle" />}
+        {isInput && <Cpu size={13} className="model-btn-icon" />}
         <span className="model-selector-text">{formatModelName(selectedModel)}</span>
         <ChevronDown size={14} className={`model-selector-chevron ${isOpen ? 'open' : ''}`} />
       </button>
@@ -61,7 +61,7 @@ export function ModelSelector({ selectedModel, setSelectedModel, models, formatM
             transition={{ duration: 0.15 }}
             className={`model-dropdown-menu ${isInput ? 'input-menu' : ''}`}
             role="listbox"
-            aria-label="AI 模型列表"
+            aria-label="模型列表"
           >
             {models.map(m => (
               <button

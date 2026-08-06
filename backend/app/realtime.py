@@ -99,6 +99,7 @@ class AgentCoordinator:
         content: str,
         model: str | None,
         provider_id: str | None,
+        is_summary: bool = False,
     ) -> None:
         provider_name = provider_id or conversation.provider
         provider = self.providers.get(provider_name)
@@ -109,15 +110,32 @@ class AgentCoordinator:
             if existing and not existing.done():
                 raise AgentBusyError("Agent is already processing this conversation")
 
-            history = tuple(self.database.list_messages(conversation.id))
+
+            history_all = tuple(self.database.list_messages(conversation.id))
+            last_summary_index = -1
+            for i in range(len(history_all) - 1, -1, -1):
+                if history_all[i].role == "summary":
+                    last_summary_index = i
+                    break
+            
+            # If generating a summary, we probably want to include the history since the last summary.
+            # If it's a normal message, we only include history from the last summary onwards.
+            if last_summary_index != -1:
+                history = history_all[last_summary_index:]
+            else:
+                history = history_all
+
             run_id = f"{conversation.id}-{uuid.uuid4().hex}"
-            self.database.add_message(
-                conversation.id,
-                "user",
-                content,
-                provider=provider_name,
-                run_id=run_id,
-            )
+
+            if not is_summary:
+                self.database.add_message(
+                    conversation.id,
+                    "user",
+                    content,
+                    provider=provider_name,
+                    run_id=run_id,
+                )
+
             state = TaskState(
                 provider=provider_name,
                 model=selected_model,
@@ -125,16 +143,33 @@ class AgentCoordinator:
                 user_content=content,
             )
             self._states[conversation.id] = state
+            
+            augmented_prompt = content
+            try:
+                from pathlib import Path
+                workspace_dir = Path(conversation.path)
+                if workspace_dir.is_dir():
+                    existing_rules: list[str] = []
+                    for filename in (".cursor", ".gemini", ".claude", ".cursorrules", "README.md", "AGENT.md", "AGENTS.md"):
+                        rule_file = workspace_dir / filename
+                        if rule_file.is_file():
+                            existing_rules.append(filename)
+                    if existing_rules:
+                        rules_list = ", ".join(existing_rules)
+                        augmented_prompt = f"Note: The following project guideline/context files exist in the workspace directory: {rules_list}. You may read them if needed.\n\n=================================\n\n{content}"
+            except Exception as exc:
+                logger.warning("Failed to inject project rules: %s", exc)
+
             request = AgentRequest(
                 run_id=run_id,
                 conversation_id=conversation.id,
                 working_directory=conversation.path,
-                prompt=content,
+                prompt=augmented_prompt,
                 history=history,
                 model=selected_model,
             )
             task = asyncio.create_task(
-                self._execute(conversation.id, provider, request, state),
+                self._execute(conversation.id, provider, request, state, is_summary),
                 name=f"agent-{conversation.id}-{request.run_id}",
             )
             self._tasks[conversation.id] = task
@@ -173,7 +208,8 @@ class AgentCoordinator:
                 self._state_message(conversation_id, state, "elapsed"),
             )
 
-    async def _execute(self, conversation_id, provider, request, state) -> None:
+    async def _execute(self, conversation_id, provider, request, state, is_summary: bool = False) -> None:
+
         await self.hub.broadcast(
             conversation_id,
             self._state_message(
@@ -182,8 +218,10 @@ class AgentCoordinator:
                 "start",
                 status="Thinking...",
                 user_content=state.user_content,
+                role="summary" if is_summary else "agent",
             ),
         )
+
         elapsed_task = asyncio.create_task(
             self._broadcast_elapsed(conversation_id, state),
             name=f"elapsed-{state.run_id}",
@@ -195,17 +233,20 @@ class AgentCoordinator:
             elif event.type == "thought":
                 state.thought += event.content
             state.sequence += 1
+
             await self.hub.broadcast(
                 conversation_id,
                 self._state_message(
                     conversation_id,
                     state,
                     event.type,
+                    role="summary" if is_summary else "agent",
                     content=event.content,
                     full_content=state.content,
                     full_thought=state.thought,
                 ),
             )
+
 
         try:
             result = await provider.run(request, emit)
@@ -217,9 +258,11 @@ class AgentCoordinator:
                     "This usually occurs when a requested tool operation requires permissions or failed to complete."
                 )
             state.duration = self._elapsed(state)
+
+            role = "summary" if is_summary else "agent"
             self.database.add_message(
                 conversation_id,
-                "agent",
+                role,
                 result.content,
                 thought=result.thought,
                 duration=state.duration,
@@ -227,6 +270,7 @@ class AgentCoordinator:
                 provider=state.provider,
                 run_id=state.run_id,
             )
+
         except asyncio.CancelledError:
             await provider.interrupt(conversation_id)
             raise

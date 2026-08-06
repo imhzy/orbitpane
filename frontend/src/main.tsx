@@ -36,8 +36,8 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
           alignItems: 'center',
           justifyContent: 'center',
           height: '100vh',
-          background: '#0B0B12',
-          color: '#F3F4F6',
+          background: '#09090b',
+          color: '#f4f4f5',
           fontFamily: 'sans-serif',
           padding: 24,
           textAlign: 'center'
@@ -45,12 +45,12 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
           <div style={{
             background: 'rgba(239, 68, 68, 0.1)',
             border: '1px solid rgba(239, 68, 68, 0.3)',
-            borderRadius: 16,
+            borderRadius: 12,
             padding: 32,
             maxWidth: 480
           }}>
             <h2 style={{ fontSize: 20, marginBottom: 12, color: '#EF4444' }}>页面遇到了意料之外的问题</h2>
-            <p style={{ fontSize: 14, color: '#9CA3AF', marginBottom: 20, lineHeight: 1.6 }}>
+            <p style={{ fontSize: 14, color: '#a1a1aa', marginBottom: 20, lineHeight: 1.6 }}>
               {this.state.error?.message || "组件渲染出现异常，请尝试点击下方按钮重试。"}
             </p>
             <button 
@@ -59,11 +59,11 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
                 window.location.reload()
               }}
               style={{
-                background: 'linear-gradient(135deg, #6366F1, #8B5CF6)',
+                background: '#2563eb',
                 border: 'none',
                 color: '#FFF',
-                padding: '12px 24px',
-                borderRadius: 10,
+                padding: '10px 20px',
+                borderRadius: 8,
                 fontSize: 14,
                 fontWeight: 600,
                 cursor: 'pointer'
