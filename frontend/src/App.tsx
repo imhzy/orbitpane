@@ -372,14 +372,19 @@ export default function App() {
     if (isLoggedIn) {
       loadConversations(true)?.then((conv: Conversation | null) => {
         if (conv) {
-          loadHistory(conv.id)
+          loadHistory(conv.id)?.then(msgs => {
+            if (msgs) {
+              const last = [...msgs].reverse().find(m => m.model)
+              if (last?.model) setSelectedModel(last.model)
+            }
+          })
           connectWebSocket(conv, false)
         }
       })
       loadProviders()
       loadModels()
     }
-  }, [isLoggedIn, loadConversations, loadProviders, loadModels, loadHistory, connectWebSocket])
+  }, [isLoggedIn, loadConversations, loadProviders, loadModels, loadHistory, connectWebSocket, setSelectedModel])
 
   // Dynamic data polling when drawer is open
   useEffect(() => {
@@ -473,7 +478,12 @@ export default function App() {
     url.searchParams.set('id', conv.id.toString())
     window.history.pushState({}, '', url.toString())
 
-    loadHistory(conv.id)
+    loadHistory(conv.id)?.then(msgs => {
+      if (msgs) {
+        const last = [...msgs].reverse().find(m => m.model)
+        if (last?.model) setSelectedModel(last.model)
+      }
+    })
     connectWebSocket(conv, false)
   }
 
@@ -680,9 +690,11 @@ export default function App() {
         .trim() || '#09090b'
 
       // 1. Temporarily expand the target message list container so its width fits the actual contents cleanly
+      // Use a fixed width (current width or at least 800px, max 1000px) so text can wrap properly instead of 'max-content'
+      const baseWidth = Math.min(Math.max(targetElement.offsetWidth, 800), 1000)
       setTempStyle(targetElement, {
         maxWidth: 'none',
-        width: 'max-content',
+        width: `${baseWidth}px`,
         margin: '0',
         padding: '32px 28px',
         boxSizing: 'border-box',
@@ -723,19 +735,22 @@ export default function App() {
       tables.forEach(t => {
         setTempStyle(t as HTMLElement, {
           maxWidth: 'none',
-          width: 'max-content',
+          width: 'auto',
           display: 'table',
           overflowX: 'visible',
-          overflowY: 'visible'
+          overflowY: 'visible',
+          whiteSpace: 'normal'
         })
       })
 
-      // 4. Expand code blocks and syntax highlighters so long code lines render completely
+      // 4. Wrap code blocks and syntax highlighters so long code lines don't stretch the image
       const codeContainers = targetElement.querySelectorAll('.code-block-container, pre, code')
       codeContainers.forEach(c => {
         setTempStyle(c as HTMLElement, {
           maxWidth: 'none',
-          overflowX: 'visible',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+          overflowX: 'hidden',
           overflowY: 'visible'
         })
       })
@@ -745,7 +760,7 @@ export default function App() {
       const scrollWidth = targetElement.scrollWidth
       const scrollHeight = targetElement.scrollHeight
 
-      const exportWidth = Math.ceil(Math.max(rect.width, scrollWidth))
+      const exportWidth = Math.min(Math.ceil(Math.max(rect.width, scrollWidth)), 1000)
       const exportHeight = Math.ceil(Math.max(rect.height, scrollHeight))
 
       // 6. Render PNG blob targeted specifically at targetElement

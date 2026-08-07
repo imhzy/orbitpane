@@ -16,7 +16,7 @@ export function useConversations(showToast: (msg: string) => void) {
   const [providers, setProviders] = useState<Provider[]>([])
   const [defaultProvider, setDefaultProvider] = useState<string>('antigravity')
   const [models, setModels] = useState<string[]>([])
-  const [selectedModel, setSelectedModel] = useState<string>('gemini-3.6-flash-high')
+  const [selectedModel, setSelectedModel] = useState<string>('gemini-3.1-pro-high')
   const modelsRequestRef = useRef(0)
 
   // Drawer / Workspace Creation state

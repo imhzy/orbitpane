@@ -31,7 +31,8 @@ class Database:
             port=self.port,
             user=self.user,
             password=self.password,
-            charset='utf8mb4'
+            charset='utf8mb4',
+            init_command="SET time_zone = '+08:00'"
         )
         with conn.cursor() as cursor:
             cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{self.db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
@@ -46,7 +47,8 @@ class Database:
             password=self.password,
             database=self.db_name,
             charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor
+            cursorclass=pymysql.cursors.DictCursor,
+            init_command="SET time_zone = '+08:00'"
         )
 
     def migrate(self) -> None:

@@ -310,22 +310,25 @@ export function useWebSocket(
   const loadHistory = useCallback((convId: number, silent = false) => {
     if (!silent) setIsHistoryLoading(true)
     const requestId = ++historyRequestRef.current
-    apiFetch<Message[]>(`/api/history/${convId}`)
+    return apiFetch<Message[]>(`/api/history/${convId}`)
       .then(data => {
         if (
           requestId !== historyRequestRef.current
           || activeConvRef.current?.id !== convId
-        ) return
+        ) return null
         if (!silent) setIsHistoryLoading(false)
         const history = Array.isArray(data) ? data : []
+        let finalMerged: Message[] = []
         setMessages(current => {
           const merged = mergeHistoryWithTransientMessages(history, current)
           isAgentThinkingRef.current = merged.some(message => (
             message.role === 'agent' && message.isThinking
           ))
+          finalMerged = merged
           return merged
         })
         setTimeout(() => scrollToBottom(false), 100)
+        return finalMerged
       })
       .catch(err => {
         console.error(err)
@@ -342,6 +345,7 @@ export function useWebSocket(
             return merged
           })
         }
+        return null
       })
   }, [scrollToBottom])
 
