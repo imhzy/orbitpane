@@ -16,7 +16,22 @@ class ApplicationTests(IsolatedAsyncioTestCase):
         self.root = Path(self.temp_dir.name)
         self.workspace = self.root / "workspace"
         self.workspace.mkdir()
-        self.app = create_app(test_settings(self.root))
+        settings = test_settings(self.root)
+        try:
+            import pymysql
+            conn = pymysql.connect(
+                host=settings.mysql_host,
+                port=settings.mysql_port,
+                user=settings.mysql_user,
+                password=settings.mysql_password
+            )
+            with conn.cursor() as cursor:
+                cursor.execute(f"DROP DATABASE IF EXISTS `{settings.mysql_db_name}`")
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+        self.app = create_app(settings)
         self.lifespan = self.app.router.lifespan_context(self.app)
         await self.lifespan.__aenter__()
         self.client = httpx.AsyncClient(

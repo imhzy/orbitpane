@@ -23,6 +23,10 @@ class AntigravityProvider(AgentProvider):
     display_name = "Google Gemini"
     _COMPLETION_GRACE_SECONDS = 30
 
+    CLI_MODEL_ALIASES = {
+        "gemini-3.1-pro-high": "gemini-3.1-pro-low",
+    }
+
     def __init__(self, settings: Settings):
         self.settings = settings
         self._processes: dict[int, asyncio.subprocess.Process] = {}
@@ -42,7 +46,8 @@ class AntigravityProvider(AgentProvider):
                 "Antigravity command not found: "
                 f"{self.settings.antigravity_command}"
             )
-        self.validate_model(request.model)
+        model = self.validate_model(request.model)
+        cli_model = self.CLI_MODEL_ALIASES.get(model, model)
         prompt = self._build_prompt(request)
         log_dir = Path(tempfile.gettempdir()) / "orbitpane"
         log_dir.mkdir(mode=0o700, exist_ok=True)
@@ -55,7 +60,7 @@ class AntigravityProvider(AgentProvider):
             "--add-dir",
             request.working_directory,
             "--model",
-            request.model,
+            cli_model,
             "--print-timeout",
             "24h",
             "--log-file",

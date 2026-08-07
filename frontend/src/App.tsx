@@ -114,11 +114,12 @@ export default function App() {
   const scrollToBottom = useCallback((smooth = true) => {
     const container = messagesContainerRef.current
     if (container) {
+      const target = Math.max(0, container.scrollHeight - container.clientHeight)
+      shouldAutoScrollRef.current = true
+      pendingAutoScrollTopRef.current = target
       if (smooth) {
-        container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' })
+        container.scrollTo({ top: target, behavior: 'smooth' })
       } else {
-        const target = Math.max(0, container.scrollHeight - container.clientHeight)
-        pendingAutoScrollTopRef.current = target
         container.scrollTop = target
       }
     }
@@ -248,17 +249,31 @@ export default function App() {
     if (!container) return
 
     const pendingTarget = pendingAutoScrollTopRef.current
-    pendingAutoScrollTopRef.current = null
-    if (pendingTarget !== null && Math.abs(container.scrollTop - pendingTarget) < 2) {
-      shouldAutoScrollRef.current = true
-      setShowScrollBottomBtn(false)
+    if (pendingTarget !== null) {
+      const latestTarget = Math.max(0, container.scrollHeight - container.clientHeight)
+      if (Math.abs(container.scrollTop - latestTarget) < 2) {
+        pendingAutoScrollTopRef.current = null
+        shouldAutoScrollRef.current = true
+        setShowScrollBottomBtn(false)
+      } else if (Math.abs(container.scrollTop - pendingTarget) < 2) {
+        // The stream grew while a smooth scroll was still in flight. Follow the
+        // new bottom instead of treating the old programmatic target as user input.
+        scrollToBottom(false)
+      }
       return
     }
 
     const nearBottom = isNearBottom()
     shouldAutoScrollRef.current = nearBottom
     setShowScrollBottomBtn(!nearBottom)
-  }, [isNearBottom])
+  }, [isNearBottom, scrollToBottom])
+
+  const handleMessagesScrollIntent = useCallback(() => {
+    // Wheel, touch, pointer and keyboard input should be allowed to interrupt an
+    // in-flight smooth scroll. The next scroll event decides whether to keep
+    // following based on the user's resulting position.
+    pendingAutoScrollTopRef.current = null
+  }, [])
 
   const scheduleScrollToBottom = useCallback(() => {
     if (!shouldAutoScrollRef.current || scrollAnimationFrameRef.current !== null) return
@@ -429,6 +444,14 @@ export default function App() {
       }
     }
   }, [isLoggedIn, scheduleScrollToBottom])
+
+  // ResizeObserver covers layout/animation changes; this explicit trigger also
+  // covers every streamed thought/token render, even when its box size has not
+  // changed yet or React has batched several chunks together.
+  useEffect(() => {
+    if (!isLoggedIn || messages.length === 0) return
+    scheduleScrollToBottom()
+  }, [isLoggedIn, messages, scheduleScrollToBottom])
 
   const selectConversation = (conv: Conversation) => {
     triggerVibration()
@@ -637,31 +660,110 @@ export default function App() {
   }
 
   const exportConversationAsImage = async () => {
-    const container = messagesContainerRef.current
+    const targetElement = messagesContentRef.current || messagesContainerRef.current
     const hasConversationMessages = messages.some(message => message.role !== 'system')
-    if (!activeConv || !container || !hasConversationMessages || isExporting) return
+    if (!activeConv || !targetElement || !hasConversationMessages || isExporting) return
 
     setIsExporting(true)
+    const modifiedElements: Array<{ el: HTMLElement; style: string | null }> = []
+
+    const setTempStyle = (el: HTMLElement, styles: Partial<CSSStyleDeclaration>) => {
+      modifiedElements.push({ el, style: el.getAttribute('style') })
+      Object.assign(el.style, styles)
+    }
 
     try {
       const { toBlob } = await import('html-to-image')
-      const width = container.clientWidth
-      const height = container.scrollHeight
+      
       const backgroundColor = getComputedStyle(document.documentElement)
         .getPropertyValue('--bg-primary')
         .trim() || '#09090b'
 
-      const blob = await toBlob(container, {
-        width,
-        height,
+      // 1. Temporarily expand the target message list container so its width fits the actual contents cleanly
+      setTempStyle(targetElement, {
+        maxWidth: 'none',
+        width: 'max-content',
+        margin: '0',
+        padding: '32px 28px',
+        boxSizing: 'border-box',
+        background: backgroundColor
+      })
+
+      // 2. Expand all message rows and bubbles
+      const messageRows = targetElement.querySelectorAll('.message-row')
+      messageRows.forEach(r => {
+        setTempStyle(r as HTMLElement, {
+          maxWidth: 'none',
+          width: '100%'
+        })
+      })
+
+      const messageBubbles = targetElement.querySelectorAll('.message-bubble')
+      messageBubbles.forEach(b => {
+        const el = b as HTMLElement
+        const row = el.closest('.message-row')
+        if (row?.classList.contains('agent') || row?.classList.contains('summary')) {
+          setTempStyle(el, {
+            maxWidth: 'none',
+            width: '100%'
+          })
+        }
+      })
+
+      const markdownBodies = targetElement.querySelectorAll('.markdown-body')
+      markdownBodies.forEach(mb => {
+        setTempStyle(mb as HTMLElement, {
+          maxWidth: 'none',
+          width: '100%'
+        })
+      })
+
+      // 3. Expand tables from display:block to display:table so columns stretch naturally instead of horizontal scrollbars
+      const tables = targetElement.querySelectorAll('.markdown-body table')
+      tables.forEach(t => {
+        setTempStyle(t as HTMLElement, {
+          maxWidth: 'none',
+          width: 'max-content',
+          display: 'table',
+          overflowX: 'visible',
+          overflowY: 'visible'
+        })
+      })
+
+      // 4. Expand code blocks and syntax highlighters so long code lines render completely
+      const codeContainers = targetElement.querySelectorAll('.code-block-container, pre, code')
+      codeContainers.forEach(c => {
+        setTempStyle(c as HTMLElement, {
+          maxWidth: 'none',
+          overflowX: 'visible',
+          overflowY: 'visible'
+        })
+      })
+
+      // 5. Measure actual required content dimensions
+      const rect = targetElement.getBoundingClientRect()
+      const scrollWidth = targetElement.scrollWidth
+      const scrollHeight = targetElement.scrollHeight
+
+      const exportWidth = Math.ceil(Math.max(rect.width, scrollWidth))
+      const exportHeight = Math.ceil(Math.max(rect.height, scrollHeight))
+
+      // 6. Render PNG blob targeted specifically at targetElement
+      const blob = await toBlob(targetElement, {
+        width: exportWidth,
+        height: exportHeight,
         backgroundColor,
         pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
         style: {
           flex: 'none',
-          height: `${height}px`,
+          height: `${exportHeight}px`,
           maxHeight: 'none',
           overflow: 'visible',
-          width: `${width}px`
+          width: `${exportWidth}px`,
+          margin: '0',
+          padding: '32px 28px',
+          boxSizing: 'border-box',
+          background: backgroundColor
         },
         filter: (node: any) => {
           if (node?.classList) {
@@ -675,7 +777,9 @@ export default function App() {
           return true
         }
       })
+
       if (!blob) throw new Error('无法生成图片文件')
+
       const filename = `${activeConv.name.replace(/[\\/:*?"<>|]/g, '_').slice(0, 80) || 'conversation'}-${new Date().toISOString().replace(/[:.]/g, '-')}.png`
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
@@ -691,6 +795,15 @@ export default function App() {
       showToast('导出图片失败，请重试')
     } finally {
       setIsExporting(false)
+      // Cleanly restore all original inline styles
+      for (let i = modifiedElements.length - 1; i >= 0; i--) {
+        const { el, style } = modifiedElements[i]
+        if (style !== null) {
+          el.setAttribute('style', style)
+        } else {
+          el.removeAttribute('style')
+        }
+      }
     }
   }
 
@@ -795,6 +908,10 @@ export default function App() {
           data-conversation-export
           ref={messagesContainerRef}
           onScroll={handleMessagesScroll}
+          onWheel={handleMessagesScrollIntent}
+          onTouchStart={handleMessagesScrollIntent}
+          onPointerDown={handleMessagesScrollIntent}
+          onKeyDownCapture={handleMessagesScrollIntent}
         >
           <div className="chat-message-list" ref={messagesContentRef}>
             {(isHistoryLoading && (!activeConv || messages.filter(m => m.role !== 'system').length === 0)) ? (

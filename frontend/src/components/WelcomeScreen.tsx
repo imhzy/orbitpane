@@ -130,8 +130,8 @@ export function WelcomeScreen({
               {activeConv.name}
             </h2>
             <div className="session-path-badge">
-              <Folder size={13} />
-              <span className="font-mono">{activeConv.path}</span>
+              <Folder size={13} style={{ flexShrink: 0 }} />
+              <span className="font-mono truncate" style={{ minWidth: 0 }}>{activeConv.path}</span>
             </div>
             <p className="session-empty-tip">
               工程工作区已就绪。快捷选择提示词或在下方输入框发送开发指令：

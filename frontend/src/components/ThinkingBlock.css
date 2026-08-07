@@ -108,9 +108,6 @@
   font-size: 13px;
   line-height: 1.6;
   color: var(--text-secondary);
-  max-height: 400px;
-  overflow-y: auto;
-  scrollbar-width: thin;
 }
 
 .thinking-content p {

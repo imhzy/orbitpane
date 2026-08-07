@@ -1142,10 +1142,13 @@
   align-items: center;
   justify-content: center;
   max-width: 720px;
+  width: 100%;
   margin: auto;
   padding: var(--space-10) var(--space-6);
   text-align: center;
   position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .welcome-container::before {
@@ -1153,6 +1156,8 @@
   position: absolute;
   width: 400px;
   height: 400px;
+  max-width: 90vw;
+  max-height: 90vw;
   border-radius: 50%;
   background: radial-gradient(circle, var(--accent-subtle-bg) 0%, transparent 70%);
   top: 50%;
@@ -1319,6 +1324,14 @@
   color: var(--text-secondary);
   font-size: 12px;
   max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-path-badge span {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1402,6 +1415,7 @@
 .chat-messages {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 28px var(--space-6) var(--space-12) var(--space-6);
   display: flex;
   flex-direction: column;
@@ -2071,6 +2085,7 @@
     height: calc(56px + var(--sat));
     padding: var(--sat) var(--space-3) 0 var(--space-3);
     gap: var(--space-2);
+    max-width: 100vw;
   }
 
   .header-brand {
@@ -2085,6 +2100,7 @@
     padding-left: var(--space-2);
     min-width: 0;
     flex-shrink: 1;
+    overflow: hidden;
   }
 
   .header-title {
@@ -2092,6 +2108,16 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    min-width: 0;
+  }
+
+  .active-conv-title-text {
+    max-width: 110px;
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .header-path {
@@ -2196,10 +2222,15 @@
   .chat-messages {
     padding: var(--space-3) var(--space-3) var(--space-5) var(--space-3);
     gap: var(--space-4);
+    overflow-x: hidden;
+    width: 100%;
+    max-width: 100vw;
   }
 
   .chat-message-list {
     gap: var(--space-4);
+    max-width: 100%;
+    width: 100%;
   }
 
   /* User Bubble */
@@ -2258,6 +2289,9 @@
   /* --- Input Area & Mobile Keyboard Offset --- */
   .input-area {
     padding: var(--space-2) var(--space-3) calc(var(--space-2) + var(--sab));
+    max-width: 100%;
+    width: 100%;
+    box-sizing: border-box;
   }
 
   .input-box {
@@ -2291,6 +2325,9 @@
   /* --- Welcome Hero Section --- */
   .welcome-container {
     padding: var(--space-5) var(--space-3);
+    max-width: 100%;
+    width: 100%;
+    box-sizing: border-box;
   }
 
   .welcome-hero-icon {
@@ -2336,6 +2373,10 @@
   .chat-header {
     padding-left: var(--space-2);
     padding-right: var(--space-2);
+  }
+
+  .active-conv-title-text {
+    max-width: 80px;
   }
 
   .model-selector-text {
@@ -2885,7 +2926,8 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  min-width: 120px;
+  min-width: 130px;
+  white-space: nowrap;
   z-index: 100;
 }
 
@@ -3084,7 +3126,7 @@
   line-height: 1.4;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 768px) {
   .quick-suggestions-grid {
     grid-template-columns: 1fr;
   }
@@ -3179,7 +3221,7 @@
   text-overflow: ellipsis;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 768px) {
   .recent-workspaces-grid {
     grid-template-columns: 1fr;
   }
