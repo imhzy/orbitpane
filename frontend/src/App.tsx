@@ -627,6 +627,7 @@ export default function App() {
           .then(() => {
             if (activeConvRef.current?.id === conversationId) {
               historyRequestRef.current += 1
+              pendingSendMessagesRef.current.delete(conversationId)
               setMessages([])
             }
           })

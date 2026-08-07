@@ -17,8 +17,7 @@ export function ChatHeader(_props: ChatHeaderProps) {
     startEditingConv, setEditingConvId, getProviderBadge, providers, isDrawerOpen,
     setIsDrawerOpen, setDrawerMode, selectedModel, setSelectedModel, models,
     formatModelName, loadModels, theme, toggleTheme, setIsCmdPaletteOpen,
-    isConnected, isReconnecting, connectWebSocket, activeConvRef, isExporting,
-    exportConversationAsImage, messages, clearMessages, summarizeMessages
+    isExporting, exportConversationAsImage, messages, clearMessages, summarizeMessages
   } = useAppContext()
   
   const onOpenCmdPalette = () => setIsCmdPaletteOpen(true)
@@ -178,18 +177,7 @@ export function ChatHeader(_props: ChatHeaderProps) {
               </button>
             </div>
             
-            <div 
-              className={`status-indicator ${!isConnected ? 'clickable' : ''}`}
-              onClick={() => {
-                if (!isConnected && activeConvRef.current) {
-                  connectWebSocket(activeConvRef.current, true)
-                }
-              }}
-              title={isConnected ? 'Agent 在线' : isReconnecting ? '正在重连...' : '未连接，点击重连'}
-            >
-              <div className={`status-dot ${isConnected ? 'online' : isReconnecting ? 'connecting' : 'offline'}`} />
-              <span className="status-text">{isConnected ? '在线' : isReconnecting ? '重连中...' : '重连'}</span>
-            </div>
+
           </div>
         ) : (
           <button 
