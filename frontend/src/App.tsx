@@ -145,16 +145,20 @@ export default function App() {
   } = useWebSocket(activeConv, showToast, loadConversations, scrollToBottom)
 
   // Drawer state
-  const [isDrawerOpen, setIsDrawerOpen] = useState(window.innerWidth >= 1024)
+  const isDesktopRef = useRef(window.innerWidth >= 1024)
+  const [isDrawerOpen, setIsDrawerOpen] = useState(isDesktopRef.current)
   const [drawerMode, setDrawerMode] = useState<'sessions' | 'create'>('sessions')
 
   useEffect(() => {
     const handleResize = () => {
-      if (window.innerWidth >= 1024) {
-        setIsDrawerOpen(true)
-      } else {
-        setIsDrawerOpen(false)
-      }
+      const isDesktop = window.innerWidth >= 1024
+
+      // Mobile browsers fire resize events when the software keyboard opens.
+      // Only change drawer state when the responsive breakpoint is crossed.
+      if (isDesktop === isDesktopRef.current) return
+
+      isDesktopRef.current = isDesktop
+      setIsDrawerOpen(isDesktop)
     }
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)

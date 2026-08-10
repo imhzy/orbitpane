@@ -4,25 +4,35 @@ const sharp = require('sharp');
 
 const publicDir = path.join(__dirname, 'public');
 
-const svgAny = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <rect width="512" height="512" fill="#09090b"/>
-  <circle cx="256" cy="256" r="165" fill="none" stroke="#27272a" stroke-width="16"/>
-  <circle cx="256" cy="256" r="165" fill="none" stroke="#2563eb" stroke-width="16" stroke-dasharray="130 370" stroke-linecap="round"/>
-  <rect x="171" y="171" width="170" height="170" rx="36" fill="#121215" stroke="#3b82f6" stroke-width="18"/>
-  <circle cx="256" cy="256" r="32" fill="#3b82f6"/>
-  <circle cx="372" cy="140" r="28" fill="#3b82f6"/>
-</svg>`;
+function iconSvg({ maskable = false } = {}) {
+  const background = maskable
+    ? '<rect width="512" height="512" fill="#f8fafc"/>'
+    : '';
+  const panel = maskable
+    ? '<rect x="56" y="56" width="400" height="400" rx="104" fill="url(#panel)"/>'
+    : '<rect x="32" y="32" width="448" height="448" rx="112" fill="url(#panel)"/>';
+  const scale = maskable ? 0.82 : 1;
 
-const svgMaskable = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <rect width="512" height="512" fill="#09090b"/>
-  <g transform="translate(256 256) scale(0.78) translate(-256 -256)">
-    <circle cx="256" cy="256" r="165" fill="none" stroke="#27272a" stroke-width="16"/>
-    <circle cx="256" cy="256" r="165" fill="none" stroke="#2563eb" stroke-width="16" stroke-dasharray="130 370" stroke-linecap="round"/>
-    <rect x="171" y="171" width="170" height="170" rx="36" fill="#121215" stroke="#3b82f6" stroke-width="18"/>
-    <circle cx="256" cy="256" r="32" fill="#3b82f6"/>
-    <circle cx="372" cy="140" r="28" fill="#3b82f6"/>
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="panel" x1="96" y1="72" x2="416" y2="448" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e2e8f0"/>
+    </linearGradient>
+  </defs>
+${background}
+  ${panel}
+  <g transform="translate(256 256) scale(${scale}) translate(-256 -256)">
+    <circle cx="256" cy="256" r="142" fill="none" stroke="#0f172a" stroke-width="24" stroke-opacity="0.3"/>
+    <rect x="188" y="188" width="136" height="136" rx="30" fill="none" stroke="#0f172a" stroke-width="28"/>
+    <circle cx="256" cy="256" r="30" fill="#3b82f6"/>
+    <circle cx="353" cy="181" r="27" fill="#3b82f6"/>
   </g>
 </svg>`;
+}
+
+const svgAny = iconSvg();
+const svgMaskable = iconSvg({ maskable: true });
 
 async function generate() {
   // 1. Update favicon.svg

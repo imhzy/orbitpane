@@ -528,7 +528,37 @@
 .cw-browser-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   padding: 0 var(--space-1);
+}
+
+.cw-browser-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.cw-browser-refresh-btn {
+  padding: 3px;
+  width: 24px;
+  height: 24px;
+}
+
+.cw-browser-expand-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  min-height: 28px;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-hover);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 .cw-browser-title {
@@ -3253,9 +3283,91 @@
 }
 
 .provider-dropdown-menu {
+  position: absolute;
   top: calc(100% + var(--space-3));
   width: calc(100% + 36px);
   left: -26px;
+  right: auto;
+  max-width: none;
+}
+
+@media (max-width: 768px) {
+  /* The create flow benefits from the full screen; the session drawer stays compact. */
+  .drawer.create-mode {
+    width: 100vw;
+    max-width: 100vw;
+  }
+
+  .drawer.create-mode .sidebar-footer {
+    display: none;
+  }
+
+  .drawer.create-mode .cw-content {
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3) var(--space-3) !important;
+    overflow: hidden;
+  }
+
+  .drawer.create-mode .cw-header {
+    display: none;
+  }
+
+  .drawer.create-mode .cw-form {
+    gap: var(--space-2);
+    padding: var(--space-2);
+  }
+
+  .drawer.create-mode .cw-field-group {
+    gap: var(--space-1);
+  }
+
+  .drawer.create-mode .cw-label {
+    font-size: 10px;
+  }
+
+  .drawer.create-mode .cw-input-wrapper {
+    height: 36px;
+  }
+
+  .drawer.create-mode .cw-browser-section,
+  .drawer.create-mode .cw-browser,
+  .drawer.create-mode .cw-list {
+    min-height: 0;
+  }
+
+  .drawer.create-mode .cw-list {
+    max-height: none;
+  }
+
+  .cw-browser-expand-btn {
+    display: inline-flex;
+  }
+
+  /* Focus mode temporarily dedicates the viewport to directory navigation. */
+  .drawer.directory-focus-mode .drawer-header,
+  .drawer.directory-focus-mode .drawer-tabs,
+  .drawer.directory-focus-mode .cw-form,
+  .drawer.directory-focus-mode .cw-action {
+    display: none;
+  }
+
+  .drawer.directory-focus-mode .cw-content {
+    padding-top: var(--space-3) !important;
+  }
+
+  .drawer.directory-focus-mode .cw-browser-header {
+    min-height: 36px;
+  }
+
+  .drawer.directory-focus-mode .cw-browser-title {
+    font-size: 12px;
+  }
+
+  .drawer.directory-focus-mode .cw-browser-expand-btn {
+    color: var(--accent-text);
+    background: var(--accent-subtle-bg);
+    border-color: var(--accent-border);
+  }
 }
 
 

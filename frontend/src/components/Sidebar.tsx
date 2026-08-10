@@ -4,7 +4,7 @@ import {
   X, MessageSquare, Plus, Trash2, Folder,
   ChevronRight, Compass, FolderPlus,
   Check, Pencil, Layers, HardDrive, RefreshCw, Cpu,
-  Search, Star, LogOut, ChevronDown
+  Search, Star, LogOut, ChevronDown, Maximize2, Minimize2
 } from 'lucide-react'
 import { LogoIcon } from '../LogoIcon'
 import type { Conversation, Provider } from '../lib/types'
@@ -47,6 +47,9 @@ function ProviderDropdown({ providers, selectedProvider, defaultProvider, setSel
         className="cw-input provider-selector-btn"
         onClick={(e) => { e.preventDefault(); setIsOpen(!isOpen) }}
         type="button"
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        aria-label="选择 Agent 接入方式"
       >
         <span>{currentProvider ? currentProvider.name : 'Select Provider'}</span>
         <ChevronDown size={14} className={`provider-selector-chevron ${isOpen ? 'open' : ''}`} />
@@ -60,12 +63,16 @@ function ProviderDropdown({ providers, selectedProvider, defaultProvider, setSel
             exit={{ opacity: 0, y: -5, scale: 0.98 }}
             transition={{ duration: 0.15 }}
             className="model-dropdown-menu provider-dropdown-menu"
+            role="listbox"
+            aria-label="Agent 接入方式列表"
           >
             {providers.map(p => (
               <button
                 key={p.id}
                 disabled={!p.available}
                 className={`model-dropdown-item ${displaySelectedProvider === p.id ? 'selected' : ''}`}
+                role="option"
+                aria-selected={displaySelectedProvider === p.id}
                 onClick={(e) => {
                   e.preventDefault()
                   if (p.available) {
@@ -102,6 +109,7 @@ export function Sidebar(_props: SidebarProps) {
   } = useAppContext()
 
   const [searchTerm, setSearchTerm] = useState('')
+  const [isDirectoryExpanded, setIsDirectoryExpanded] = useState(false)
   const isCancelingRef = React.useRef(false)
   const [pinnedIds, setPinnedIds] = useState<number[]>(() => {
     try {
@@ -122,6 +130,12 @@ export function Sidebar(_props: SidebarProps) {
       }
     }
   }, [isDrawerOpen])
+
+  useEffect(() => {
+    if (!isDrawerOpen || drawerMode !== 'create') {
+      setIsDirectoryExpanded(false)
+    }
+  }, [isDrawerOpen, drawerMode])
 
   useEffect(() => {
     const handleHighlight = () => {
@@ -158,7 +172,7 @@ export function Sidebar(_props: SidebarProps) {
         <motion.div 
           initial={{ x: '-100%', marginLeft: -320 }} animate={{ x: 0, marginLeft: 0 }} exit={{ x: '-100%', marginLeft: -320 }}
           transition={springConfig}
-          className={`drawer ${isHighlighting ? 'drawer-highlight' : ''}`}
+          className={`drawer ${drawerMode === 'create' ? 'create-mode' : ''} ${drawerMode === 'create' && isDirectoryExpanded ? 'directory-focus-mode' : ''} ${isHighlighting ? 'drawer-highlight' : ''}`}
           role="dialog"
           aria-modal="true"
           aria-label="工作区菜单"
@@ -457,19 +471,33 @@ export function Sidebar(_props: SidebarProps) {
               </div>
 
               <div className="cw-browser-section">
-                <div className="cw-browser-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span className="cw-browser-title">目录浏览</span>
-                  <button 
-                    className="icon-btn" 
-                    title="刷新目录"
-                    onClick={() => {
-                      loadDir(currentPath)
-                      showToast('目录结构已刷新')
-                    }}
-                    style={{ padding: 3, width: 24, height: 24 }}
-                  >
-                    <RefreshCw size={12} />
-                  </button>
+                <div className="cw-browser-header">
+                  <span className="cw-browser-title">
+                    {isDirectoryExpanded ? '选择项目目录' : '目录浏览'}
+                  </span>
+                  <div className="cw-browser-actions">
+                    <button
+                      className="icon-btn cw-browser-refresh-btn"
+                      title="刷新目录"
+                      aria-label="刷新目录"
+                      onClick={() => {
+                        loadDir(currentPath)
+                        showToast('目录结构已刷新')
+                      }}
+                    >
+                      <RefreshCw size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      className="cw-browser-expand-btn"
+                      onClick={() => setIsDirectoryExpanded(expanded => !expanded)}
+                      aria-expanded={isDirectoryExpanded}
+                      aria-label={isDirectoryExpanded ? '完成目录选择' : '展开目录浏览'}
+                    >
+                      {isDirectoryExpanded ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                      <span>{isDirectoryExpanded ? '完成' : '展开'}</span>
+                    </button>
+                  </div>
                 </div>
                 <div className="cw-browser">
                   <div className="cw-crumbs">
