@@ -3012,6 +3012,7 @@
   position: relative;
   width: 100%;
   flex-shrink: 0;
+  padding-bottom: var(--sab);
 }
 
 .floating-scroll-bottom-btn {

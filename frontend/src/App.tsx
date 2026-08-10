@@ -38,7 +38,9 @@ export default function App() {
     localStorage.setItem('theme', theme)
     const metaThemeColor = document.querySelector('meta[name="theme-color"]')
     if (metaThemeColor) {
-      metaThemeColor.setAttribute('content', theme === 'dark' ? '#09090b' : '#f8fafc')
+      // Use #ffffff for light mode to seamlessly blend with the white header
+      // and #09090b for dark mode.
+      metaThemeColor.setAttribute('content', theme === 'dark' ? '#09090b' : '#ffffff')
     }
   }, [theme])
 
