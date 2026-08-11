@@ -80,6 +80,49 @@ class ApplicationTests(IsolatedAsyncioTestCase):
         )
         self.assertEqual(response.status_code, 400)
 
+    async def test_conversation_file_search_is_scoped_and_ranked(self) -> None:
+        source_dir = self.workspace / "frontend" / "src"
+        source_dir.mkdir(parents=True)
+        app_file = source_dir / "App.tsx"
+        app_file.write_text("export default function App() {}", encoding="utf-8")
+        (source_dir / "main.tsx").write_text("", encoding="utf-8")
+        ignored_dir = self.workspace / "node_modules" / "app-package"
+        ignored_dir.mkdir(parents=True)
+        (ignored_dir / "app.js").write_text("", encoding="utf-8")
+
+        headers = await self.login_headers()
+        created = await self.client.post(
+            "/api/conversations",
+            headers=headers,
+            json={
+                "name": "Search workspace",
+                "path": str(self.workspace),
+                "provider": "antigravity",
+            },
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        conversation_id = created.json()["id"]
+
+        response = await self.client.get(
+            f"/api/conversations/{conversation_id}/files",
+            headers=headers,
+            params={"q": "app"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        items = response.json()["items"]
+        self.assertEqual(items[0]["name"], "App.tsx")
+        self.assertEqual(items[0]["path"], str(app_file.resolve()))
+        self.assertEqual(items[0]["relative_path"], "frontend/src/App.tsx")
+        self.assertFalse(any("node_modules" in item["path"] for item in items))
+
+    async def test_conversation_file_search_requires_existing_conversation(self) -> None:
+        response = await self.client.get(
+            "/api/conversations/999999/files",
+            headers=await self.login_headers(),
+            params={"q": "app"},
+        )
+        self.assertEqual(response.status_code, 404)
+
     async def test_security_headers_are_present(self) -> None:
         response = await self.client.get("/api/health")
         self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")

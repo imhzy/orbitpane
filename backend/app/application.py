@@ -5,6 +5,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from dataclasses import asdict
+from pathlib import Path
 
 from fastapi import (
     Depends,
@@ -35,6 +36,111 @@ from .security import (
 )
 
 logger = logging.getLogger(__name__)
+
+FILE_SEARCH_IGNORED_DIRECTORIES = {
+    ".git",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "node_modules",
+}
+FILE_SEARCH_SCAN_LIMIT = 50_000
+
+
+def _file_match_score(relative_path: str, query: str) -> tuple[int, int, str] | None:
+    """Rank a project file using exact, substring, then subsequence matches."""
+    normalized_path = relative_path.casefold().replace("\\", "/")
+    normalized_query = query.strip().casefold().replace("\\", "/")
+    name = normalized_path.rsplit("/", 1)[-1]
+    depth = normalized_path.count("/")
+
+    if not normalized_query:
+        return (500 + depth, len(normalized_path), normalized_path)
+    if name == normalized_query:
+        return (0, depth, normalized_path)
+    if name.startswith(normalized_query):
+        return (20, len(name), normalized_path)
+    if normalized_query in name:
+        return (40 + name.index(normalized_query), len(name), normalized_path)
+    if normalized_query in normalized_path:
+        return (100 + normalized_path.index(normalized_query), depth, normalized_path)
+
+    query_index = 0
+    first_match = -1
+    previous_match = -1
+    gap_cost = 0
+    for path_index, character in enumerate(normalized_path):
+        if character != normalized_query[query_index]:
+            continue
+        if first_match < 0:
+            first_match = path_index
+        if previous_match >= 0:
+            gap_cost += path_index - previous_match - 1
+        previous_match = path_index
+        query_index += 1
+        if query_index == len(normalized_query):
+            return (200 + gap_cost + first_match, depth, normalized_path)
+    return None
+
+
+def _search_workspace_files(
+    settings: Settings,
+    workspace: Path,
+    query: str,
+    limit: int,
+) -> tuple[list[dict[str, object]], bool]:
+    matches: list[tuple[tuple[int, int, str], Path, str]] = []
+    scanned = 0
+    for directory_path, directory_names, file_names in os.walk(
+        workspace,
+        topdown=True,
+        followlinks=False,
+    ):
+        current_directory = Path(directory_path)
+        directory_names[:] = [
+            name
+            for name in directory_names
+            if name not in FILE_SEARCH_IGNORED_DIRECTORIES
+            and not name.startswith(".")
+            and not (current_directory / name).is_symlink()
+        ]
+        for name in file_names:
+            scanned += 1
+            if scanned > FILE_SEARCH_SCAN_LIMIT:
+                break
+            if name.startswith("."):
+                continue
+            candidate = current_directory / name
+            if candidate.is_symlink():
+                continue
+            relative_path = candidate.relative_to(workspace).as_posix()
+            score = _file_match_score(relative_path, query)
+            if score is None:
+                continue
+            matches.append((score, candidate, relative_path))
+        if scanned > FILE_SEARCH_SCAN_LIMIT:
+            break
+
+    matches.sort(key=lambda match: match[0])
+    items: list[dict[str, object]] = []
+    for _, candidate, relative_path in matches:
+        if len(items) >= limit:
+            break
+        try:
+            resolved_candidate = settings.resolve_allowed_path(str(candidate))
+        except ValueError:
+            continue
+        if workspace != resolved_candidate and workspace not in resolved_candidate.parents:
+            continue
+        items.append(
+            {
+                "name": candidate.name,
+                "path": str(resolved_candidate),
+                "relative_path": relative_path,
+            }
+        )
+    return items, (scanned > FILE_SEARCH_SCAN_LIMIT or len(matches) > len(items))
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -299,6 +405,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=403, detail="Directory is not readable") from exc
         items.sort(key=lambda item: (not item["is_dir"], str(item["name"]).lower()))
         return {"items": items, "current_path": str(directory)}
+
+    @app.get(
+        "/api/conversations/{conversation_id}/files",
+        dependencies=[Depends(require_auth)],
+    )
+    async def search_conversation_files(
+        conversation_id: int,
+        q: str = Query(default="", max_length=256),
+        limit: int = Query(default=50, ge=1, le=100),
+    ):
+        conversation = database.get_conversation(conversation_id)
+        if conversation is None:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        try:
+            workspace = resolved_settings.resolve_allowed_path(conversation.path)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if not workspace.is_dir():
+            raise HTTPException(status_code=400, detail="Conversation path must be a directory")
+
+        items, truncated = await asyncio.to_thread(
+            _search_workspace_files,
+            resolved_settings,
+            workspace,
+            q,
+            limit,
+        )
+        return {
+            "items": items,
+            "truncated": truncated,
+        }
 
     @app.websocket("/api/chat")
     async def websocket_endpoint(websocket: WebSocket):

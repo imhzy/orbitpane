@@ -6,6 +6,17 @@ export interface DirItem {
   mtime?: number
 }
 
+export interface FileSearchItem {
+  name: string
+  path: string
+  relative_path: string
+}
+
+export interface FileSearchResponse {
+  items: FileSearchItem[]
+  truncated: boolean
+}
+
 export interface Message {
   role: 'user' | 'agent' | 'system' | 'summary'
   content: string
@@ -55,5 +66,4 @@ export interface ProviderBadge {
   className: string
   Icon: React.ComponentType<{ size?: number; className?: string }>
 }
-
 

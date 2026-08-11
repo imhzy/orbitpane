@@ -993,6 +993,7 @@ export default function App() {
           <ChatInput
             activeConv={activeConv}
             input={input}
+            setInput={setInput}
             handleInput={handleInput}
             handleKeyDown={handleKeyDown}
             sendMessage={sendMessage}
