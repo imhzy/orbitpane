@@ -164,9 +164,14 @@ WebSocket protocol as Antigravity.
 
 ```bash
 export CODEX_ENABLED=true
-export CODEX_MODELS='your-approved-codex-model'
 export CODEX_SANDBOX=workspace-write
 ```
+
+Model lists are discovered once per backend process from `antigravity models`
+(or `agy models`, when configured as the command) and `codex debug models`.
+`ORBITPANE_ANTIGRAVITY_MODELS` and `CODEX_MODELS` can still be set to a
+comma-separated list when an explicit allowlist is preferred. If discovery
+fails, the built-in defaults are used as a fallback.
 
 The provider abstraction can later be replaced by the official Python
 `openai-codex` SDK without changing application routes or frontend state. The

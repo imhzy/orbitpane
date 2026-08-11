@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import shutil
+import subprocess
 import tempfile
 import time
 from collections import deque
@@ -16,6 +17,34 @@ from .base import AgentEvent, AgentProvider, AgentRequest, AgentResult, EmitEven
 from .process import terminate_process
 
 logger = logging.getLogger(__name__)
+
+
+def fetch_antigravity_models(command: str = "agy") -> tuple[str, ...]:
+    """Read the model IDs exposed by the Antigravity CLI."""
+    try:
+        result = subprocess.run(
+            [command, "models"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ()
+
+    if result.returncode != 0:
+        return ()
+
+    models: list[str] = []
+    for line in result.stdout.splitlines():
+        # `agy models` prints `<model-id>\t<display name>` on stdout. Status
+        # messages go to stderr and any unexpected stdout line is ignored.
+        if "\t" not in line:
+            continue
+        model, _ = line.split("\t", 1)
+        model = model.strip()
+        if model and model not in models:
+            models.append(model)
+    return tuple(models)
 
 
 class AntigravityProvider(AgentProvider):
@@ -31,10 +60,16 @@ class AntigravityProvider(AgentProvider):
         self.settings = settings
         self._processes: dict[int, asyncio.subprocess.Process] = {}
         self._interrupted: set[int] = set()
+        self._cached_models: tuple[str, ...] | None = None
 
     @property
     def models(self) -> tuple[str, ...]:
-        return self.settings.antigravity_models
+        if os.getenv("ORBITPANE_ANTIGRAVITY_MODELS"):
+            return self.settings.antigravity_models
+        if self._cached_models is None:
+            fetched = fetch_antigravity_models(self.settings.antigravity_command)
+            self._cached_models = fetched or self.settings.antigravity_models
+        return self._cached_models
 
     @property
     def available(self) -> bool:

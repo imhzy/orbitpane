@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+from subprocess import CompletedProcess
 from unittest import TestCase
-from backend.app.agents.codex import CodexCliProvider
+from unittest.mock import patch
+
+from backend.app.agents.codex import CodexCliProvider, fetch_codex_models
 from backend.app.config import Settings
 
 
@@ -10,6 +13,30 @@ class CodexProviderTests(TestCase):
     def setUp(self) -> None:
         self.settings = Settings.from_env()
         self.provider = CodexCliProvider(self.settings)
+
+    def test_fetch_models_uses_visible_cli_catalog(self) -> None:
+        completed = CompletedProcess(
+            args=["codex", "debug", "models"],
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "models": [
+                        {"slug": "gpt-visible", "visibility": "list"},
+                        {"slug": "gpt-hidden", "visibility": "hide"},
+                        {"slug": "gpt-compatible"},
+                        {"slug": "gpt-visible", "visibility": "list"},
+                    ]
+                }
+            ),
+            stderr="",
+        )
+        with patch(
+            "backend.app.agents.codex.subprocess.run",
+            return_value=completed,
+        ):
+            models = fetch_codex_models("codex")
+
+        self.assertEqual(models, ("gpt-visible", "gpt-compatible"))
 
     def test_format_thought_command_execution(self) -> None:
         seen_started: set[str] = set()

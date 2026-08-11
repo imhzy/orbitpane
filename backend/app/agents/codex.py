@@ -24,7 +24,13 @@ def fetch_codex_models(command: str = "codex") -> tuple[str, ...]:
             models: list[str] = []
             for item in data.get("models", []):
                 slug = item.get("slug")
-                if slug and slug not in {"codex-auto-review", "auto"}:
+                visibility = item.get("visibility")
+                if (
+                    slug
+                    and slug not in {"codex-auto-review", "auto"}
+                    and visibility in {None, "list"}
+                    and slug not in models
+                ):
                     models.append(slug)
             if models:
                 return tuple(models)
@@ -49,13 +55,10 @@ class CodexCliProvider(AgentProvider):
     def models(self) -> tuple[str, ...]:
         if os.getenv("CODEX_MODELS"):
             return self.settings.codex_models
-        if self._cached_models:
-            return self._cached_models
-        fetched = fetch_codex_models(self.settings.codex_command)
-        if fetched:
-            self._cached_models = fetched
-            return fetched
-        return self.settings.codex_models
+        if self._cached_models is None:
+            fetched = fetch_codex_models(self.settings.codex_command)
+            self._cached_models = fetched or self.settings.codex_models
+        return self._cached_models
 
     def validate_model(self, model: str) -> str:
         if not self.models:
@@ -75,8 +78,7 @@ class CodexCliProvider(AgentProvider):
     async def run(self, request: AgentRequest, emit: EmitEvent) -> AgentResult:
         if not self.available:
             raise ProviderError(
-                "Codex provider is disabled or not configured; set CODEX_ENABLED=true "
-                "and CODEX_MODELS"
+                "Codex provider is disabled or not configured; set CODEX_ENABLED=true"
             )
         model = self.validate_model(request.model)
         prompt = self._build_prompt(request)
@@ -283,4 +285,3 @@ class CodexCliProvider(AgentProvider):
                     return f"\n● **{item_type}**: {text}\n"
 
         return ""
-

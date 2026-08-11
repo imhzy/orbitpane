@@ -4,13 +4,63 @@ import asyncio
 import json
 import tempfile
 from pathlib import Path
+from subprocess import CompletedProcess
 from types import SimpleNamespace
-from unittest import IsolatedAsyncioTestCase
+from unittest import IsolatedAsyncioTestCase, TestCase
 from unittest.mock import patch
 
-from backend.app.agents.antigravity import AntigravityProvider
+from backend.app.agents.antigravity import (
+    AntigravityProvider,
+    fetch_antigravity_models,
+)
 from backend.app.agents.base import AgentEvent, AgentRequest
 from backend.tests.helpers import test_settings
+
+
+class AntigravityModelCatalogTests(TestCase):
+    def test_fetch_models_parses_cli_output(self) -> None:
+        completed = CompletedProcess(
+            args=["agy", "models"],
+            returncode=0,
+            stdout=(
+                "gemini-3.6-flash-high\tGemini 3.6 Flash (High)\n"
+                "unexpected status line\n"
+                "claude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)\n"
+                "gemini-3.6-flash-high\tDuplicate\n"
+            ),
+            stderr="Fetching available models...\n",
+        )
+        with patch(
+            "backend.app.agents.antigravity.subprocess.run",
+            return_value=completed,
+        ) as run_mock:
+            models = fetch_antigravity_models("agy")
+
+        self.assertEqual(
+            models,
+            ("gemini-3.6-flash-high", "claude-sonnet-4-6"),
+        )
+        run_mock.assert_called_once_with(
+            ["agy", "models"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+    def test_provider_caches_cli_models(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            provider = AntigravityProvider(test_settings(Path(temp_dir)))
+            with (
+                patch.dict("os.environ", {}, clear=True),
+                patch(
+                    "backend.app.agents.antigravity.fetch_antigravity_models",
+                    return_value=("live-model",),
+                ) as fetch_mock,
+            ):
+                self.assertEqual(provider.models, ("live-model",))
+                self.assertEqual(provider.models, ("live-model",))
+
+        fetch_mock.assert_called_once_with("true")
 
 
 class AntigravityProviderTests(IsolatedAsyncioTestCase):
