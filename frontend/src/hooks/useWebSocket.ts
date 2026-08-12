@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { apiFetch } from '../lib/api'
 import { AUTH_EXPIRED_EVENT } from '../lib/auth'
-import type { Conversation, Message } from '../lib/types'
+import type { Conversation, Message, TaskRecord } from '../lib/types'
 
 export interface RealtimeEvent {
   type: string
@@ -18,6 +18,12 @@ export interface RealtimeEvent {
   model?: string
   provider?: string
   code?: string
+  status?: string
+  input_chars?: number
+  output_chars?: number
+  context_chars?: number
+  task?: TaskRecord
+  queue?: TaskRecord[]
 }
 
 function isFiniteNumber(value: unknown): value is number {
@@ -106,6 +112,7 @@ function ensureRunAgent(
       content: '',
       thought: '',
       isThinking: true,
+      isQueued: false,
       elapsedSoFar: isFiniteNumber(event.elapsed) ? event.elapsed : 0,
       model: event.model,
       provider: event.provider,
@@ -146,6 +153,7 @@ export function applyRealtimeEvent(messages: Message[], event: RealtimeEvent): M
       ...current,
       ...common,
       isThinking: true,
+      isQueued: false,
       streamSequence: incomingSequence,
     }
   } else if (event.type === 'sync_state') {
@@ -156,6 +164,7 @@ export function applyRealtimeEvent(messages: Message[], event: RealtimeEvent): M
       content: event.content ?? '',
       thought: event.thought ?? '',
       isThinking: true,
+      isQueued: false,
       streamSequence: incomingSequence,
     }
   } else if (event.type === 'elapsed') {
@@ -163,6 +172,7 @@ export function applyRealtimeEvent(messages: Message[], event: RealtimeEvent): M
       ...current,
       ...common,
       isThinking: true,
+      isQueued: false,
     }
   } else if (event.type === 'thought' || event.type === 'token' || event.type === 'answer') {
     if (incomingSequence <= currentSequence) {
@@ -193,11 +203,15 @@ export function applyRealtimeEvent(messages: Message[], event: RealtimeEvent): M
       content: hasCurrentNewerContent ? current.content : (event.content ?? current.content),
       thought: hasCurrentNewerContent ? current.thought : (event.thought ?? current.thought),
       isThinking: false,
+      isQueued: false,
       streamFinished: true,
       streamSequence: Math.max(currentSequence, incomingSequence),
       ...(duration !== undefined
         ? { thinkingDuration: duration, elapsedSoFar: duration }
         : {}),
+      input_chars: event.input_chars ?? current.input_chars,
+      output_chars: event.output_chars ?? current.output_chars,
+      context_chars: event.context_chars ?? current.context_chars,
     }
   }
 
@@ -272,18 +286,22 @@ export function useWebSocket(
   const activeConvRef = useRef<Conversation | null>(activeConv)
   const isAgentThinkingRef = useRef<boolean>(false)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const lastPongRef = useRef(Date.now())
   const reconnectAttemptRef = useRef<number>(0)
   const historyRequestRef = useRef(0)
   const pendingSendMessagesRef = useRef(new Map<
     number,
-    { content: string; model: string; provider: string }
+    Array<{ content: string; model: string; provider: string }>
   >())
 
   useEffect(() => {
     activeConvRef.current = activeConv
   }, [activeConv])
 
-  const isAgentThinking = [...messages].reverse().find(m => m.role === 'agent')?.isThinking ?? false
+  const isAgentThinking = messages.some(message => (
+    message.role === 'agent' && message.isThinking
+  ))
   useEffect(() => {
     isAgentThinkingRef.current = isAgentThinking
   }, [isAgentThinking])
@@ -292,6 +310,10 @@ export function useWebSocket(
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current)
       reconnectTimerRef.current = null
+    }
+    if (heartbeatTimerRef.current) {
+      clearInterval(heartbeatTimerRef.current)
+      heartbeatTimerRef.current = null
     }
     const currentSocket = socketRef.current
     socketRef.current = null
@@ -318,6 +340,7 @@ export function useWebSocket(
         ) return null
         if (!silent) setIsHistoryLoading(false)
         const history = Array.isArray(data) ? data : []
+        localStorage.setItem(`orbitpane_history_${convId}`, JSON.stringify(history))
         let finalMerged: Message[] = []
         setMessages(current => {
           const merged = mergeHistoryWithTransientMessages(history, current)
@@ -337,8 +360,15 @@ export function useWebSocket(
           && activeConvRef.current?.id === convId
         ) {
           if (!silent) setIsHistoryLoading(false)
+          const cached = (() => {
+            try {
+              return JSON.parse(localStorage.getItem(`orbitpane_history_${convId}`) || '[]') as Message[]
+            } catch {
+              return []
+            }
+          })()
           setMessages(current => {
-            const merged = mergeHistoryWithTransientMessages([], current)
+            const merged = mergeHistoryWithTransientMessages(cached, current)
             isAgentThinkingRef.current = merged.some(message => (
               message.role === 'agent' && message.isThinking
             ))
@@ -403,15 +433,25 @@ export function useWebSocket(
       setIsConnected(true)
       setIsReconnecting(false)
       reconnectAttemptRef.current = 0
+      lastPongRef.current = Date.now()
       if (isManual) showToast('已成功连接后台 AI agent')
       ws.send(JSON.stringify({ conversation_id: conv.id }))
 
-      const pending = pendingSendMessagesRef.current.get(conv.id)
-      if (pending) {
+      const pending = pendingSendMessagesRef.current.get(conv.id) || []
+      if (pending.length > 0) {
         awaitingPendingStart = true
         pendingSendMessagesRef.current.delete(conv.id)
-        ws.send(JSON.stringify(pending))
+        pending.forEach(message => ws.send(JSON.stringify(message)))
       }
+
+      heartbeatTimerRef.current = setInterval(() => {
+        if (ws.readyState !== WebSocket.OPEN) return
+        if (Date.now() - lastPongRef.current > 45_000) {
+          ws.close(4000, 'heartbeat timeout')
+          return
+        }
+        ws.send(JSON.stringify({ action: 'ping' }))
+      }, 20_000)
     }
 
     ws.onmessage = event => {
@@ -422,6 +462,56 @@ export function useWebSocket(
           isFiniteNumber(data.conversation_id)
           && data.conversation_id !== conv.id
         ) return
+
+        if (data.type === 'pong') {
+          lastPongRef.current = Date.now()
+          return
+        }
+
+        if (data.type === 'submitted' && data.task) {
+          const task = data.task
+          if (task.status === 'queued') {
+            setMessages(previous => {
+              const next = [...previous]
+              let userIndex = -1
+              for (let index = next.length - 1; index >= 0; index -= 1) {
+                const message = next[index]
+                if (message.role === 'user' && message.isOptimistic && !message.run_id) {
+                  userIndex = index
+                  next[index] = { ...message, run_id: task.run_id, isOptimistic: false }
+                  break
+                }
+              }
+              const agentIndex = userIndex >= 0 ? userIndex + 1 : -1
+              if (agentIndex >= 0 && next[agentIndex]?.role === 'agent') {
+                next[agentIndex] = {
+                  ...next[agentIndex],
+                  run_id: task.run_id,
+                  isThinking: false,
+                  isQueued: true,
+                  queuePosition: task.position,
+                  isOptimistic: false,
+                }
+              }
+              return next
+            })
+          }
+          window.dispatchEvent(new CustomEvent('orbitpane-task-change'))
+          return
+        }
+
+        if (data.type === 'queue_changed') {
+          const positions = new Map((data.queue || []).map(task => [task.run_id, task.position]))
+          setMessages(previous => previous.map(message => {
+            if (!message.run_id || !message.isQueued) return message
+            const position = positions.get(message.run_id)
+            return position
+              ? { ...message, queuePosition: position }
+              : { ...message, isQueued: false, streamFinished: true }
+          }))
+          window.dispatchEvent(new CustomEvent('orbitpane-task-change'))
+          return
+        }
 
         if (data.type === 'ready') {
           if (!awaitingPendingStart) {
@@ -457,6 +547,29 @@ export function useWebSocket(
           if (data.type === 'done') {
             loadConversations(false)
             loadHistory(conv.id, true)
+            window.dispatchEvent(new CustomEvent('orbitpane-task-change'))
+            if (document.visibilityState !== 'visible' && Notification.permission === 'granted') {
+              const notification = new Notification(`${conv.name} · 任务已完成`, {
+                body: data.status === 'failed'
+                  ? 'Agent 执行失败，点击查看详情'
+                  : `已生成 ${data.output_chars ?? 0} 个字符的结果`,
+                icon: '/pwa-192x192.png',
+                tag: `orbitpane-${data.run_id || conv.id}`,
+              })
+              notification.onclick = () => {
+                window.focus()
+                const url = new URL(window.location.href)
+                url.searchParams.set('id', String(conv.id))
+                window.location.href = url.toString()
+              }
+            }
+            try {
+              const channel = new BroadcastChannel('orbitpane-sync')
+              channel.postMessage({ type: 'task-done', conversationId: conv.id })
+              channel.close()
+            } catch {
+              // BroadcastChannel is optional on older WebViews.
+            }
           }
           return
         }
@@ -508,6 +621,10 @@ export function useWebSocket(
       socketConversationIdRef.current = null
       setIsConnected(false)
       setIsReconnecting(false)
+      if (heartbeatTimerRef.current) {
+        clearInterval(heartbeatTimerRef.current)
+        heartbeatTimerRef.current = null
+      }
 
       if (activeConvRef.current?.id !== conv.id) return
       const attempt = reconnectAttemptRef.current

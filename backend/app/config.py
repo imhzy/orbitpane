@@ -31,11 +31,7 @@ def _paths(value: str | None) -> tuple[Path, ...]:
 @dataclass(frozen=True, slots=True)
 class Settings:
     environment: str
-    mysql_host: str
-    mysql_port: int
-    mysql_user: str
-    mysql_password: str
-    mysql_db_name: str
+    database_path: Path
     allowed_roots: tuple[Path, ...]
     cors_origins: tuple[str, ...]
     auth_pin: str
@@ -78,11 +74,9 @@ class Settings:
 
         return cls(
             environment=environment,
-            mysql_host=os.getenv("MYSQL_HOST", "127.0.0.1").strip(),
-            mysql_port=int(os.getenv("MYSQL_PORT", "3306")),
-            mysql_user=os.getenv("MYSQL_USER", "root").strip(),
-            mysql_password=os.getenv("MYSQL_PASSWORD", "REDACTED_PASSWORD").strip(),
-            mysql_db_name=os.getenv("MYSQL_DB_NAME", "orbitpane").strip(),
+            database_path=Path(
+                os.getenv("ORBITPANE_DATABASE_PATH", str(PROJECT_ROOT / "history.db"))
+            ).expanduser().resolve(),
             allowed_roots=_paths(os.getenv("ORBITPANE_ALLOWED_ROOTS")),
             cors_origins=_csv(os.getenv("ORBITPANE_CORS_ORIGINS")),
             auth_pin=auth_pin,
@@ -95,9 +89,7 @@ class Settings:
             antigravity_command=os.getenv(
                 "ORBITPANE_ANTIGRAVITY_COMMAND", "antigravity"
             ).strip(),
-            antigravity_models=_csv(
-                os.getenv("ORBITPANE_ANTIGRAVITY_MODELS")
-            )
+            antigravity_models=_csv(os.getenv("ORBITPANE_ANTIGRAVITY_MODELS"))
             or (
                 "gemini-3.6-flash-high",
                 "gemini-3.6-flash-medium",
@@ -131,6 +123,10 @@ class Settings:
             ),
             codex_sandbox=os.getenv("CODEX_SANDBOX", "workspace-write").strip(),
         )
+
+    @property
+    def default_workspace_root(self) -> Path:
+        return self.allowed_roots[0]
 
     def resolve_allowed_path(self, raw_path: str, *, must_exist: bool = True) -> Path:
         try:

@@ -60,23 +60,23 @@ export function Login({ onLogin }: { onLogin: () => void }) {
             <h1 className="login-brand-title">
               <span>OrbitPane</span>
             </h1>
-            <div className="login-brand-tagline">Self-hosted Agent Workspace</div>
+            <div className="login-brand-tagline">自托管智能体工作台</div>
           </div>
         </div>
 
         <form onSubmit={handleSubmit} className="login-form-area">
           <div className="login-input-group">
-            <label className="login-input-label">Access PIN</label>
+            <label className="login-input-label">访问 PIN</label>
             <div className="login-input-wrapper">
               <input 
                 type="password"
                 value={pin}
                 onChange={e => { setPin(e.target.value); setError(false); }}
-                placeholder="Enter your PIN"
+                placeholder="输入访问 PIN"
                 className={`login-input ${error ? 'login-input-error' : ''}`}
                 autoFocus
                 disabled={loading}
-                aria-label="Enter access PIN"
+                aria-label="输入访问 PIN"
               />
               <Lock className="login-input-icon" size={18} strokeWidth={2.5} />
             </div>
@@ -90,7 +90,7 @@ export function Login({ onLogin }: { onLogin: () => void }) {
                   className="login-error-message"
                 >
                   <AlertCircle size={14} />
-                  <span>Incorrect PIN, please try again.</span>
+                  <span>PIN 不正确，请重试。</span>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -100,14 +100,14 @@ export function Login({ onLogin }: { onLogin: () => void }) {
             type="submit" 
             disabled={loading || !pin.trim()} 
             className="login-submit-btn"
-            aria-label={loading ? 'Authenticating' : 'Submit PIN'}
+            aria-label={loading ? '正在验证' : '提交 PIN'}
             whileTap={(!loading && pin.trim()) ? { scale: 0.98 } : undefined}
           >
             {loading ? (
               <div className="login-spinner" />
             ) : (
               <>
-                Continue
+                进入任务舱
                 <ArrowRight size={18} />
               </>
             )}
@@ -115,7 +115,7 @@ export function Login({ onLogin }: { onLogin: () => void }) {
         </form>
 
         <div className="login-footer">
-          OrbitPane Workspace v1.0
+          OrbitPane Workspace v2.1
         </div>
       </motion.div>
     </div>

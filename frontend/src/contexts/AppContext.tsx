@@ -1,5 +1,5 @@
 import React, { createContext, useContext } from 'react';
-import type { Conversation, Provider, DirItem } from '../lib/types';
+import type { Conversation, Provider, DirItem, ToastKind } from '../lib/types';
 import type { Message } from '../lib/types';
 
 export interface AppContextType {
@@ -8,8 +8,7 @@ export interface AppContextType {
   toggleTheme: () => void;
 
   // Toast
-  toast: string | null;
-  showToast: (msg: string) => void;
+  showToast: (msg: string, kind?: ToastKind) => void;
 
   // Drawer / Sidebar
   isDrawerOpen: boolean;
@@ -30,6 +29,11 @@ export interface AppContextType {
   createConversation: () => void;
   loadConversations: (isInitial?: boolean) => Promise<Conversation | null> | void;
   selectConversation: (conv: Conversation) => void;
+  updateConversation: (
+    id: number,
+    values: Partial<Pick<Conversation, 'name' | 'path' | 'provider' | 'is_pinned' | 'is_archived' | 'tags' | 'preferred_model' | 'draft'>>,
+    options?: { silent?: boolean },
+  ) => Promise<Conversation | null>;
 
   // Workspace editing
   editingConvId: number | null;
@@ -53,6 +57,8 @@ export interface AppContextType {
   formatModelName: (id: string) => string;
 
   // File System (Create Workspace)
+  workspaceRoots: string[];
+  defaultWorkspaceRoot: string;
   currentPath: string;
   setCurrentPath: (path: string) => void;
   items: DirItem[];
@@ -81,7 +87,7 @@ export interface AppContextType {
   historyRequestRef: React.MutableRefObject<number>;
   isAgentThinking: boolean;
   isAgentThinkingRef: React.MutableRefObject<boolean>;
-  pendingSendMessagesRef: React.MutableRefObject<Map<number, { content: string; model: string; provider: string }>>;
+  pendingSendMessagesRef: React.MutableRefObject<Map<number, Array<{ content: string; model: string; provider: string }>>>;
   loadHistory: (convId: number, silent?: boolean) => void;
   socketRef: React.MutableRefObject<WebSocket | null>;
   socketConversationIdRef: React.MutableRefObject<number | null>;

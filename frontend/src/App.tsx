@@ -3,11 +3,12 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useConversations } from './hooks/useConversations'
 import { useWebSocket } from './hooks/useWebSocket'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Check, ArrowDown, Cpu, MessageSquare, Loader2 } from 'lucide-react'
+import { Check, ArrowDown, Cpu, MessageSquare, Loader2, AlertCircle, Info, TriangleAlert, WifiOff } from 'lucide-react'
 import './App.css'
+import './Workspace.css'
 import { apiFetch } from './lib/api'
 import { AUTH_EXPIRED_EVENT, clearLegacyAuthState } from './lib/auth'
-import type { Conversation, Provider } from './lib/types'
+import type { Conversation, Provider, ToastKind, ToastMessage } from './lib/types'
 
 import { Login } from './components/Login'
 import { ConfirmDialog } from './components/ConfirmDialog'
@@ -17,6 +18,7 @@ import { WelcomeScreen } from './components/WelcomeScreen'
 import { MessageList } from './components/MessageList'
 import { ChatInput } from './components/ChatInput'
 import { CommandPalette } from './components/CommandPalette'
+import { WorkspaceInspector } from './components/WorkspaceInspector'
 import { AppContext } from './contexts/AppContext'
 import type { AppContextType } from './contexts/AppContext'
 
@@ -36,12 +38,12 @@ export default function App() {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
     localStorage.setItem('theme', theme)
-    const metaThemeColor = document.querySelector('meta[name="theme-color"]')
-    if (metaThemeColor) {
+    const metaThemeColors = document.querySelectorAll('meta[name="theme-color"]')
+    metaThemeColors.forEach(metaThemeColor => {
       // Use #ffffff for light mode to seamlessly blend with the white header
       // and #09090b for dark mode.
       metaThemeColor.setAttribute('content', theme === 'dark' ? '#09090b' : '#ffffff')
-    }
+    })
   }, [theme])
 
   const toggleTheme = () => {
@@ -49,13 +51,13 @@ export default function App() {
   }
 
   // Toast Notification state
-  const [toast, setToast] = useState<string | null>(null)
+  const [toast, setToast] = useState<ToastMessage | null>(null)
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const showToast = useCallback((msg: string) => {
+  const showToast = useCallback((msg: string, kind: ToastKind = 'success') => {
     if (toastTimerRef.current) {
       clearTimeout(toastTimerRef.current)
     }
-    setToast(msg)
+    setToast({ id: Date.now(), message: msg, kind })
     toastTimerRef.current = setTimeout(() => {
       setToast(null)
       toastTimerRef.current = null
@@ -77,6 +79,9 @@ export default function App() {
     models,
     selectedModel,
     setSelectedModel,
+    workspaceRoots,
+    defaultWorkspaceRoot,
+    loadWorkspaceRoots,
     currentPath,
     setCurrentPath,
     items,
@@ -94,9 +99,12 @@ export default function App() {
     loadModels,
     loadConversations,
     loadDir,
+    updateConversation,
     startEditingConv,
     saveConvName,
   } = useConversations(showToast)
+  const activeConversationId = activeConv?.id ?? null
+  const activeConversationDraft = activeConv?.draft ?? ''
 
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const messagesContentRef = useRef<HTMLDivElement>(null)
@@ -178,15 +186,30 @@ export default function App() {
 
   // Interactive feedback states
   const [input, setInput] = useState('')
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine)
+  const [applyUpdate, setApplyUpdate] = useState<null | (() => void)>(null)
+  const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const draftConversationIdRef = useRef<number | null>(null)
   const [copiedMsgIdx, setCopiedMsgIdx] = useState<number | null>(null)
   const [feedbackState, setFeedbackState] = useState<Record<number, 'up' | 'down'>>({})
   const [isExporting, setIsExporting] = useState(false)
   const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false)
 
   const getBreadcrumbParts = (pathStr: string) => {
-    const segments = pathStr.split('/').filter(Boolean)
-    let result: { name: string; fullPath: string }[] = [{ name: '/', fullPath: '/' }]
-    let acc = ''
+    const normalizedPath = pathStr.replace(/\/+$/, '') || '/'
+    const baseRoot = [...workspaceRoots]
+      .sort((left, right) => right.length - left.length)
+      .find(root => normalizedPath === root || normalizedPath.startsWith(`${root.replace(/\/+$/, '')}/`))
+    const initialPath = baseRoot || '/'
+    const relativePath = baseRoot
+      ? normalizedPath.slice(baseRoot.length)
+      : normalizedPath
+    const segments = relativePath.split('/').filter(Boolean)
+    let result: { name: string; fullPath: string }[] = [{
+      name: initialPath === '/' ? '/' : initialPath.split('/').filter(Boolean).at(-1) || initialPath,
+      fullPath: initialPath,
+    }]
+    let acc = initialPath === '/' ? '' : initialPath
     segments.forEach(seg => {
       acc += '/' + seg
       result.push({ name: seg, fullPath: acc })
@@ -381,7 +404,8 @@ export default function App() {
           loadHistory(conv.id)?.then(msgs => {
             if (msgs) {
               const last = [...msgs].reverse().find(m => m.model)
-              if (last?.model) setSelectedModel(last.model)
+              if (conv.preferred_model) setSelectedModel(conv.preferred_model)
+              else if (last?.model) setSelectedModel(last.model)
             }
           })
           connectWebSocket(conv, false)
@@ -389,8 +413,81 @@ export default function App() {
       })
       loadProviders()
       loadModels()
+      loadWorkspaceRoots()
     }
-  }, [isLoggedIn, loadConversations, loadProviders, loadModels, loadHistory, connectWebSocket, setSelectedModel])
+  }, [isLoggedIn, loadConversations, loadProviders, loadModels, loadWorkspaceRoots, loadHistory, connectWebSocket, setSelectedModel])
+
+  useEffect(() => {
+    const handleOnlineState = () => setIsOnline(navigator.onLine)
+    window.addEventListener('online', handleOnlineState)
+    window.addEventListener('offline', handleOnlineState)
+    return () => {
+      window.removeEventListener('online', handleOnlineState)
+      window.removeEventListener('offline', handleOnlineState)
+    }
+  }, [])
+
+  useEffect(() => {
+    const handleUpdate = (event: Event) => {
+      const updater = (event as CustomEvent<() => void>).detail
+      setApplyUpdate(() => updater)
+    }
+    const handleOfflineReady = () => showToast('离线应用外壳已就绪', 'info')
+    window.addEventListener('orbitpane-update-ready', handleUpdate)
+    window.addEventListener('orbitpane-offline-ready', handleOfflineReady)
+    return () => {
+      window.removeEventListener('orbitpane-update-ready', handleUpdate)
+      window.removeEventListener('orbitpane-offline-ready', handleOfflineReady)
+    }
+  }, [showToast])
+
+  useEffect(() => {
+    if (!isLoggedIn) return
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('action') === 'new-project') {
+      setIsDrawerOpen(true)
+      setDrawerMode('create')
+    }
+  }, [isLoggedIn])
+
+  useEffect(() => {
+    let channel: BroadcastChannel | null = null
+    try {
+      channel = new BroadcastChannel('orbitpane-sync')
+      channel.onmessage = event => {
+        if (event.data?.type === 'task-done' || event.data?.type === 'conversations-changed') {
+          void loadConversations(false)
+        }
+      }
+    } catch {
+      return
+    }
+    return () => channel?.close()
+  }, [loadConversations])
+
+  useEffect(() => {
+    const conversationId = activeConversationId
+    if (draftConversationIdRef.current === conversationId) return
+    draftConversationIdRef.current = conversationId
+    if (!conversationId) {
+      setInput('')
+      return
+    }
+    const localDraft = localStorage.getItem(`orbitpane_draft_${conversationId}`)
+    setInput(localDraft ?? activeConversationDraft)
+  }, [activeConversationDraft, activeConversationId])
+
+  useEffect(() => {
+    if (!activeConversationId) return
+    localStorage.setItem(`orbitpane_draft_${activeConversationId}`, input)
+    if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current)
+    draftSaveTimerRef.current = setTimeout(() => {
+      void updateConversation(activeConversationId, { draft: input }, { silent: true })
+    }, 700)
+    return () => {
+      if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current)
+    }
+  }, [activeConversationId, input, updateConversation])
 
   // Dynamic data polling when drawer is open
   useEffect(() => {
@@ -464,7 +561,7 @@ export default function App() {
     scheduleScrollToBottom()
   }, [isLoggedIn, messages, scheduleScrollToBottom])
 
-  const selectConversation = (conv: Conversation) => {
+  const selectConversation = (conv: Conversation, updateUrl = true) => {
     triggerVibration()
     const isDifferentConversation = activeConvRef.current?.id !== conv.id
     activeConvRef.current = conv
@@ -480,18 +577,40 @@ export default function App() {
     if (window.innerWidth < 1024) setIsDrawerOpen(false)
     loadModels(conv.provider)
 
-    const url = new URL(window.location.href)
-    url.searchParams.set('id', conv.id.toString())
-    window.history.pushState({}, '', url.toString())
+    if (updateUrl) {
+      const url = new URL(window.location.href)
+      url.searchParams.set('id', conv.id.toString())
+      window.history.pushState({}, '', url.toString())
+    }
 
     loadHistory(conv.id)?.then(msgs => {
       if (msgs) {
         const last = [...msgs].reverse().find(m => m.model)
-        if (last?.model) setSelectedModel(last.model)
+        if (conv.preferred_model) setSelectedModel(conv.preferred_model)
+        else if (last?.model) setSelectedModel(last.model)
       }
     })
     connectWebSocket(conv, false)
   }
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const conversationId = Number(new URLSearchParams(window.location.search).get('id'))
+      if (!conversationId) {
+        activeConvRef.current = null
+        setActiveConv(null)
+        setMessages([])
+        disconnectCurrentSocket()
+        return
+      }
+      const conversation = conversations.find(item => item.id === conversationId)
+      if (conversation && activeConvRef.current?.id !== conversation.id) {
+        selectConversation(conversation, false)
+      }
+    }
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  })
 
   const createConversation = () => {
     triggerVibration()
@@ -508,14 +627,14 @@ export default function App() {
         loadConversations()
         setDrawerMode('sessions')
         setNewConvName('')
-        setCurrentPath('/root')
-        setSelectedDir('/root')
+        setCurrentPath(defaultWorkspaceRoot)
+        setSelectedDir(defaultWorkspaceRoot)
         setSelectedProvider(defaultProvider)
         selectConversation(data)
       })
       .catch(err => {
         console.error(err)
-        showToast('创建工作区失败')
+        showToast('创建项目失败', 'error')
       })
   }
 
@@ -523,8 +642,8 @@ export default function App() {
     e.stopPropagation()
     setConfirmState({
       isOpen: true,
-      title: '删除会话',
-      description: '此操作不可撤销，确定要删除该会话记录吗？',
+      title: '删除项目',
+      description: '此操作不可撤销，确定要删除该项目及其任务记录吗？',
       onConfirm: () => {
         setConfirmState(prev => ({ ...prev, isOpen: false }))
         apiFetch<{ status: string }>(`/api/conversations/${convId}`, { method: 'DELETE' })
@@ -545,7 +664,7 @@ export default function App() {
           })
           .catch(err => {
             console.error(err)
-            showToast('删除工作区失败')
+            showToast('删除项目失败', 'error')
           })
       }
     })
@@ -555,21 +674,17 @@ export default function App() {
     triggerVibration()
     const textToSend = typeof customText === 'string' ? customText : input
     if (!textToSend.trim()) return
-    if (isAgentThinkingRef.current) {
-      showToast('Agent 正在处理当前任务，请先中断或等待完成')
-      return
-    }
-
     const conversation = activeConvRef.current
     if (!conversation) {
-      showToast('请先选择一个工作区会话')
+      showToast('请先选择一个项目', 'warning')
       return
     }
 
     setInput('')
     shouldAutoScrollRef.current = true
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
-    isAgentThinkingRef.current = true
+    const willQueue = isAgentThinkingRef.current
+    if (!willQueue) isAgentThinkingRef.current = true
     setMessages(prev => [
       ...prev,
       {
@@ -583,7 +698,8 @@ export default function App() {
         role: 'agent',
         content: '',
         thought: '',
-        isThinking: true,
+        isThinking: !willQueue,
+        isQueued: willQueue,
         elapsedSoFar: 0,
         model: selectedModel,
         provider: conversation.provider,
@@ -601,15 +717,17 @@ export default function App() {
     if (
       !currentSocket
       || currentSocket.readyState !== WebSocket.OPEN
-      || socketConversationIdRef.current === undefined
+      || socketConversationIdRef.current !== conversation.id
     ) {
-      pendingSendMessagesRef.current.set(conversation.id, payload)
-      showToast('连接中，重连成功后将自动发送...')
+      const pending = pendingSendMessagesRef.current.get(conversation.id) || []
+      pendingSendMessagesRef.current.set(conversation.id, [...pending, payload])
+      showToast('连接中，重连成功后将自动发送…', 'info')
       connectWebSocket(conversation, true)
       return
     }
 
     currentSocket.send(JSON.stringify(payload))
+    if (willQueue) showToast('任务已加入队列', 'info')
   }
 
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -639,7 +757,7 @@ export default function App() {
           })
           .catch(err => {
             console.error(err)
-            showToast('清空消息失败')
+            showToast('清空消息失败', 'error')
           })
       }
     })
@@ -650,21 +768,17 @@ export default function App() {
     const conversationId = activeConv.id
     apiFetch<{ status: string }>(`/api/conversations/${conversationId}/summarize`, { method: 'POST' })
       .then(() => {
-        showToast('已发起总结请求')
+        showToast('记忆检查点任务已提交', 'info')
       })
       .catch(err => {
         console.error(err)
-        showToast('发起总结失败')
+        showToast('创建记忆检查点失败', 'error')
       })
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      if (isAgentThinking) {
-        showToast('Agent 正在处理当前任务')
-        return
-      }
       sendMessage()
     }
   }
@@ -856,7 +970,7 @@ export default function App() {
       sendMessage(lastUserMsg.content)
       showToast('正在重新生成回复...')
     } else {
-      showToast('无法重新生成，请检查连接状态')
+      showToast('无法重新生成，请检查连接状态', 'error')
     }
   }
 
@@ -873,15 +987,17 @@ export default function App() {
   }
 
   const contextValue: AppContextType = {
-    theme, toggleTheme, toast, showToast, isDrawerOpen, setIsDrawerOpen,
+    theme, toggleTheme, showToast, isDrawerOpen, setIsDrawerOpen,
     drawerMode, setDrawerMode, isCmdPaletteOpen, setIsCmdPaletteOpen,
     conversations, isConversationsLoading, activeConv, setActiveConv,
     deleteConversation, createConversation, loadConversations, selectConversation,
+    updateConversation,
     editingConvId, setEditingConvId, editingConvName, setEditingConvName,
     startEditingConv, saveConvName, providers, defaultProvider,
     selectedProvider, setSelectedProvider, models, selectedModel,
     setSelectedModel, loadModels, loadProviders, getProviderBadge,
-    formatModelName, currentPath, setCurrentPath, items, selectedDir,
+    formatModelName, workspaceRoots, defaultWorkspaceRoot,
+    currentPath, setCurrentPath, items, selectedDir,
     setSelectedDir, newConvName, setNewConvName, loadDir,
     getBreadcrumbParts, messages, setMessages, clearMessages, summarizeMessages,
     isConnected, isReconnecting, connectWebSocket, disconnectCurrentSocket,
@@ -900,7 +1016,7 @@ export default function App() {
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="drawer-scrim" 
             onClick={() => {
-              if (drawerMode === 'create' && (newConvName.trim() || currentPath !== '/root')) {
+              if (drawerMode === 'create' && (newConvName.trim() || currentPath !== defaultWorkspaceRoot)) {
                 setConfirmState({
                   isOpen: true,
                   title: '放弃修改',
@@ -923,6 +1039,19 @@ export default function App() {
 
       {/* Main Chat Area */}
       <div className="chat-main">
+        {!isOnline && (
+          <div className="offline-banner" role="status">
+            <WifiOff size={13} />
+            <span>当前离线：可查看缓存并继续编辑草稿，恢复网络后自动重连</span>
+          </div>
+        )}
+        {applyUpdate && (
+          <div className="update-banner" role="status">
+            <span>新版本已就绪；当前草稿会保留。</span>
+            <button onClick={() => applyUpdate()}>安全更新</button>
+            <button className="dismiss" onClick={() => setApplyUpdate(null)}>稍后</button>
+          </div>
+        )}
         <ChatHeader />
 
         <div
@@ -1015,6 +1144,8 @@ export default function App() {
         </div>
       </div>
 
+      <WorkspaceInspector />
+
       {/* Command Palette */}
       <CommandPalette
         isOpen={isCmdPaletteOpen}
@@ -1027,9 +1158,19 @@ export default function App() {
         theme={theme}
         onClearMessages={clearMessages}
         onExportImage={exportConversationAsImage}
-        onSelectConv={(id) => {
+        onSelectConv={(id, messageId) => {
           const found = conversations.find(c => c.id === id)
-          if (found) selectConversation(found)
+          if (found) {
+            selectConversation(found)
+            if (messageId) {
+              window.setTimeout(() => {
+                document.querySelector(`[data-message-id="${messageId}"]`)?.scrollIntoView({
+                  block: 'center',
+                  behavior: 'smooth',
+                })
+              }, 350)
+            }
+          }
         }}
         conversations={conversations}
       />
@@ -1047,9 +1188,12 @@ export default function App() {
             role="status"
             aria-live="polite"
           >
-            <div className="toast">
-              <Check size={14} style={{ color: '#10B981' }} />
-              {toast}
+            <div className={`toast ${toast.kind}`}>
+              {toast.kind === 'success' && <Check size={14} />}
+              {toast.kind === 'error' && <AlertCircle size={14} />}
+              {toast.kind === 'warning' && <TriangleAlert size={14} />}
+              {toast.kind === 'info' && <Info size={14} />}
+              <span>{toast.message}</span>
             </div>
           </motion.div>
         )}

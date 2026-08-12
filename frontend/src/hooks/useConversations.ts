@@ -1,9 +1,53 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { apiFetch } from '../lib/api'
-import type { Conversation, DirItem, Provider, ModelsResponse, AgentsResponse } from '../lib/types'
+import type { Conversation, DirItem, Provider, ModelsResponse, AgentsResponse, ToastKind } from '../lib/types'
 
-export function useConversations(showToast: (msg: string) => void) {
-  const [conversations, setConversations] = useState<Conversation[]>([])
+const CONVERSATION_CACHE_KEY = 'orbitpane_conversations_cache_v2'
+const PROVIDER_CACHE_KEY = 'orbitpane_provider_cache_v2'
+
+function readCache<T>(key: string, fallback: T): T {
+  try {
+    const value = localStorage.getItem(key)
+    if (!value) return fallback
+    const parsed = JSON.parse(value) as T | null
+    return parsed === null ? fallback : parsed
+  } catch {
+    return fallback
+  }
+}
+
+function normalizeConversation(value: unknown): Conversation | null {
+  if (!value || typeof value !== 'object') return null
+  const raw = value as Partial<Conversation>
+  if (typeof raw.id !== 'number' || typeof raw.name !== 'string' || typeof raw.path !== 'string') {
+    return null
+  }
+  return {
+    id: raw.id,
+    name: raw.name,
+    path: raw.path,
+    created_at: typeof raw.created_at === 'string' ? raw.created_at : '',
+    provider: typeof raw.provider === 'string' ? raw.provider : 'antigravity',
+    is_pinned: Boolean(raw.is_pinned),
+    is_archived: Boolean(raw.is_archived),
+    tags: Array.isArray(raw.tags) ? raw.tags.filter(tag => typeof tag === 'string') : [],
+    preferred_model: typeof raw.preferred_model === 'string' ? raw.preferred_model : '',
+    draft: typeof raw.draft === 'string' ? raw.draft : '',
+    active_summary_id: typeof raw.active_summary_id === 'number' ? raw.active_summary_id : null,
+  }
+}
+
+function normalizeConversations(value: unknown): Conversation[] {
+  return Array.isArray(value)
+    ? value.map(normalizeConversation).filter((item): item is Conversation => item !== null)
+    : []
+}
+
+export function useConversations(showToast: (msg: string, kind?: ToastKind) => void) {
+  const [conversations, setConversations] = useState<Conversation[]>(() => (
+    normalizeConversations(readCache<unknown>(CONVERSATION_CACHE_KEY, []))
+  ))
+  const conversationsRef = useRef(conversations)
   const [isConversationsLoading, setIsConversationsLoading] = useState(true)
   const [activeConv, setActiveConv] = useState<Conversation | null>(null)
   const activeConvRef = useRef<Conversation | null>(activeConv)
@@ -12,79 +56,124 @@ export function useConversations(showToast: (msg: string) => void) {
     activeConvRef.current = activeConv
   }, [activeConv])
 
-  // Provider & Model state
-  const [providers, setProviders] = useState<Provider[]>([])
+  useEffect(() => {
+    conversationsRef.current = conversations
+  }, [conversations])
+
+  const [providers, setProviders] = useState<Provider[]>(() => (
+    (() => {
+      const cached = readCache<unknown>(PROVIDER_CACHE_KEY, [])
+      return Array.isArray(cached) ? cached as Provider[] : []
+    })()
+  ))
   const [defaultProvider, setDefaultProvider] = useState<string>('antigravity')
   const [models, setModels] = useState<string[]>([])
-  const [selectedModel, setSelectedModel] = useState<string>('gemini-3.1-pro-high')
+  const [selectedModel, setSelectedModelState] = useState<string>('')
   const modelsRequestRef = useRef(0)
 
-  // Drawer / Workspace Creation state
-  const [currentPath, setCurrentPath] = useState<string>('/root')
+  const [workspaceRoots, setWorkspaceRoots] = useState<string[]>([])
+  const [defaultWorkspaceRoot, setDefaultWorkspaceRoot] = useState<string>('')
+  const [currentPath, setCurrentPath] = useState<string>('')
   const [items, setItems] = useState<DirItem[]>([])
-  const [selectedDir, setSelectedDir] = useState<string>('/root')
+  const [selectedDir, setSelectedDir] = useState<string>('')
   const [newConvName, setNewConvName] = useState('')
   const [selectedProvider, setSelectedProvider] = useState<string>('')
 
-  // Workspace Name Editing state
   const [editingConvId, setEditingConvId] = useState<number | null>(null)
   const [editingConvName, setEditingConvName] = useState<string>('')
 
+  const loadWorkspaceRoots = useCallback(() => {
+    return apiFetch<{ roots: string[]; default_root: string }>('/api/workspace-roots')
+      .then(data => {
+        setWorkspaceRoots(data.roots)
+        setDefaultWorkspaceRoot(data.default_root)
+        setCurrentPath(previous => previous || data.default_root)
+        setSelectedDir(previous => previous || data.default_root)
+        localStorage.setItem('orbitpane_workspace_roots', JSON.stringify(data))
+        return data
+      })
+      .catch(error => {
+        console.error(error)
+        const cached = readCache<{ roots: string[]; default_root: string }>(
+          'orbitpane_workspace_roots',
+          { roots: [], default_root: '' },
+        )
+        setWorkspaceRoots(cached.roots)
+        setDefaultWorkspaceRoot(cached.default_root)
+        setCurrentPath(previous => previous || cached.default_root)
+        setSelectedDir(previous => previous || cached.default_root)
+        return cached
+      })
+  }, [])
+
   const loadProviders = useCallback(() => {
-    apiFetch<AgentsResponse>('/api/agents')
+    return apiFetch<AgentsResponse>('/api/agents')
       .then(data => {
         if (data.providers) {
           setProviders(data.providers)
+          localStorage.setItem(PROVIDER_CACHE_KEY, JSON.stringify(data.providers))
         }
         if (data.default_provider) {
           setDefaultProvider(data.default_provider)
-          setSelectedProvider(prev => prev || data.default_provider)
+          setSelectedProvider(previous => previous || data.default_provider)
         }
       })
       .catch(console.error)
   }, [])
 
   const loadModels = useCallback((providerId?: string) => {
-    const p = typeof providerId === 'string'
+    const provider = typeof providerId === 'string'
       ? providerId
       : (activeConvRef.current?.provider || defaultProvider || 'antigravity')
     const requestId = ++modelsRequestRef.current
-    apiFetch<ModelsResponse>(`/api/models?provider=${p}`)
+    const cacheKey = `orbitpane_models_${provider}`
+    return apiFetch<ModelsResponse>(`/api/models?provider=${encodeURIComponent(provider)}`)
       .then(data => {
         if (requestId !== modelsRequestRef.current) return
-        if (data.models && data.models.length > 0) {
-          setModels(data.models)
-          setSelectedModel(prev => data.models.includes(prev) ? prev : data.models[0])
-        } else {
-          setModels([])
+        const nextModels = data.models || []
+        setModels(nextModels)
+        localStorage.setItem(cacheKey, JSON.stringify(nextModels))
+        if (nextModels.length > 0) {
+          setSelectedModelState(previous => {
+            const preferred = activeConvRef.current?.preferred_model
+            if (preferred && nextModels.includes(preferred)) return preferred
+            return nextModels.includes(previous) ? previous : nextModels[0]
+          })
         }
       })
       .catch(error => {
-        if (requestId === modelsRequestRef.current) console.error(error)
+        if (requestId !== modelsRequestRef.current) return
+        console.error(error)
+        const cached = readCache<string[]>(cacheKey, [])
+        setModels(cached)
+        if (cached.length > 0) {
+          setSelectedModelState(previous => cached.includes(previous) ? previous : cached[0])
+        }
       })
   }, [defaultProvider])
 
   const loadConversations = useCallback((isInitial = false) => {
-    if (isInitial) {
-      setIsConversationsLoading(true)
-    }
-    return apiFetch<Conversation[]>('/api/conversations')
-      .then((data: Conversation[]) => {
-        setConversations(data)
+    if (isInitial) setIsConversationsLoading(true)
+    return apiFetch<Conversation[]>('/api/conversations?include_archived=true')
+      .then(data => {
+        const normalized = normalizeConversations(data)
+        conversationsRef.current = normalized
+        setConversations(normalized)
+        localStorage.setItem(CONVERSATION_CACHE_KEY, JSON.stringify(normalized))
         if (isInitial) {
-          const params = new URLSearchParams(window.location.search)
-          const convId = params.get('id')
-          if (convId) {
-            const found = data.find(c => c.id === Number(convId))
+          const conversationId = new URLSearchParams(window.location.search).get('id')
+          if (conversationId) {
+            const found = normalized.find(conversation => conversation.id === Number(conversationId))
             if (found) {
               setActiveConv(found)
               activeConvRef.current = found
+              setSelectedModelState(found.preferred_model || '')
               loadModels(found.provider)
               return found
             }
           }
         } else if (activeConvRef.current) {
-          const updated = data.find(c => c.id === activeConvRef.current?.id)
+          const updated = normalized.find(conversation => conversation.id === activeConvRef.current?.id)
           if (updated) {
             setActiveConv(updated)
             activeConvRef.current = updated
@@ -92,62 +181,121 @@ export function useConversations(showToast: (msg: string) => void) {
         }
         return null
       })
-      .catch(err => {
-        console.error(err)
+      .catch(error => {
+        console.error(error)
+        const cached = normalizeConversations(readCache<unknown>(CONVERSATION_CACHE_KEY, []))
+        if (cached.length > 0) setConversations(cached)
+        if (isInitial) {
+          const conversationId = new URLSearchParams(window.location.search).get('id')
+          const found = cached.find(conversation => conversation.id === Number(conversationId)) || null
+          if (found) {
+            setActiveConv(found)
+            activeConvRef.current = found
+          }
+          return found
+        }
         return null
       })
-      .finally(() => {
-        setIsConversationsLoading(false)
-      })
+      .finally(() => setIsConversationsLoading(false))
   }, [loadModels])
 
+  const updateConversation = useCallback((
+    conversationId: number,
+    values: Partial<Pick<Conversation,
+      'name' | 'path' | 'provider' | 'is_pinned' | 'is_archived' | 'tags' | 'preferred_model' | 'draft'
+    >>,
+    options: { silent?: boolean } = {},
+  ) => {
+    const original = conversationsRef.current.find(conversation => conversation.id === conversationId)
+    const optimistic = conversationsRef.current.map(conversation => (
+      conversation.id === conversationId ? { ...conversation, ...values } : conversation
+    ))
+    conversationsRef.current = optimistic
+    setConversations(optimistic)
+    if (activeConvRef.current?.id === conversationId) {
+      const updated = { ...activeConvRef.current, ...values }
+      activeConvRef.current = updated
+      setActiveConv(updated)
+    }
+    return apiFetch<Conversation>(`/api/conversations/${conversationId}`, {
+      method: 'PUT',
+      body: JSON.stringify(values),
+    }).then(updated => {
+      const committed = conversationsRef.current.map(conversation => (
+        conversation.id === conversationId ? updated : conversation
+      ))
+      conversationsRef.current = committed
+      setConversations(committed)
+      if (activeConvRef.current?.id === conversationId) {
+        activeConvRef.current = updated
+        setActiveConv(updated)
+      }
+      return updated
+    }).catch(error => {
+      console.error(error)
+      if (original) {
+        const rolledBack = conversationsRef.current.map(conversation => (
+          conversation.id === conversationId ? original : conversation
+        ))
+        conversationsRef.current = rolledBack
+        setConversations(rolledBack)
+        if (activeConvRef.current?.id === conversationId) {
+          activeConvRef.current = original
+          setActiveConv(original)
+        }
+      }
+      if (!options.silent) showToast('项目设置保存失败', 'error')
+      return null
+    })
+  }, [showToast])
+
+  const setSelectedModel = useCallback((model: string) => {
+    setSelectedModelState(model)
+    const conversation = activeConvRef.current
+    if (conversation && conversation.preferred_model !== model) {
+      void updateConversation(
+        conversation.id,
+        { preferred_model: model },
+        { silent: true },
+      )
+    }
+  }, [updateConversation])
+
   const loadDir = useCallback((path: string) => {
-    apiFetch<{ items: DirItem[] }>(`/api/ls?path=${encodeURIComponent(path)}`)
+    const suffix = path ? `?path=${encodeURIComponent(path)}` : ''
+    return apiFetch<{ items: DirItem[]; current_path: string }>(`/api/ls${suffix}`)
       .then(data => {
-        if (data && Array.isArray(data.items)) {
-          setItems(data.items)
-        } else {
-          setItems([])
+        setItems(Array.isArray(data.items) ? data.items : [])
+        if (!path && data.current_path) {
+          setCurrentPath(data.current_path)
+          setSelectedDir(data.current_path)
         }
       })
-      .catch(err => console.error(err))
+      .catch(error => {
+        console.error(error)
+        setItems([])
+      })
   }, [])
 
-  const startEditingConv = useCallback((e: React.MouseEvent, conv: Conversation) => {
-    e.stopPropagation()
-    setEditingConvId(conv.id)
-    setEditingConvName(conv.name)
+  const startEditingConv = useCallback((event: React.MouseEvent, conversation: Conversation) => {
+    event.stopPropagation()
+    setEditingConvId(conversation.id)
+    setEditingConvName(conversation.name)
   }, [])
 
-  const saveConvName = useCallback((convId: number) => {
+  const saveConvName = useCallback((conversationId: number) => {
     const trimmed = editingConvName.trim()
-    const originalConv = conversations.find(c => c.id === convId)
-    
-    if (!trimmed || (originalConv && originalConv.name === trimmed)) {
+    const original = conversations.find(conversation => conversation.id === conversationId)
+    if (!trimmed || original?.name === trimmed) {
       setEditingConvId(null)
       return
     }
-    
-    apiFetch<Conversation>(`/api/conversations/${convId}`, {
-      method: 'PUT',
-      body: JSON.stringify({ name: trimmed })
-    })
-      .then(() => {
-        setConversations(prev => prev.map(c => c.id === convId ? { ...c, name: trimmed } : c))
-        if (activeConvRef.current?.id === convId) {
-          const updated = { ...activeConvRef.current, name: trimmed }
-          activeConvRef.current = updated
-          setActiveConv(updated)
-        }
-        setEditingConvId(null)
-        showToast('工作区名称已更新')
+    void updateConversation(conversationId, { name: trimmed })
+      .then(updated => {
+        if (updated) showToast('项目名称已更新')
       })
-      .catch(err => {
-        console.error(err)
-        showToast('更新失败')
-        setEditingConvId(null)
-      })
-  }, [editingConvName, conversations, showToast])
+      .finally(() => setEditingConvId(null))
+  }, [conversations, editingConvName, showToast, updateConversation])
 
   return {
     conversations,
@@ -161,6 +309,9 @@ export function useConversations(showToast: (msg: string) => void) {
     models,
     selectedModel,
     setSelectedModel,
+    workspaceRoots,
+    defaultWorkspaceRoot,
+    loadWorkspaceRoots,
     currentPath,
     setCurrentPath,
     items,
@@ -178,6 +329,7 @@ export function useConversations(showToast: (msg: string) => void) {
     loadModels,
     loadConversations,
     loadDir,
+    updateConversation,
     startEditingConv,
     saveConvName,
   }

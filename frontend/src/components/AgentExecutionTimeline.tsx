@@ -28,6 +28,7 @@ export function AgentExecutionTimeline({
   elapsedSoFar = 0 
 }: AgentExecutionTimelineProps) {
   const [isOpen, setIsOpen] = useState<boolean>(isThinking)
+  const [filter, setFilter] = useState<'all' | 'actions' | 'thoughts'>('all')
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
   const prevThinkingRef = useRef<boolean>(isThinking)
   const elapsed = isThinking ? elapsedSoFar : (duration ?? elapsedSoFar)
@@ -126,6 +127,11 @@ export function AgentExecutionTimeline({
   }
 
   const finalDurationSec = duration ?? elapsed
+  const visibleSteps = steps.filter(step => {
+    if (filter === 'actions') return ['exec', 'tool', 'search', 'file'].includes(step.type)
+    if (filter === 'thoughts') return ['thought', 'plan'].includes(step.type)
+    return true
+  })
 
   return (
     <div className="agent-execution-block" data-active={isThinking}>
@@ -187,9 +193,16 @@ export function AgentExecutionTimeline({
             className="agent-execution-body-wrapper"
           >
             <div className="agent-execution-body">
+              {steps.length > 1 && (
+                <div className="timeline-filters" role="group" aria-label="执行步骤筛选">
+                  <button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>全部</button>
+                  <button className={filter === 'actions' ? 'active' : ''} onClick={() => setFilter('actions')}>命令与文件</button>
+                  <button className={filter === 'thoughts' ? 'active' : ''} onClick={() => setFilter('thoughts')}>分析与计划</button>
+                </div>
+              )}
               {steps.length > 0 ? (
                 <div className="agent-timeline">
-                  {steps.map((step, idx) => {
+                  {visibleSteps.map((step, idx) => {
                     const isExpanded = expandedIds.has(step.id)
                     
                     let Icon = Play
@@ -206,7 +219,7 @@ export function AgentExecutionTimeline({
                           <div className={`step-dot ${step.isComplete ? 'complete' : 'active'}`}>
                             {step.isComplete ? <Check size={8} /> : <div className="dot-pulse" />}
                           </div>
-                          {idx < steps.length - 1 && <div className="step-line" />}
+                          {idx < visibleSteps.length - 1 && <div className="step-line" />}
                         </div>
                         
                         <div className="step-content">

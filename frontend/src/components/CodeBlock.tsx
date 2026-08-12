@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState, useEffect } from 'react'
-import { Copy, Check, Code } from 'lucide-react'
+import { Copy, Check, Code, Download, ListOrdered, MapPin, WrapText } from 'lucide-react'
 
 const HighlightedCode = lazy(() => import('./HighlightedCode'))
 
@@ -28,15 +28,31 @@ interface CodeBlockProps extends React.HTMLAttributes<HTMLElement> {
 
 export function CodeBlock({ children, className, ...props }: CodeBlockProps) {
   const [copied, setCopied] = useState(false)
+  const [wrapLongLines, setWrapLongLines] = useState(false)
+  const [showLineNumbers, setShowLineNumbers] = useState(true)
   const theme = useTheme()
   const match = /language-(\w+)/.exec(className || '')
-  const codeStr = String(children).replace(/\n$/, '')
+  const rawCode = String(children).replace(/\n$/, '')
+  const fileMatch = rawCode.match(/^(?:\/\/|#|<!--)\s*(?:file|filename):\s*([^\n>]+)(?:-->)?\s*\n/i)
+  const fileName = fileMatch?.[1]?.trim() || ''
+  const codeStr = fileMatch ? rawCode.slice(fileMatch[0].length) : rawCode
   const lineCount = codeStr.split('\n').length
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(codeStr)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    void navigator.clipboard.writeText(codeStr).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  const handleDownload = () => {
+    const blob = new Blob([codeStr], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = fileName.split('/').pop() || `snippet.${match?.[1] || 'txt'}`
+    anchor.click()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
   return match ? (
@@ -44,19 +60,23 @@ export function CodeBlock({ children, className, ...props }: CodeBlockProps) {
       <div className="flex items-center justify-between px-4 py-2.5 bg-[var(--bg-code-header)] border-b border-[var(--border-subtle)] text-[13px] text-[var(--text-secondary)] font-mono">
         <div className="flex items-center gap-2.5">
           <Code size={13} className="text-[var(--accent-color)]" />
-          <span className="font-medium capitalize">{match[1]}</span>
+          <span className="font-medium code-file-label" title={fileName || match[1]}>{fileName || match[1]}</span>
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-surface-hover)] text-[var(--text-tertiary)]">
             {lineCount} 行
           </span>
         </div>
-        <button 
-          className="flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)] transition-colors cursor-pointer text-[12px]"
-          onClick={handleCopy}
-          title="复制代码内容"
-        >
-          {copied ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
-          <span>{copied ? '已复制' : '复制'}</span>
-        </button>
+        <div className="code-block-actions">
+          {fileName && (
+            <button onClick={() => window.dispatchEvent(new CustomEvent('orbitpane-reference-file', { detail: fileName }))} title="在输入框引用此文件"><MapPin size={13} /></button>
+          )}
+          <button className={wrapLongLines ? 'active' : ''} onClick={() => setWrapLongLines(value => !value)} title="切换代码折行"><WrapText size={13} /></button>
+          <button className={showLineNumbers ? 'active' : ''} onClick={() => setShowLineNumbers(value => !value)} title="切换行号"><ListOrdered size={13} /></button>
+          <button onClick={handleDownload} title="下载代码片段"><Download size={13} /></button>
+          <button onClick={handleCopy} title="复制代码内容">
+            {copied ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
+            <span>{copied ? '已复制' : '复制'}</span>
+          </button>
+        </div>
       </div>
       <Suspense
         fallback={
@@ -65,7 +85,13 @@ export function CodeBlock({ children, className, ...props }: CodeBlockProps) {
           </pre>
         }
       >
-        <HighlightedCode code={codeStr} language={match[1]} theme={theme} />
+        <HighlightedCode
+          code={codeStr}
+          language={match[1]}
+          theme={theme}
+          showLineNumbers={showLineNumbers}
+          wrapLongLines={wrapLongLines}
+        />
       </Suspense>
     </div>
   ) : (

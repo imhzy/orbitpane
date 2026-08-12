@@ -4,7 +4,8 @@ import {
   X, MessageSquare, Plus, Trash2, Folder,
   ChevronRight, Compass, FolderPlus,
   Check, Pencil, Layers, HardDrive, RefreshCw, Cpu,
-  Search, Star, LogOut, ChevronDown, Maximize2, Minimize2
+  Search, Star, LogOut, ChevronDown, Maximize2, Minimize2,
+  ArchiveRestore, ShieldCheck
 } from 'lucide-react'
 import { LogoIcon } from '../LogoIcon'
 import type { Conversation, Provider } from '../lib/types'
@@ -51,7 +52,7 @@ function ProviderDropdown({ providers, selectedProvider, defaultProvider, setSel
         aria-expanded={isOpen}
         aria-label="选择 Agent 接入方式"
       >
-        <span>{currentProvider ? currentProvider.name : 'Select Provider'}</span>
+        <span>{currentProvider ? currentProvider.name : '选择 Agent'}</span>
         <ChevronDown size={14} className={`provider-selector-chevron ${isOpen ? 'open' : ''}`} />
       </button>
 
@@ -105,19 +106,14 @@ export function Sidebar(_props: SidebarProps) {
     providers, newConvName, setNewConvName, selectedDir, setSelectedDir,
     currentPath, setCurrentPath, selectedProvider, setSelectedProvider,
     defaultProvider, items, loadDir, getBreadcrumbParts, createConversation,
-    loadConversations, showToast
+    loadConversations, updateConversation, showToast
   } = useAppContext()
 
   const [searchTerm, setSearchTerm] = useState('')
   const [isDirectoryExpanded, setIsDirectoryExpanded] = useState(false)
   const isCancelingRef = React.useRef(false)
-  const [pinnedIds, setPinnedIds] = useState<number[]>(() => {
-    try {
-      return JSON.parse(localStorage.getItem('orbitpane_pinned_convs') || '[]')
-    } catch {
-      return []
-    }
-  })
+  const [showArchived, setShowArchived] = useState(false)
+  const [createStep, setCreateStep] = useState<1 | 2 | 3>(1)
 
   const [isHighlighting, setIsHighlighting] = useState(false)
 
@@ -134,6 +130,7 @@ export function Sidebar(_props: SidebarProps) {
   useEffect(() => {
     if (!isDrawerOpen || drawerMode !== 'create') {
       setIsDirectoryExpanded(false)
+      setCreateStep(1)
     }
   }, [isDrawerOpen, drawerMode])
 
@@ -148,21 +145,24 @@ export function Sidebar(_props: SidebarProps) {
 
   const togglePin = (e: React.MouseEvent, id: number) => {
     e.stopPropagation()
-    setPinnedIds(prev => {
-      const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-      localStorage.setItem('orbitpane_pinned_convs', JSON.stringify(next))
-      showToast(prev.includes(id) ? '已取消星标置顶' : '已添加星标置顶')
-      return next
-    })
+    const conversation = conversations.find(item => item.id === id)
+    if (!conversation) return
+    void updateConversation(id, { is_pinned: !conversation.is_pinned })
+      .then(updated => {
+        if (updated) showToast(conversation.is_pinned ? '已取消星标' : '已添加星标')
+      })
   }
 
   // Filter & sort conversations (pinned top)
   const filteredConvs = conversations.filter(c =>
-    c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.path.toLowerCase().includes(searchTerm.toLowerCase())
+    c.is_archived === showArchived && (
+      c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      c.path.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      c.tags.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase()))
+    )
   ).sort((a, b) => {
-    const aPin = pinnedIds.includes(a.id) ? 1 : 0
-    const bPin = pinnedIds.includes(b.id) ? 1 : 0
+    const aPin = a.is_pinned ? 1 : 0
+    const bPin = b.is_pinned ? 1 : 0
     return bPin - aPin
   })
 
@@ -174,8 +174,8 @@ export function Sidebar(_props: SidebarProps) {
           transition={springConfig}
           className={`drawer ${drawerMode === 'create' ? 'create-mode' : ''} ${drawerMode === 'create' && isDirectoryExpanded ? 'directory-focus-mode' : ''} ${isHighlighting ? 'drawer-highlight' : ''}`}
           role="dialog"
-          aria-modal="true"
-          aria-label="工作区菜单"
+          aria-modal={window.innerWidth < 1024 ? true : undefined}
+          aria-label="项目菜单"
           drag="x"
           dragConstraints={{ left: -340, right: 0 }}
           dragElastic={0.1}
@@ -218,14 +218,14 @@ export function Sidebar(_props: SidebarProps) {
               onClick={() => setDrawerMode('sessions')}
             >
               <MessageSquare size={14} />
-              <span>会话列表</span>
+              <span>项目列表</span>
             </button>
             <button 
               className={`drawer-tab-btn ${drawerMode === 'create' ? 'active' : ''}`}
               onClick={() => setDrawerMode('create')}
             >
               <Plus size={14} />
-              <span>新建工作区</span>
+              <span>新建项目</span>
             </button>
           </div>
 
@@ -239,7 +239,7 @@ export function Sidebar(_props: SidebarProps) {
                   <input
                     type="text"
                     className="sidebar-search-input"
-                    placeholder="搜索工作区名称或路径..."
+                    placeholder="搜索项目、路径或标签..."
                     value={searchTerm}
                     onChange={e => setSearchTerm(e.target.value)}
                   />
@@ -249,6 +249,15 @@ export function Sidebar(_props: SidebarProps) {
                     </button>
                   )}
                 </div>
+              )}
+              {conversations.some(conversation => conversation.is_archived) && (
+                <button
+                  className={`archived-toggle-btn ${showArchived ? 'active' : ''}`}
+                  onClick={() => setShowArchived(previous => !previous)}
+                >
+                  <ArchiveRestore size={13} />
+                  {showArchived ? '返回活跃项目' : '查看已归档项目'}
+                </button>
               )}
 
               {isConversationsLoading ? (
@@ -261,10 +270,10 @@ export function Sidebar(_props: SidebarProps) {
                 <div className="flex flex-col items-center justify-center py-10 opacity-70">
                   <Compass size={44} className="text-[var(--accent-color)] mb-3 opacity-60" />
                   <div className="text-center text-[var(--text-secondary)] text-[14px] font-medium">
-                    {searchTerm ? '未找到相关工作区' : '暂无工作区'}
+                    {searchTerm ? '未找到相关项目' : '暂无项目'}
                   </div>
                   <div className="text-center text-[var(--text-tertiary)] text-[12px] mt-1 mb-4">
-                    {searchTerm ? '尝试更改搜索关键词' : '点击下方按钮创建您的第一个工程工作区'}
+                    {searchTerm ? '尝试更改搜索关键词' : '点击下方按钮创建第一个项目任务舱'}
                   </div>
                   {searchTerm ? (
                     <button 
@@ -285,12 +294,12 @@ export function Sidebar(_props: SidebarProps) {
                 </div>
               ) : (
                 (() => {
-                  const pinnedConvs = filteredConvs.filter(c => pinnedIds.includes(c.id))
-                  const unpinnedConvs = filteredConvs.filter(c => !pinnedIds.includes(c.id))
+                  const pinnedConvs = filteredConvs.filter(c => c.is_pinned)
+                  const unpinnedConvs = filteredConvs.filter(c => !c.is_pinned)
 
                   const renderConvItem = (conv: Conversation) => {
                     const isEditing = editingConvId === conv.id
-                    const isPinned = pinnedIds.includes(conv.id)
+                    const isPinned = conv.is_pinned
                     const badge = getProviderBadge(conv.provider, providers)
                     const ProviderIcon = badge.Icon
                     return (
@@ -340,6 +349,10 @@ export function Sidebar(_props: SidebarProps) {
                                 <span className={`conv-provider-tag ${badge.className}`}>
                                   {badge.text}
                                 </span>
+                                {conv.tags.slice(0, 1).map(tag => (
+                                  <span className="conv-tag" key={tag}>{tag}</span>
+                                ))}
+                                {conv.tags.length > 1 && <span className="conv-tag">+{conv.tags.length - 1}</span>}
                               </div>
                               <span className="item-subtitle" title={conv.path}>{conv.path}</span>
                             </>
@@ -356,6 +369,17 @@ export function Sidebar(_props: SidebarProps) {
                             </button>
                           ) : (
                             <>
+                              {conv.is_archived && (
+                                <button
+                                  className="icon-btn"
+                                  title="恢复项目"
+                                  onClick={() => void updateConversation(conv.id, { is_archived: false }).then(() => {
+                                    void loadConversations(false)
+                                  })}
+                                >
+                                  <ArchiveRestore size={13} />
+                                </button>
+                              )}
                               <button
                                 className={`icon-btn pin-btn ${isPinned ? 'pinned' : ''}`}
                                 title={isPinned ? '取消星标' : '星标置顶'}
@@ -365,14 +389,14 @@ export function Sidebar(_props: SidebarProps) {
                               </button>
                               <button 
                                 className="icon-btn" 
-                                title="重命名工作区"
+                                title="重命名项目"
                                 onClick={(e) => startEditingConv(e, conv)}
                               >
                                 <Pencil size={13} />
                               </button>
                               <button 
                                 className="icon-btn destructive" 
-                                title="删除会话"
+                                title="删除项目"
                                 onClick={(e) => deleteConversation(e, conv.id)}
                               >
                                 <Trash2 size={14} />
@@ -400,7 +424,7 @@ export function Sidebar(_props: SidebarProps) {
                         <div className="sidebar-section-group">
                           {pinnedConvs.length > 0 && (
                             <div className="sidebar-section-title">
-                              <span>所有工作区 ({unpinnedConvs.length})</span>
+                              <span>所有项目 ({unpinnedConvs.length})</span>
                             </div>
                           )}
                           {unpinnedConvs.map(renderConvItem)}
@@ -413,64 +437,58 @@ export function Sidebar(_props: SidebarProps) {
             </div>
           )}
 
-          {/* Create Workspace Mode */}
+          {/* Create Project Mode */}
           {drawerMode === 'create' && (
             <div className="drawer-content cw-content">
               <div className="cw-header">
-                <h3 className="cw-title">配置新工作区</h3>
+                <h3 className="cw-title">配置新项目</h3>
+              </div>
+              <div className="cw-stepper" aria-label={`新建项目第 ${createStep} 步，共 3 步`}>
+                {[1, 2, 3].map(step => (
+                  <span key={step} className={createStep >= step ? 'active' : ''}>
+                    <b>{step}</b>{step === 1 ? '目录' : step === 2 ? 'Agent' : '确认'}
+                  </span>
+                ))}
               </div>
 
-              <div className="cw-form">
-                <div className="cw-field-group">
-                  <label className="cw-label">工作区名称</label>
-                  <div className="cw-input-wrapper">
-                    <Layers size={14} className="cw-icon" />
-                    <input 
-                      type="text" 
-                      value={newConvName}
-                      onChange={e => setNewConvName(e.target.value)}
-                      className="cw-input"
-                      aria-label="工作区名称"
-                      placeholder="如: my-cool-project"
-                    />
-                  </div>
-                </div>
+              {createStep === 1 && (
+                <>
+                  <div className="cw-form">
+                    <div className="cw-field-group">
+                      <label className="cw-label">项目名称</label>
+                      <div className="cw-input-wrapper">
+                        <Layers size={14} className="cw-icon" />
+                        <input
+                          type="text"
+                          value={newConvName}
+                          onChange={event => setNewConvName(event.target.value)}
+                          className="cw-input"
+                          aria-label="项目名称"
+                          placeholder="如：OrbitPane 前端"
+                        />
+                      </div>
+                    </div>
 
-                <div className="cw-field-group">
-                  <label className="cw-label">项目路径</label>
-                  <div className="cw-input-wrapper">
-                    <Folder size={14} className="cw-icon" />
-                    <input
-                      type="text"
-                      placeholder="输入绝对路径或从下方选择"
-                      value={selectedDir}
-                      onChange={e => {
-                        setSelectedDir(e.target.value)
-                        if (e.target.value.startsWith('/')) {
-                          setCurrentPath(e.target.value)
-                        }
-                      }}
-                      className="cw-input font-mono"
-                      aria-label="项目路径"
-                    />
+                    <div className="cw-field-group">
+                      <label className="cw-label">项目路径</label>
+                      <div className="cw-input-wrapper">
+                        <Folder size={14} className="cw-icon" />
+                        <input
+                          type="text"
+                          placeholder="输入允许范围内的绝对路径"
+                          value={selectedDir}
+                          onChange={event => {
+                            setSelectedDir(event.target.value)
+                            if (event.target.value.startsWith('/')) setCurrentPath(event.target.value)
+                          }}
+                          className="cw-input font-mono"
+                          aria-label="项目路径"
+                        />
+                      </div>
+                    </div>
                   </div>
-                </div>
 
-                <div className="cw-field-group">
-                  <label className="cw-label">Agent 接入方式 (Provider)</label>
-                  <div className="cw-input-wrapper">
-                    <Cpu size={14} className="cw-icon" />
-                    <ProviderDropdown
-                      providers={providers}
-                      selectedProvider={selectedProvider}
-                      defaultProvider={defaultProvider}
-                      setSelectedProvider={setSelectedProvider}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="cw-browser-section">
+                  <div className="cw-browser-section">
                 <div className="cw-browser-header">
                   <span className="cw-browser-title">
                     {isDirectoryExpanded ? '选择项目目录' : '目录浏览'}
@@ -556,18 +574,7 @@ export function Sidebar(_props: SidebarProps) {
                                 <Check size={10} strokeWidth={3} />
                               </motion.span>
                             )}
-                            <span
-                              className="cw-enter"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setCurrentPath(item.path)
-                                setSelectedDir(item.path)
-                              }}
-                              role="button"
-                              tabIndex={0}
-                              title="进入该目录"
-                              aria-label={`进入目录 ${item.name}`}
-                            >
+                            <span className="cw-enter" aria-hidden="true">
                               <ChevronRight size={14} />
                             </span>
                           </button>
@@ -576,17 +583,80 @@ export function Sidebar(_props: SidebarProps) {
                     })()}
                   </div>
                 </div>
-              </div>
+                  </div>
+                </>
+              )}
 
-              <div className="cw-action">
-                <button 
-                  className="cw-create-btn"
-                  disabled={!selectedDir.trim() || !newConvName.trim()}
-                  onClick={() => createConversation()}
-                >
-                  <Plus size={16} strokeWidth={2.5} />
-                  <span>创建工程工作区</span>
-                </button>
+              {createStep === 2 && (
+                <div className="cw-provider-step">
+                  <div className="cw-form">
+                    <div className="cw-field-group">
+                      <label className="cw-label">Agent 接入方式</label>
+                      <div className="cw-input-wrapper">
+                        <Cpu size={14} className="cw-icon" />
+                        <ProviderDropdown
+                          providers={providers}
+                          selectedProvider={selectedProvider}
+                          defaultProvider={defaultProvider}
+                          setSelectedProvider={setSelectedProvider}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="permission-preview-card">
+                    <ShieldCheck size={22} />
+                    <div>
+                      <strong>受限工作区权限</strong>
+                      <p>Agent 仅在已选项目路径内工作；不会默认启用跳过权限检查。</p>
+                    </div>
+                  </div>
+                  <div className="provider-capability-list">
+                    <span><Check size={12} />读取项目上下文</span>
+                    <span><Check size={12} />在安全沙箱内修改文件</span>
+                    <span><Check size={12} />实时展示命令与工具调用</span>
+                  </div>
+                </div>
+              )}
+
+              {createStep === 3 && (
+                <div className="cw-confirm-step">
+                  <div className="cw-confirm-icon"><Check size={24} /></div>
+                  <h3>确认创建项目</h3>
+                  <dl>
+                    <div><dt>名称</dt><dd>{newConvName}</dd></div>
+                    <div><dt>路径</dt><dd>{selectedDir}</dd></div>
+                    <div><dt>Agent</dt><dd>{providers.find(provider => provider.id === (selectedProvider || defaultProvider))?.name || selectedProvider}</dd></div>
+                    <div><dt>权限</dt><dd>受限工作区</dd></div>
+                  </dl>
+                </div>
+              )}
+
+              <div className="cw-action cw-wizard-actions">
+                {createStep > 1 && (
+                  <button className="cw-back-btn" onClick={() => setCreateStep(step => (step - 1) as 1 | 2)}>
+                    返回
+                  </button>
+                )}
+                {createStep < 3 ? (
+                  <button
+                    className="cw-create-btn"
+                    disabled={createStep === 1 && (!selectedDir.trim() || !newConvName.trim())}
+                    onClick={() => setCreateStep(step => (step + 1) as 2 | 3)}
+                  >
+                    <span>下一步</span><ChevronRight size={15} />
+                  </button>
+                ) : (
+                  <button
+                    className="cw-create-btn"
+                    onClick={() => {
+                      createConversation()
+                      setCreateStep(1)
+                    }}
+                  >
+                    <Plus size={16} strokeWidth={2.5} />
+                    <span>创建项目</span>
+                  </button>
+                )}
               </div>
             </div>
           )}

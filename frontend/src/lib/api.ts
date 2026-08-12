@@ -25,7 +25,7 @@ export async function apiFetch<T>(
     const response = await fetch(path, {
       ...init,
       headers,
-      credentials: 'same-origin',
+      credentials: 'include',
       cache: init.cache ?? 'no-store',
       signal: init.signal ?? controller.signal,
     })

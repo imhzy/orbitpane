@@ -9,7 +9,8 @@ export default defineConfig({
     react(), 
     tailwindcss(),
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
+      injectRegister: false,
       includeAssets: ['favicon.svg', 'favicon.ico', 'pwa-64x64.png', 'pwa-192x192.png', 'pwa-512x512.png', 'apple-touch-icon-180x180.png', 'maskable-icon-512x512.png'],
       manifest: {
         name: 'OrbitPane',
@@ -18,6 +19,41 @@ export default defineConfig({
         theme_color: '#09090b',
         background_color: '#09090b',
         display: 'standalone',
+        id: '/',
+        lang: 'zh-CN',
+        dir: 'ltr',
+        categories: ['developer', 'productivity', 'utilities'],
+        orientation: 'any',
+        shortcuts: [
+          {
+            name: '新建项目',
+            short_name: '新建项目',
+            url: '/?action=new-project',
+            icons: [{ src: 'pwa-192x192.png', sizes: '192x192' }]
+          },
+          {
+            name: '任务中心',
+            short_name: '任务中心',
+            url: '/?panel=tasks',
+            icons: [{ src: 'pwa-192x192.png', sizes: '192x192' }]
+          }
+        ],
+        screenshots: [
+          {
+            src: 'screenshots/orbitpane-wide.png',
+            sizes: '1440x900',
+            type: 'image/png',
+            form_factor: 'wide',
+            label: 'OrbitPane 桌面任务舱与上下文控制台'
+          },
+          {
+            src: 'screenshots/orbitpane-mobile.png',
+            sizes: '390x844',
+            type: 'image/png',
+            form_factor: 'narrow',
+            label: 'OrbitPane 移动端任务中心'
+          }
+        ],
         icons: [
           {
             src: 'pwa-64x64.png',

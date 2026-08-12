@@ -42,12 +42,16 @@ interface HighlightedCodeProps {
   code: string
   language: string
   theme: string
+  showLineNumbers?: boolean
+  wrapLongLines?: boolean
 }
 
 export default function HighlightedCode({
   code,
   language,
   theme,
+  showLineNumbers = true,
+  wrapLongLines = false,
 }: HighlightedCodeProps) {
   return (
     <SyntaxHighlighter
@@ -60,7 +64,9 @@ export default function HighlightedCode({
         background: 'transparent',
         fontSize: '13px',
       }}
-      showLineNumbers
+      showLineNumbers={showLineNumbers}
+      wrapLongLines={wrapLongLines}
+      lineProps={wrapLongLines ? { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } } : undefined}
     >
       {code}
     </SyntaxHighlighter>

@@ -1,6 +1,6 @@
 import React, { Suspense, lazy } from 'react'
 import { motion } from 'framer-motion'
-import { AlertCircle, Info, FileText, User, Check, Copy, ThumbsUp, ThumbsDown, RotateCcw, Clock } from 'lucide-react'
+import { AlertCircle, Info, FileText, User, Check, Copy, ThumbsUp, ThumbsDown, RotateCcw, Clock, ListTodo, Gauge } from 'lucide-react'
 import { LogoIcon } from '../LogoIcon'
 import { AgentExecutionTimeline } from './AgentExecutionTimeline'
 import type { Message } from '../lib/types'
@@ -52,6 +52,8 @@ export function MessageList({
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.2 }}
             className={`message-row ${m.role}`}
+            data-turn={Math.floor(i / 2) + 1}
+            data-message-id={m.id}
           >
             <div className="message-header">
               <div className="message-author">
@@ -75,17 +77,17 @@ export function MessageList({
                   <span className="model-pill">{formatModelName(m.model)}</span>
                 )}
               </div>
-              {m.timestamp && (
-                <span className="message-time">
-                  <Clock size={12} className="msg-time-icon" />
-                  {formatTimestamp(m.timestamp)}
-                </span>
-              )}
             </div>
 
-            <div className="message-bubble">
+            <div className="message-bubble" aria-live={m.isThinking ? 'polite' : undefined}>
               {(m.role === 'agent' || m.role === 'summary') ? (
                 <div className="agent-container">
+                  {m.isQueued && (
+                    <div className="queued-task-banner">
+                      <ListTodo size={14} />
+                      <span>任务已排队{m.queuePosition ? ` · 第 ${m.queuePosition} 位` : ''}</span>
+                    </div>
+                  )}
                   <AgentExecutionTimeline 
                     thought={m.thought || ''} 
                     isThinking={!!m.isThinking} 
@@ -110,6 +112,14 @@ export function MessageList({
 
                   {!m.isThinking && m.content && (
                     <div className="message-toolbar">
+                      {(m.context_chars || m.output_chars || m.thinkingDuration) && (
+                        <span className="message-resource-meta" title="本次运行资源">
+                          <Gauge size={12} />
+                          {m.context_chars ? `${Math.round(m.context_chars / 1000)}k 上下文` : ''}
+                          {m.output_chars ? ` · ${m.output_chars} 字输出` : ''}
+                          {m.thinkingDuration ? ` · ${m.thinkingDuration.toFixed(1)} 秒` : ''}
+                        </span>
+                      )}
                       <button 
                         className={`toolbar-btn ${copiedMsgIdx === i ? 'copied' : ''}`}
                         title={copiedMsgIdx === i ? '已复制' : '复制全文'}
@@ -161,6 +171,12 @@ export function MessageList({
                 </div>
               )}
             </div>
+            {m.timestamp && (
+              <span className="message-time message-time-footer">
+                <Clock size={11} />
+                {formatTimestamp(m.timestamp)}
+              </span>
+            )}
           </motion.div>
         )
       })}

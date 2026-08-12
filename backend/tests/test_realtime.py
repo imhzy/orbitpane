@@ -73,11 +73,7 @@ class AgentCoordinatorTests(IsolatedAsyncioTestCase):
     async def test_busy_message_is_not_persisted(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             database = Database(
-                host="127.0.0.1",
-                port=3306,
-                user="root",
-                password="REDACTED_PASSWORD",
-                db_name="orbitpane_test",
+                Path(temp_dir) / "orbitpane-test.db",
             )
             database.migrate()
             conversation = database.create_conversation("Test", temp_dir, "fake")
@@ -128,14 +124,86 @@ class AgentCoordinatorTests(IsolatedAsyncioTestCase):
         )
         self.assertEqual(second_socket.messages, [])
 
+    async def test_submit_queues_edits_reorders_and_cancels_tasks(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database = Database(Path(temp_dir) / "orbitpane-test.db")
+            database.migrate()
+            conversation = database.create_conversation("Test", temp_dir, "fake")
+            provider = BlockingProvider()
+            hub = RecordingHub()
+            coordinator = AgentCoordinator(
+                database,
+                FakeRegistry(provider),  # type: ignore[arg-type]
+                hub,
+            )
+
+            first = await coordinator.submit(
+                conversation,
+                content="first",
+                model="test-model",
+                provider_id="fake",
+            )
+            second = await coordinator.submit(
+                conversation,
+                content="second",
+                model="test-model",
+                provider_id="fake",
+            )
+            third = await coordinator.submit(
+                conversation,
+                content="third",
+                model="test-model",
+                provider_id="fake",
+            )
+
+            self.assertEqual(first["status"], "running")
+            self.assertEqual(second["position"], 1)
+            self.assertEqual(third["position"], 2)
+            await coordinator.reorder_queue(
+                conversation.id,
+                [str(third["run_id"]), str(second["run_id"])],
+            )
+            edited = await coordinator.update_queued(
+                conversation.id,
+                str(second["run_id"]),
+                content="second edited",
+                model="test-model",
+            )
+            self.assertIsNotNone(edited)
+            self.assertEqual(edited["position"], 2)  # type: ignore[index]
+            self.assertTrue(
+                await coordinator.cancel_queued(
+                    conversation.id, str(third["run_id"])
+                )
+            )
+            self.assertEqual(
+                [item["prompt"] for item in coordinator.queue_items(conversation.id)],
+                ["second edited"],
+            )
+            queued_catalog = [
+                item
+                for item in coordinator.task_catalog(conversation_id=conversation.id)
+                if item["status"] == "queued"
+            ]
+            self.assertEqual(queued_catalog[0]["position"], 1)
+            self.assertEqual(queued_catalog[0]["prompt"], "second edited")
+
+            provider.release.set()
+            await self.wait_until_finished(coordinator, conversation.id)
+            self.assertEqual(
+                [message.content for message in database.list_messages(conversation.id)],
+                ["first", "done", "second edited", "done"],
+            )
+            runs = {run["run_id"]: run for run in database.list_runs(limit=10)}
+            self.assertEqual(runs[str(first["run_id"])]["status"], "completed")
+            self.assertEqual(runs[str(second["run_id"])]["status"], "completed")
+            self.assertEqual(runs[str(third["run_id"])]["status"], "canceled")
+            self.assertTrue(any(message["type"] == "queue_changed" for _, message in hub.messages))
+
     async def test_elapsed_time_and_stream_identity_are_server_authoritative(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             database = Database(
-                host="127.0.0.1",
-                port=3306,
-                user="root",
-                password="REDACTED_PASSWORD",
-                db_name="orbitpane_test",
+                Path(temp_dir) / "orbitpane-test.db",
             )
             database.migrate()
             conversation = database.create_conversation("Test", temp_dir, "fake")

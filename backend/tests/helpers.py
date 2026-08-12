@@ -8,11 +8,7 @@ from backend.app.config import Settings
 def test_settings(tmp_path: Path) -> Settings:
     return Settings(
         environment="test",
-        mysql_host="127.0.0.1",
-        mysql_port=3306,
-        mysql_user="root",
-        mysql_password="REDACTED_PASSWORD",
-        mysql_db_name="orbitpane_test",
+        database_path=tmp_path / "orbitpane-test.db",
         allowed_roots=(tmp_path.resolve(),),
         cors_origins=(),
         auth_pin="test-pin",

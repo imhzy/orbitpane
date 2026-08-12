@@ -1,7 +1,8 @@
 import { motion } from 'framer-motion'
-import { Plus, FolderGit2, Folder, ArrowRight, Code2, Sparkles, Terminal, ShieldCheck, Cpu } from 'lucide-react'
+import { Plus, FolderGit2, Folder, ArrowRight, Code2, Sparkles, Terminal, ShieldCheck } from 'lucide-react'
 import { LogoIcon } from '../LogoIcon'
 import type { Conversation, Message } from '../lib/types'
+import { MissionControl } from './MissionControl'
 
 interface WelcomeScreenProps {
   activeConv: Conversation | null
@@ -59,9 +60,7 @@ export function WelcomeScreen({
           className="welcome-container"
         >
           <div className="welcome-hero-wrapper">
-            <div className="welcome-hero-icon">
-              <LogoIcon size={48} />
-            </div>
+            <div className="welcome-hero-icon compact"><LogoIcon size={34} /></div>
 
             <h1 className="welcome-hero-title">
               ORBIT <span className="title-highlight">PANE</span>
@@ -87,29 +86,8 @@ export function WelcomeScreen({
               </button>
             </div>
 
-            {/* Quick Recent Conversations Shortcuts */}
             {conversations.length > 0 && selectConversation && (
-              <div className="recent-workspaces-section">
-                <div className="recent-workspaces-title">近期工作区</div>
-                <div className="recent-workspaces-grid">
-                  {conversations.slice(0, 4).map(conv => (
-                    <button
-                      key={conv.id}
-                      className="recent-workspace-card"
-                      onClick={() => selectConversation(conv)}
-                      aria-label={`打开工作区 ${conv.name}`}
-                    >
-                      <div className="recent-card-icon">
-                        <Cpu size={16} />
-                      </div>
-                      <div className="recent-card-info">
-                        <span className="recent-card-name">{conv.name}</span>
-                        <span className="recent-card-path">{conv.path}</span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <MissionControl conversations={conversations} onSelect={selectConversation} />
             )}
           </div>
         </motion.div>

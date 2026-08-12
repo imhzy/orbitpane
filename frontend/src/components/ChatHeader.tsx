@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Menu, Pencil, Sun, Moon, Eraser, Plus, Download, Command, FileText, MoreVertical } from 'lucide-react'
+import { Menu, Pencil, Sun, Moon, Eraser, Plus, Download, Command, FileText, MoreVertical, Wifi, WifiOff, Loader2, ListChecks } from 'lucide-react'
 import { LogoIcon } from '../LogoIcon'
 import { ModelSelector } from './ModelSelector'
 
@@ -17,8 +17,17 @@ export function ChatHeader(_props: ChatHeaderProps) {
     startEditingConv, setEditingConvId, getProviderBadge, providers, isDrawerOpen,
     setIsDrawerOpen, setDrawerMode, selectedModel, setSelectedModel, models,
     formatModelName, loadModels, theme, toggleTheme, setIsCmdPaletteOpen,
-    isExporting, exportConversationAsImage, messages, clearMessages, summarizeMessages
+    isExporting, exportConversationAsImage, messages, clearMessages, summarizeMessages,
+    isConnected, isReconnecting, connectWebSocket
   } = useAppContext()
+
+  const connectionState = !activeConv
+    ? 'idle'
+    : isConnected
+      ? 'online'
+      : isReconnecting
+        ? 'connecting'
+        : 'offline'
   
   const onOpenCmdPalette = () => setIsCmdPaletteOpen(true)
 
@@ -54,15 +63,6 @@ export function ChatHeader(_props: ChatHeaderProps) {
         </button>
 
         <LogoIcon size={24} />
-
-        <ModelSelector
-          selectedModel={selectedModel}
-          setSelectedModel={setSelectedModel}
-          models={models}
-          formatModelName={formatModelName}
-          position="header"
-          onOpen={loadModels}
-        />
 
         <div className="header-title-wrapper">
           <div className="header-title">
@@ -126,6 +126,32 @@ export function ChatHeader(_props: ChatHeaderProps) {
       <div className="header-actions">
         {/* Global Desktop Actions */}
         <div className="desktop-only-action" style={{ display: 'flex', gap: '8px' }}>
+          {activeConv && (
+            <div className="run-config-control">
+              <span className={`provider-orbit-mark ${getProviderBadge(activeConv.provider, providers).className}`} />
+              <ModelSelector
+                selectedModel={selectedModel}
+                setSelectedModel={setSelectedModel}
+                models={models}
+                formatModelName={formatModelName}
+                position="header"
+                onOpen={loadModels}
+              />
+            </div>
+          )}
+
+          <button
+            className={`connection-status-btn ${connectionState}`}
+            onClick={() => {
+              if (!isConnected && activeConv) connectWebSocket(activeConv, true)
+            }}
+            disabled={isConnected || !activeConv}
+            title={!activeConv ? '选择项目后自动连接 Agent' : isConnected ? 'Agent 实时连接正常' : isReconnecting ? '正在连接 Agent' : '点击重新连接'}
+          >
+            {connectionState === 'online' ? <Wifi size={13} /> : connectionState === 'connecting' ? <Loader2 size={13} className="animate-spin" /> : connectionState === 'offline' ? <WifiOff size={13} /> : <Wifi size={13} />}
+            <span>{connectionState === 'online' ? '已连接' : connectionState === 'connecting' ? '连接中' : connectionState === 'offline' ? '连接断开' : '待连接'}</span>
+          </button>
+
           <button
             className="icon-btn cmd-trigger-btn"
             onClick={onOpenCmdPalette}
@@ -188,7 +214,7 @@ export function ChatHeader(_props: ChatHeaderProps) {
             }}
           >
             <Plus size={14} className="btn-icon" />
-            <span className="hide-on-mobile new-ws-text">新建工作区</span>
+            <span className="hide-on-mobile new-ws-text">新建项目</span>
           </button>
         )}
 
@@ -230,6 +256,16 @@ export function ChatHeader(_props: ChatHeaderProps) {
                 >
                   {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
                   <span>切换主题</span>
+                </button>
+                <button
+                  className="actions-dropdown-item"
+                  onClick={() => {
+                    window.dispatchEvent(new CustomEvent('orbitpane-open-inspector', { detail: 'tasks' }))
+                    setIsActionsMenuOpen(false)
+                  }}
+                >
+                  <ListChecks size={14} />
+                  <span>任务中心</span>
                 </button>
                 
                 {activeConv && (

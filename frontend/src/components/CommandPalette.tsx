@@ -2,8 +2,10 @@ import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Search, Plus, Sun, Moon,
-  Eraser, Download, HelpCircle, MessageSquare, Terminal, Keyboard
+  Eraser, Download, HelpCircle, MessageSquare, Terminal, Keyboard, FileText, Loader2
 } from 'lucide-react'
+import { apiFetch } from '../lib/api'
+import type { SearchResult } from '../lib/types'
 
 interface CommandPaletteProps {
   isOpen: boolean
@@ -13,7 +15,7 @@ interface CommandPaletteProps {
   theme: 'dark' | 'light'
   onClearMessages: () => void
   onExportImage: () => void
-  onSelectConv: (id: number) => void
+  onSelectConv: (id: number, messageId?: number | null) => void
   conversations: Array<{ id: number; name: string; path: string }>
 }
 
@@ -31,6 +33,8 @@ export function CommandPalette({
   const [query, setQuery] = useState('')
   const [showHelp, setShowHelp] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(0)
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([])
+  const [isSearching, setIsSearching] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
 
@@ -55,6 +59,26 @@ export function CommandPalette({
   }, [query])
 
   useEffect(() => {
+    const trimmed = query.trim()
+    if (!trimmed) {
+      setSearchResults([])
+      setIsSearching(false)
+      return
+    }
+    setIsSearching(true)
+    const timer = window.setTimeout(() => {
+      apiFetch<{ items: SearchResult[] }>(`/api/search?q=${encodeURIComponent(trimmed)}&limit=30`)
+        .then(data => setSearchResults(data.items))
+        .catch(error => {
+          console.error(error)
+          setSearchResults([])
+        })
+        .finally(() => setIsSearching(false))
+    }, 180)
+    return () => window.clearTimeout(timer)
+  }, [query])
+
+  useEffect(() => {
     if (!listRef.current) return
     const activeEl = listRef.current.querySelector<HTMLElement>('.cmd-item.active')
     if (activeEl) {
@@ -76,7 +100,7 @@ export function CommandPalette({
 
   // Combine items for keyboard navigation
   const staticActions = [
-    { type: 'new', label: '新建工程工作区', icon: Plus, action: onNewWorkspace, kbd: '⌘ N' },
+    { type: 'new', label: '新建项目', icon: Plus, action: onNewWorkspace, kbd: '⌘ N' },
     { type: 'theme', label: `切换至${theme === 'dark' ? '明亮' : '暗夜'}主题模式`, icon: theme === 'dark' ? Sun : Moon, action: onToggleTheme },
     { type: 'export', label: '导出当前对话为 PNG 图片', icon: Download, action: onExportImage },
     { type: 'clear', label: '清空当前会话记录', icon: Eraser, action: onClearMessages, isDanger: true },
@@ -85,7 +109,7 @@ export function CommandPalette({
 
   const itemsCount = !query
     ? staticActions.length + filteredConvs.slice(0, 5).length
-    : filteredConvs.slice(0, 5).length
+    : searchResults.slice(0, 20).length
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Escape') {
@@ -110,8 +134,8 @@ export function CommandPalette({
           if (conv) handleAction(() => onSelectConv(conv.id))
         }
       } else {
-        const conv = filteredConvs[selectedIndex]
-        if (conv) handleAction(() => onSelectConv(conv.id))
+        const result = searchResults[selectedIndex]
+        if (result) handleAction(() => onSelectConv(result.conversation_id, result.message_id))
       }
     }
   }
@@ -133,7 +157,7 @@ export function CommandPalette({
               ref={inputRef}
               type="text"
               className="cmd-input"
-              placeholder="搜索会话、常用指令或按 Esc 退出..."
+              placeholder="搜索项目、消息或常用指令…"
               value={query}
               onChange={e => setQuery(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -202,7 +226,7 @@ export function CommandPalette({
                   </div>
                 )}
 
-                {filteredConvs.length > 0 && (
+                {!query && filteredConvs.length > 0 && (
                   <div className="cmd-section">
                     <div className="cmd-section-title">会话工作区 ({filteredConvs.length})</div>
                     {filteredConvs.slice(0, 5).map((c, idx) => {
@@ -226,7 +250,32 @@ export function CommandPalette({
                   </div>
                 )}
 
-                {query && filteredConvs.length === 0 && (
+                {query && (
+                  <div className="cmd-section">
+                    <div className="cmd-section-title">全文搜索 ({searchResults.length})</div>
+                    {isSearching && (
+                      <div className="cmd-searching"><Loader2 size={15} className="animate-spin" />搜索项目与消息…</div>
+                    )}
+                    {!isSearching && searchResults.slice(0, 20).map((result, idx) => (
+                      <button
+                        key={`${result.result_type}-${result.conversation_id}-${result.message_id || 0}`}
+                        className={`cmd-item ${selectedIndex === idx ? 'active' : ''}`}
+                        onClick={() => handleAction(() => onSelectConv(result.conversation_id, result.message_id))}
+                        onMouseEnter={() => setSelectedIndex(idx)}
+                      >
+                        {result.result_type === 'message'
+                          ? <FileText size={15} className="cmd-item-icon" />
+                          : <MessageSquare size={15} className="cmd-item-icon" />}
+                        <div className="cmd-conv-text">
+                          <div className="cmd-conv-name">{result.title}</div>
+                          <div className="cmd-search-snippet">{result.snippet}</div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {query && !isSearching && searchResults.length === 0 && (
                   <div className="cmd-empty">
                     <Terminal size={24} style={{ opacity: 0.4, marginBottom: 8 }} />
                     <span>未找到匹配的会话或指令</span>
@@ -240,4 +289,3 @@ export function CommandPalette({
     </AnimatePresence>
   )
 }
-

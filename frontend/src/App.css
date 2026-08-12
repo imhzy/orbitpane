@@ -176,6 +176,7 @@
 .list-item {
   display: flex;
   align-items: center;
+  position: relative;
   padding: var(--space-3) var(--space-3); /* Reduced vertical padding for better list rhythm */
   cursor: pointer;
   border-radius: var(--radius-md); /* Softer corners */
@@ -207,6 +208,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  flex: 0 0 32px;
   width: 32px;
   height: 32px;
   border-radius: var(--radius-sm);
@@ -255,6 +257,9 @@
 .conv-provider-tag {
   display: inline-flex;
   align-items: center;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   padding: 1px var(--space-2);
   border-radius: var(--radius-sm);
   font-size: 10px;

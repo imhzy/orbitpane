@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import subprocess
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
@@ -25,8 +26,16 @@ from .agents.base import ProviderError
 from .agents.registry import ProviderRegistry
 from .config import Settings
 from .database import Database
-from .models import ChatMessage, ConversationCreate, ConversationUpdate, LoginRequest
-from .realtime import AgentBusyError, AgentCoordinator, ConnectionHub
+from .models import (
+    ChatMessage,
+    ConversationCreate,
+    ConversationUpdate,
+    LoginRequest,
+    QueueReorder,
+    QueueUpdate,
+    SummaryUpdate,
+)
+from .realtime import AgentCoordinator, ConnectionHub
 from .security import (
     LoginRateLimiter,
     SESSION_COOKIE_NAME,
@@ -143,15 +152,84 @@ def _search_workspace_files(
     return items, (scanned > FILE_SEARCH_SCAN_LIMIT or len(matches) > len(items))
 
 
+def _workspace_git_status(workspace: Path) -> dict[str, object]:
+    """Return a bounded, read-only Git change summary for the UI radar."""
+    try:
+        root_result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if root_result.returncode != 0:
+            return {"is_git": False, "branch": "", "files": [], "counts": {}}
+        status_result = subprocess.run(
+            [
+                "git",
+                "status",
+                "--porcelain=v1",
+                "-z",
+                "--untracked-files=normal",
+                "--",
+                ".",
+            ],
+            cwd=workspace,
+            capture_output=True,
+            timeout=8,
+            check=False,
+        )
+        branch_result = subprocess.run(
+            ["git", "branch", "--show-current"],
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {"is_git": False, "branch": "", "files": [], "counts": {}}
+
+    entries = status_result.stdout.decode("utf-8", errors="replace").split("\0")
+    files: list[dict[str, str]] = []
+    counts = {"added": 0, "modified": 0, "deleted": 0, "renamed": 0, "untracked": 0}
+    index = 0
+    while index < len(entries) and len(files) < 200:
+        entry = entries[index]
+        index += 1
+        if not entry or len(entry) < 4:
+            continue
+        code = entry[:2]
+        path = entry[3:]
+        if "R" in code and index < len(entries):
+            renamed_to = entries[index]
+            index += 1
+            path = renamed_to or path
+        if code == "??":
+            kind = "untracked"
+        elif "D" in code:
+            kind = "deleted"
+        elif "R" in code:
+            kind = "renamed"
+        elif "A" in code:
+            kind = "added"
+        else:
+            kind = "modified"
+        counts[kind] += 1
+        files.append({"path": path, "status": kind, "code": code})
+    return {
+        "is_git": True,
+        "branch": branch_result.stdout.strip(),
+        "files": files,
+        "counts": counts,
+        "truncated": len(files) >= 200,
+    }
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     resolved_settings = settings or Settings.from_env()
-    database = Database(
-        host=resolved_settings.mysql_host,
-        port=resolved_settings.mysql_port,
-        user=resolved_settings.mysql_user,
-        password=resolved_settings.mysql_password,
-        db_name=resolved_settings.mysql_db_name,
-    )
+    database = Database(resolved_settings.database_path)
     providers = ProviderRegistry(resolved_settings)
     hub = ConnectionHub()
     coordinator = AgentCoordinator(database, providers, hub)
@@ -164,7 +242,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(
         title="OrbitPane",
-        version="2.0.0",
+        version="2.1.0",
         lifespan=lifespan,
         docs_url="/api/docs" if resolved_settings.environment == "development" else None,
         redoc_url=None,
@@ -180,13 +258,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         resolved_settings.auth_ttl_seconds,
     )
     app.state.login_limiter = LoginRateLimiter()
+    cookie_same_site = (
+        "none"
+        if resolved_settings.environment == "production"
+        and resolved_settings.cors_origins
+        else "lax"
+    )
 
     if resolved_settings.cors_origins:
         app.add_middleware(
             CORSMiddleware,
             allow_origins=list(resolved_settings.cors_origins),
-            allow_credentials=False,
-            allow_methods=["GET", "POST", "PUT", "DELETE"],
+            allow_credentials=True,
+            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
             allow_headers=["Authorization", "Content-Type"],
         )
 
@@ -226,7 +310,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 max_age=resolved_settings.auth_ttl_seconds,
                 httponly=True,
                 secure=resolved_settings.environment == "production",
-                samesite="strict",
+                samesite=cookie_same_site,
                 path="/",
             )
             return {
@@ -240,14 +324,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def session():
         return {"authenticated": True}
 
-    @app.post("/api/logout")
+    @app.post("/api/logout", dependencies=[Depends(require_auth)])
     async def logout(response: Response):
         response.delete_cookie(
             key=SESSION_COOKIE_NAME,
             path="/",
             httponly=True,
             secure=resolved_settings.environment == "production",
-            samesite="strict",
+            samesite=cookie_same_site,
         )
         return {"success": True}
 
@@ -268,9 +352,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "providers": providers.catalog(),
         }
 
+    @app.get("/api/workspace-roots", dependencies=[Depends(require_auth)])
+    async def workspace_roots():
+        return {
+            "roots": [str(root) for root in resolved_settings.allowed_roots],
+            "default_root": str(resolved_settings.default_workspace_root),
+        }
+
     @app.get("/api/conversations", dependencies=[Depends(require_auth)])
-    async def list_conversations():
-        return [asdict(item) for item in database.list_conversations()]
+    async def list_conversations(include_archived: bool = False):
+        return [
+            asdict(item)
+            for item in database.list_conversations(include_archived=include_archived)
+        ]
 
     @app.post(
         "/api/conversations",
@@ -288,15 +382,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         if not path.is_dir():
             raise HTTPException(status_code=400, detail="Workspace path must be a directory")
-        return asdict(database.create_conversation(name, str(path), provider.id))
+        preferred_model = request.preferred_model.strip()
+        if preferred_model:
+            preferred_model = provider.validate_model(preferred_model)
+        return asdict(
+            database.create_conversation(
+                name,
+                str(path),
+                provider.id,
+                preferred_model=preferred_model,
+            )
+        )
 
     @app.put(
         "/api/conversations/{conversation_id}",
         dependencies=[Depends(require_auth)],
     )
     async def update_conversation(conversation_id: int, request: ConversationUpdate):
-        if coordinator.is_running(conversation_id):
-            raise HTTPException(status_code=409, detail="Conversation is currently running")
+        if coordinator.is_running(conversation_id) and (
+            request.path is not None or request.provider is not None
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot change path or provider while a task is running",
+            )
         name = request.name.strip() if request.name is not None else None
         if request.name is not None and not name:
             raise HTTPException(status_code=422, detail="Conversation name is required")
@@ -309,10 +418,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if not resolved_path.is_dir():
                 raise HTTPException(status_code=400, detail="Workspace path must be a directory")
             path = str(resolved_path)
+        selected_provider = None
         if request.provider is not None:
-            providers.get(request.provider)
+            selected_provider = providers.get(request.provider)
+        preferred_model = request.preferred_model
+        if preferred_model:
+            current = database.get_conversation(conversation_id)
+            provider_id = request.provider or (current.provider if current else None)
+            if provider_id is None:
+                raise HTTPException(status_code=404, detail="Conversation not found")
+            preferred_model = providers.get(provider_id).validate_model(preferred_model)
+        tags = None
+        if request.tags is not None:
+            tags = tuple(
+                dict.fromkeys(tag.strip()[:40] for tag in request.tags if tag.strip())
+            )
         conversation = database.update_conversation(
-            conversation_id, name=name, path=path, provider=request.provider
+            conversation_id,
+            name=name,
+            path=path,
+            provider=selected_provider.id if selected_provider else None,
+            is_pinned=request.is_pinned,
+            is_archived=request.is_archived,
+            tags=tags,
+            preferred_model=preferred_model,
+            draft=request.draft,
         )
         if conversation is None:
             raise HTTPException(status_code=404, detail="Conversation not found")
@@ -355,13 +485,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         dependencies=[Depends(require_auth)],
     )
     async def summarize_conversation(conversation_id: int):
-        if coordinator.is_running(conversation_id):
-            raise HTTPException(status_code=409, detail="Conversation is currently running")
         conversation = database.get_conversation(conversation_id)
         if conversation is None:
             raise HTTPException(status_code=404, detail="Conversation not found")
         try:
-            await coordinator.start(
+            task = await coordinator.submit(
                 conversation,
                 content="Please summarize the conversation history so far into a concise 'Current Context / State' document. This summary will be used as the sole memory for our future turns. Include key technical decisions, current progress, and pending tasks. Start directly with the summary content and reply in the same language as the conversation.",
                 model=None,
@@ -370,15 +498,145 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return {"status": "ok"}
+        return task
+
+    @app.get(
+        "/api/conversations/{conversation_id}/summaries",
+        dependencies=[Depends(require_auth)],
+    )
+    async def list_summaries(conversation_id: int):
+        if database.get_conversation(conversation_id) is None:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        return database.list_summary_checkpoints(conversation_id)
+
+    @app.patch(
+        "/api/conversations/{conversation_id}/summaries/{summary_id}",
+        dependencies=[Depends(require_auth)],
+    )
+    async def update_summary(
+        conversation_id: int, summary_id: int, request: SummaryUpdate
+    ):
+        if coordinator.is_running(conversation_id):
+            raise HTTPException(status_code=409, detail="Task is currently running")
+        title = request.title.strip() if request.title is not None else None
+        content = request.content.strip() if request.content is not None else None
+        if request.title is not None and not title:
+            raise HTTPException(status_code=422, detail="Summary title is required")
+        if request.content is not None and not content:
+            raise HTTPException(status_code=422, detail="Summary content is required")
+        summary = database.update_summary_checkpoint(
+            conversation_id,
+            summary_id,
+            title=title,
+            content=content,
+            active=request.active,
+        )
+        if summary is None:
+            raise HTTPException(status_code=404, detail="Summary checkpoint not found")
+        return summary
+
+    @app.get("/api/search", dependencies=[Depends(require_auth)])
+    async def search(
+        q: str = Query(min_length=1, max_length=256),
+        limit: int = Query(default=50, ge=1, le=100),
+    ):
+        query = q.strip()
+        if not query:
+            raise HTTPException(status_code=422, detail="Search query is required")
+        return {"items": database.search(query, limit)}
+
+    @app.get("/api/tasks", dependencies=[Depends(require_auth)])
+    async def list_tasks(limit: int = Query(default=100, ge=1, le=200)):
+        return {"items": coordinator.task_catalog(limit=limit)}
+
+    @app.get(
+        "/api/conversations/{conversation_id}/tasks",
+        dependencies=[Depends(require_auth)],
+    )
+    async def conversation_tasks(conversation_id: int):
+        if database.get_conversation(conversation_id) is None:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        return {
+            "items": coordinator.task_catalog(conversation_id=conversation_id),
+            "queue": coordinator.queue_items(conversation_id),
+            "running": coordinator.sync_message(conversation_id),
+        }
+
+    @app.patch(
+        "/api/conversations/{conversation_id}/queue/{run_id}",
+        dependencies=[Depends(require_auth)],
+    )
+    async def update_queued_task(
+        conversation_id: int, run_id: str, request: QueueUpdate
+    ):
+        content = request.content.strip() if request.content is not None else None
+        if request.content is not None and not content:
+            raise HTTPException(status_code=422, detail="Task content is required")
+        item = await coordinator.update_queued(
+            conversation_id,
+            run_id,
+            content=content,
+            model=request.model,
+        )
+        if item is None:
+            raise HTTPException(status_code=404, detail="Queued task not found")
+        return item
+
+    @app.delete(
+        "/api/conversations/{conversation_id}/queue/{run_id}",
+        dependencies=[Depends(require_auth)],
+    )
+    async def cancel_queued_task(conversation_id: int, run_id: str):
+        if not await coordinator.cancel_queued(conversation_id, run_id):
+            raise HTTPException(status_code=404, detail="Queued task not found")
+        return {"status": "canceled"}
+
+    @app.put(
+        "/api/conversations/{conversation_id}/queue",
+        dependencies=[Depends(require_auth)],
+    )
+    async def reorder_queued_tasks(conversation_id: int, request: QueueReorder):
+        try:
+            queue = await coordinator.reorder_queue(conversation_id, request.run_ids)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"queue": queue}
+
+    @app.get(
+        "/api/conversations/{conversation_id}/stats",
+        dependencies=[Depends(require_auth)],
+    )
+    async def conversation_stats(conversation_id: int):
+        if database.get_conversation(conversation_id) is None:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        return {
+            **database.conversation_stats(conversation_id),
+            "context_limit": resolved_settings.history_max_chars,
+        }
+
+    @app.get(
+        "/api/conversations/{conversation_id}/workspace-status",
+        dependencies=[Depends(require_auth)],
+    )
+    async def workspace_status(conversation_id: int):
+        conversation = database.get_conversation(conversation_id)
+        if conversation is None:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        try:
+            workspace = resolved_settings.resolve_allowed_path(conversation.path)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return await asyncio.to_thread(_workspace_git_status, workspace)
 
     @app.get("/api/ls", dependencies=[Depends(require_auth)])
     async def list_directory(
-        path: str = Query(default="/root", min_length=1, max_length=4096),
+        path: str | None = Query(default=None, min_length=1, max_length=4096),
         show_hidden: bool = False,
     ):
         try:
-            directory = resolved_settings.resolve_allowed_path(path)
+            directory = resolved_settings.resolve_allowed_path(
+                path or str(resolved_settings.default_workspace_root)
+            )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         if not directory.is_dir():
@@ -470,26 +728,39 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
             while True:
                 raw_message = await websocket.receive_json()
-                if raw_message.get("action") == "interrupt":
+                action = raw_message.get("action")
+                if action == "ping":
+                    await hub.send(
+                        websocket,
+                        conversation_id,
+                        {"type": "pong", "conversation_id": conversation_id},
+                    )
+                    continue
+                if action == "interrupt":
                     await coordinator.interrupt(conversation_id)
+                    continue
+                if action == "cancel_queued":
+                    run_id = str(raw_message.get("run_id") or "")
+                    await coordinator.cancel_queued(conversation_id, run_id)
                     continue
                 try:
                     chat_message = ChatMessage.model_validate(raw_message)
-                    await coordinator.start(
-                        conversation,
+                    latest_conversation = database.get_conversation(conversation_id)
+                    if latest_conversation is None:
+                        raise ValueError("Conversation not found")
+                    submitted = await coordinator.submit(
+                        latest_conversation,
                         content=chat_message.content.strip(),
                         model=chat_message.model,
                         provider_id=chat_message.provider,
                     )
-                except AgentBusyError as exc:
                     await hub.send(
                         websocket,
                         conversation_id,
                         {
-                            "type": "error",
+                            "type": "submitted",
                             "conversation_id": conversation_id,
-                            "code": "busy",
-                            "content": str(exc),
+                            "task": submitted,
                         },
                     )
                 except (ProviderError, ValueError) as exc:

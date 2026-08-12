@@ -2,6 +2,19 @@ import React, { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
+import { registerSW } from 'virtual:pwa-register'
+
+const updateServiceWorker = registerSW({
+  immediate: true,
+  onNeedRefresh() {
+    window.dispatchEvent(new CustomEvent('orbitpane-update-ready', {
+      detail: () => updateServiceWorker(true),
+    }))
+  },
+  onOfflineReady() {
+    window.dispatchEvent(new CustomEvent('orbitpane-offline-ready'))
+  },
+})
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: any }> {
   constructor(props: { children: React.ReactNode }) {

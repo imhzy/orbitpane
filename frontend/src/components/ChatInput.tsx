@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Square, Send, CornerDownLeft } from 'lucide-react'
+import { Square, Send, CornerDownLeft, AtSign, ListPlus } from 'lucide-react'
 import { ModelSelector } from './ModelSelector'
 import { FileMentionPicker } from './FileMentionPicker'
 import { apiFetch } from '../lib/api'
 import { playSendSound, playClickSound } from '../lib/sound'
-import type { Conversation, FileSearchItem, FileSearchResponse } from '../lib/types'
+import type { Conversation, FileSearchItem, FileSearchResponse, ToastKind } from '../lib/types'
 
 interface FileMention {
   start: number
@@ -47,7 +47,7 @@ interface ChatInputProps {
   loadModels: () => void
   socketRef: React.MutableRefObject<WebSocket | null>
   connectWebSocket: (conv: Conversation, isManual?: boolean) => void
-  showToast: (msg: string) => void
+  showToast: (msg: string, kind?: ToastKind) => void
   setIsDrawerOpen: (open: boolean) => void
 }
 
@@ -151,6 +151,17 @@ export function ChatInput({
     return () => document.removeEventListener('pointerdown', handlePointerDown)
   }, [])
 
+  useEffect(() => {
+    const handleReferenceFile = (event: Event) => {
+      const path = (event as CustomEvent<string>).detail
+      if (!path) return
+      setInput(previous => `${previous}${previous && !previous.endsWith(' ') ? ' ' : ''}@${path}`)
+      window.requestAnimationFrame(() => textareaRef.current?.focus())
+    }
+    window.addEventListener('orbitpane-reference-file', handleReferenceFile)
+    return () => window.removeEventListener('orbitpane-reference-file', handleReferenceFile)
+  }, [setInput, textareaRef])
+
   const updateMentionFromTextarea = useCallback((textarea: HTMLTextAreaElement) => {
     if (isComposingRef.current || activeConversationId === undefined) return
     const nextMention = findFileMention(textarea.value, textarea.selectionStart)
@@ -186,20 +197,20 @@ export function ChatInput({
       setIsDrawerOpen(true)
       return
     }
-    if (!isConnected) {
-      showToast('服务未连接，已为你发起重连...')
-      connectWebSocket(activeConv, true)
-      return
-    }
-    if (isAgentThinking) {
-      playClickSound()
-      socketRef.current?.send(JSON.stringify({ action: 'interrupt' }))
-      return
-    }
     if (input.trim()) {
       playSendSound()
       sendMessage()
+      if (!isConnected) {
+        showToast('消息已保存，连接恢复后自动发送', 'info')
+        connectWebSocket(activeConv, true)
+      }
     }
+  }
+
+  const handleInterrupt = () => {
+    playClickSound()
+    socketRef.current?.send(JSON.stringify({ action: 'interrupt' }))
+    showToast('正在中断当前任务…', 'warning')
   }
 
   return (
@@ -291,6 +302,11 @@ export function ChatInput({
           rows={1}
           className="input-textarea"
         />
+
+        <div className="input-capability-row" aria-label="输入能力提示">
+          <span><AtSign size={11} />引用项目文件</span>
+          <span><ListPlus size={11} />执行中发送将排队</span>
+        </div>
         
         <div className="input-bottom-bar">
           <div className="input-bottom-left">
@@ -312,14 +328,25 @@ export function ChatInput({
               <CornerDownLeft size={11} />
               <span>发送</span>
             </div>
+            {isAgentThinking && (
+              <button
+                className="interrupt-task-btn"
+                onClick={handleInterrupt}
+                title="中断当前任务"
+                aria-label="中断当前任务"
+              >
+                <Square size={12} fill="currentColor" />
+                <span>停止</span>
+              </button>
+            )}
             <button
-              className={`send-btn ${isAgentThinking ? 'interrupt' : ''}`}
+              className="send-btn"
               onClick={handleSendClick}
-              disabled={!isAgentThinking && !input.trim()}
-              title={!activeConv ? '请先选择工作区' : !isConnected ? '未连接' : isAgentThinking ? '中断生成' : '发送消息 (Enter)'}
-              aria-label={isAgentThinking ? '中断生成' : '发送消息'}
+              disabled={!input.trim()}
+              title={!activeConv ? '请先选择项目' : isAgentThinking ? '加入任务队列 (Enter)' : '发送消息 (Enter)'}
+              aria-label={isAgentThinking ? '加入任务队列' : '发送消息'}
             >
-              {isAgentThinking ? <Square size={14} fill="currentColor" /> : <Send size={15} />}
+              <Send size={15} />
             </button>
           </div>
         </div>

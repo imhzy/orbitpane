@@ -1,8 +1,9 @@
 # OrbitPane
 
-OrbitPane is a secure, self-hosted workspace for running coding agents inside
+OrbitPane is a secure, self-hosted mission control for running coding agents inside
 explicitly allowed server projects. Its browser PWA provides persistent
-conversations, realtime execution and reconnect support without coupling the UI
+projects, queued execution, editable memory checkpoints, full-text search,
+realtime execution and reconnect support without coupling the UI
 protocol to a specific agent provider. Google Antigravity is the default
 provider, with OpenAI Codex available behind a feature flag.
 
@@ -17,7 +18,7 @@ FastAPI application
   ├── signed session tokens
   ├── workspace path policy
   ├── SQLite repository
-  ├── task coordinator + reconnect state
+  ├── persistent task catalog + per-project queue
   └── AgentProvider
         ├── AntigravityProvider (default)
         └── CodexCliProvider (optional)
@@ -28,14 +29,15 @@ The backend is split by responsibility:
 - `backend/app/application.py`: HTTP and WebSocket transport.
 - `backend/app/security.py`: PIN verification and signed expiring tokens.
 - `backend/app/database.py`: SQLite schema and repository.
-- `backend/app/realtime.py`: connection hub and one-task-per-conversation
-  coordination.
+- `backend/app/realtime.py`: connection hub, per-project serial task queue and
+  reconnect state.
 - `backend/app/agents/`: provider-neutral contract and concrete adapters.
 
 The frontend uses `frontend/src/lib/api.ts` as the single authenticated REST
 client. Authentication state is based on a signed, expiring, HttpOnly
-same-site cookie rather than an independent browser flag or a token exposed to
-JavaScript.
+HttpOnly cookie rather than an independent browser flag or a token exposed to
+JavaScript. Same-origin deployments use `SameSite=Lax`; explicit cross-origin
+production deployments use a Secure `SameSite=None` cookie.
 
 ## Requirements
 
@@ -73,6 +75,8 @@ Useful security settings:
 - `ORBITPANE_CORS_ORIGINS`: empty for same-origin deployments; otherwise a
   comma-separated explicit origin list.
 - `ORBITPANE_AUTH_TTL_SECONDS`: signed login token lifetime, default 12 hours.
+- `ORBITPANE_DATABASE_PATH`: SQLite database location. Tests always use an
+  isolated temporary database and never share production persistence.
 - `ORBITPANE_ANTIGRAVITY_DANGEROUS_SKIP_PERMISSIONS`: provider permission override;
   defaults to `false` and should only be enabled inside an isolated environment.
 
@@ -187,8 +191,14 @@ events:
 - Every REST endpoint except login and health requires a signed session.
 - WebSockets authenticate from the same HttpOnly session cookie.
 - Failed PIN attempts are rate-limited in memory.
-- Only one task can run per conversation; rejected concurrent messages are not
-  persisted.
+- Only one task runs per project at a time; additional messages enter an
+  editable, reorderable and cancelable FIFO queue.
+- Project pins, tags, archives, preferred models and drafts are persisted on the
+  server. The browser retains caches and drafts for offline recovery.
+- Summary checkpoints are explicit, editable memory boundaries and can be
+  enabled or disabled without deleting full history.
+- Task runs retain status, duration and input/output/context character metrics.
+- WebSockets use application-level heartbeats and automatically reconnect.
 - Deleting a running conversation interrupts its process group first.
 - Agent-produced Markdown does not render raw HTML.
 - Provider model IDs are validated server-side.
