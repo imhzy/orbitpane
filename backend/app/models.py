@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -14,8 +15,8 @@ class Conversation:
     provider: str = "antigravity"
     is_pinned: bool = False
     is_archived: bool = False
-    tags: tuple[str, ...] = ()
     preferred_model: str = ""
+    permission_mode: str = "unrestricted"
     draft: str = ""
     active_summary_id: int | None = None
 
@@ -45,6 +46,7 @@ class ConversationCreate(BaseModel):
     path: str = Field(min_length=1, max_length=4096)
     provider: str = Field(default="antigravity", min_length=1, max_length=40)
     preferred_model: str = Field(default="", max_length=120)
+    permission_mode: Literal["workspace", "unrestricted"] = "unrestricted"
 
 
 class ConversationUpdate(BaseModel):
@@ -53,8 +55,8 @@ class ConversationUpdate(BaseModel):
     provider: str | None = Field(default=None, min_length=1, max_length=40)
     is_pinned: bool | None = None
     is_archived: bool | None = None
-    tags: list[str] | None = Field(default=None, max_length=20)
     preferred_model: str | None = Field(default=None, max_length=120)
+    permission_mode: Literal["workspace", "unrestricted"] | None = None
     draft: str | None = Field(default=None, max_length=200_000)
 
 

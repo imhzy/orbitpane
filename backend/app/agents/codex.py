@@ -75,6 +75,14 @@ class CodexCliProvider(AgentProvider):
             and shutil.which(self.settings.codex_command) is not None
         )
 
+    def _permission_args(self, permission_mode: str) -> list[str]:
+        if permission_mode == "unrestricted":
+            return ["--dangerously-bypass-approvals-and-sandbox"]
+        sandbox = self.settings.codex_sandbox
+        if sandbox not in {"read-only", "workspace-write"}:
+            sandbox = "workspace-write"
+        return ["--sandbox", sandbox]
+
     async def run(self, request: AgentRequest, emit: EmitEvent) -> AgentResult:
         if not self.available:
             raise ProviderError(
@@ -88,12 +96,11 @@ class CodexCliProvider(AgentProvider):
             "--json",
             "--ephemeral",
             "--skip-git-repo-check",
-            "--sandbox",
-            self.settings.codex_sandbox,
             "--model",
             model,
-            prompt,
         ]
+        command.extend(self._permission_args(request.permission_mode))
+        command.append(prompt)
         process = await asyncio.create_subprocess_exec(
             *command,
             stdin=asyncio.subprocess.DEVNULL,

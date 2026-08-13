@@ -4,7 +4,6 @@ import {
   Bell,
   BellRing,
   Bot,
-  Braces,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
@@ -15,24 +14,22 @@ import {
   ListChecks,
   Loader2,
   Pencil,
-  RotateCcw,
   Save,
-  Sparkles,
+  ShieldAlert,
+  ShieldCheck,
   Star,
-  Tags,
   X,
   XCircle,
 } from 'lucide-react'
 import { apiFetch } from '../lib/api'
 import type {
   ConversationStats,
-  SummaryCheckpoint,
   TaskRecord,
   WorkspaceStatus,
 } from '../lib/types'
 import { useAppContext } from '../contexts/AppContext'
 
-type InspectorTab = 'mission' | 'tasks' | 'memory'
+type InspectorTab = 'mission' | 'tasks'
 
 const EMPTY_STATS: ConversationStats = {
   message_count: 0,
@@ -84,12 +81,7 @@ export function WorkspaceInspector() {
   const [stats, setStats] = useState<ConversationStats>(EMPTY_STATS)
   const [workspace, setWorkspace] = useState<WorkspaceStatus>(EMPTY_WORKSPACE)
   const [tasks, setTasks] = useState<TaskRecord[]>([])
-  const [summaries, setSummaries] = useState<SummaryCheckpoint[]>([])
   const [loading, setLoading] = useState(false)
-  const [tagText, setTagText] = useState('')
-  const [editingSummaryId, setEditingSummaryId] = useState<number | null>(null)
-  const [summaryTitle, setSummaryTitle] = useState('')
-  const [summaryContent, setSummaryContent] = useState('')
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
   const [taskContent, setTaskContent] = useState('')
   const [notificationsEnabled, setNotificationsEnabled] = useState(() => (
@@ -98,7 +90,6 @@ export function WorkspaceInspector() {
   const inspectorRequestRef = useRef(0)
 
   const activeConversationId = activeConv?.id ?? null
-  const activeTagSignature = activeConv?.tags.join(', ') ?? ''
   const connectionState = !activeConv
     ? 'idle'
     : isConnected
@@ -116,17 +107,15 @@ export function WorkspaceInspector() {
       return
     }
     try {
-      const [taskResponse, nextStats, nextWorkspace, nextSummaries] = await Promise.all([
+      const [taskResponse, nextStats, nextWorkspace] = await Promise.all([
         apiFetch<{ items: TaskRecord[] }>(`/api/conversations/${activeConversationId}/tasks`),
         apiFetch<ConversationStats>(`/api/conversations/${activeConversationId}/stats`),
         apiFetch<WorkspaceStatus>(`/api/conversations/${activeConversationId}/workspace-status`),
-        apiFetch<SummaryCheckpoint[]>(`/api/conversations/${activeConversationId}/summaries`),
       ])
       if (requestId !== inspectorRequestRef.current) return
       setTasks(taskResponse.items)
       setStats(nextStats)
       setWorkspace(nextWorkspace)
-      setSummaries(nextSummaries)
     } catch (error) {
       console.error(error)
     } finally {
@@ -135,14 +124,11 @@ export function WorkspaceInspector() {
   }, [activeConversationId])
 
   useEffect(() => {
-    setTagText(activeTagSignature)
     setStats(EMPTY_STATS)
     setWorkspace(EMPTY_WORKSPACE)
     setTasks([])
-    setSummaries([])
-    setEditingSummaryId(null)
     void loadInspector()
-  }, [activeConversationId, activeTagSignature, loadInspector])
+  }, [activeConversationId, loadInspector])
 
   useEffect(() => {
     const refresh = () => void loadInspector(true)
@@ -157,7 +143,7 @@ export function WorkspaceInspector() {
   useEffect(() => {
     const openInspector = (event: Event) => {
       const requestedTab = (event as CustomEvent<InspectorTab>).detail
-      if (requestedTab === 'mission' || requestedTab === 'tasks' || requestedTab === 'memory') {
+      if (requestedTab === 'mission' || requestedTab === 'tasks') {
         setTab(requestedTab)
       }
       setMobileOpen(true)
@@ -194,48 +180,14 @@ export function WorkspaceInspector() {
     )
   }
 
-  const saveTags = () => {
-    if (!activeConv) return
-    const tags = tagText.split(',').map(tag => tag.trim()).filter(Boolean).slice(0, 20)
-    if (tags.join('|') === activeConv.tags.join('|')) return
-    void updateConversation(activeConv.id, { tags })
+  const setPermissionMode = (permissionMode: 'workspace' | 'unrestricted') => {
+    if (!activeConv || activeConv.permission_mode === permissionMode) return
+    void updateConversation(activeConv.id, { permission_mode: permissionMode })
       .then(updated => {
-        if (updated) showToast('项目标签已保存')
+        if (updated) {
+          showToast(permissionMode === 'workspace' ? '已启用受限工作区' : '已启用完全访问', permissionMode === 'workspace' ? 'success' : 'warning')
+        }
       })
-  }
-
-  const updateSummary = (
-    summary: SummaryCheckpoint,
-    values: Partial<Pick<SummaryCheckpoint, 'active' | 'title' | 'content'>>,
-  ) => {
-    void apiFetch<SummaryCheckpoint>(
-      `/api/conversations/${summary.conversation_id}/summaries/${summary.id}`,
-      { method: 'PATCH', body: JSON.stringify(values) },
-    ).then(() => {
-      showToast(values.active === false ? '已恢复完整历史上下文' : '记忆检查点已更新')
-      void loadInspector(true)
-      void loadConversations(false)
-    }).catch(error => {
-      console.error(error)
-      showToast('记忆检查点更新失败', 'error')
-    })
-  }
-
-  const beginSummaryEdit = (summary: SummaryCheckpoint) => {
-    setEditingSummaryId(summary.id)
-    setSummaryTitle(summary.title)
-    setSummaryContent(summary.content)
-  }
-
-  const saveSummary = (summary: SummaryCheckpoint) => {
-    const title = summaryTitle.trim()
-    const content = summaryContent.trim()
-    if (!title || !content) {
-      showToast('标题和记忆内容不能为空', 'warning')
-      return
-    }
-    updateSummary(summary, { title, content })
-    setEditingSummaryId(null)
   }
 
   const cancelTask = (task: TaskRecord) => {
@@ -319,9 +271,6 @@ export function WorkspaceInspector() {
         <button className={tab === 'tasks' ? 'active' : ''} onClick={() => setTab('tasks')}>
           <ListChecks size={13} />队列{activeTasks.length > 0 && <b>{activeTasks.length}</b>}
         </button>
-        <button className={tab === 'memory' ? 'active' : ''} onClick={() => setTab('memory')}>
-          <Braces size={13} />记忆
-        </button>
       </div>
 
       <div className="inspector-body">
@@ -351,16 +300,28 @@ export function WorkspaceInspector() {
                       })}
                     ><Archive size={12} />归档</button>
                   </div>
-                  <label className="tag-editor">
-                    <Tags size={12} />
-                    <input
-                      value={tagText}
-                      onChange={event => setTagText(event.target.value)}
-                      onBlur={saveTags}
-                      onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }}
-                      placeholder="标签，以逗号分隔"
-                    />
-                  </label>
+                  <div className="project-permission-setting">
+                    <span>文件系统权限</span>
+                    <div role="radiogroup" aria-label="当前项目文件系统权限">
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={activeConv.permission_mode === 'workspace'}
+                        className={activeConv.permission_mode === 'workspace' ? 'active' : ''}
+                        disabled={activeTasks.length > 0}
+                        onClick={() => setPermissionMode('workspace')}
+                      ><ShieldCheck size={11} />受限</button>
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={activeConv.permission_mode === 'unrestricted'}
+                        className={`danger ${activeConv.permission_mode === 'unrestricted' ? 'active' : ''}`}
+                        disabled={activeTasks.length > 0}
+                        onClick={() => setPermissionMode('unrestricted')}
+                      ><ShieldAlert size={11} />完全访问</button>
+                    </div>
+                    {activeTasks.length > 0 && <small>任务运行或排队时不能修改</small>}
+                  </div>
                 </>
               ) : <p className="inspector-empty">选择项目后显示任务上下文。</p>}
             </section>
@@ -374,7 +335,7 @@ export function WorkspaceInspector() {
                   <div><span>当前上下文</span><strong>{formatCompact(stats.context_chars)} 字</strong></div>
                   <div><span>累计输出</span><strong>{formatCompact(stats.output_chars)} 字</strong></div>
                   <div><span>执行耗时</span><strong>{stats.duration.toFixed(1)} 秒</strong></div>
-                  <div><span>消息 / 记忆</span><strong>{stats.message_count} / {stats.summary_count}</strong></div>
+                  <div><span>消息 / 总结</span><strong>{stats.message_count} / {stats.summary_count}</strong></div>
                 </div>
               </section>
             )}
@@ -424,7 +385,7 @@ export function WorkspaceInspector() {
                       onChange={event => setTaskContent(event.target.value)}
                       aria-label="编辑排队任务"
                     />
-                  ) : <p>{task.is_summary ? '生成记忆检查点' : task.prompt}</p>}
+                  ) : <p>{task.is_summary ? '生成对话总结' : task.prompt}</p>}
                   <small>{task.model} · {task.duration ? `${task.duration.toFixed(1)} 秒` : '等待执行'}</small>
                 </div>
                 {task.status === 'queued' && (
@@ -443,53 +404,6 @@ export function WorkspaceInspector() {
                     <button className="task-cancel-btn" onClick={() => cancelTask(task)} title="取消排队"><X size={13} /></button>
                   </div>
                 )}
-              </article>
-            ))}
-          </section>
-        )}
-
-        {!loading && tab === 'memory' && (
-          <section className="memory-checkpoints">
-            {!activeConv ? <p className="inspector-empty">选择项目后管理记忆。</p> : summaries.length === 0 ? (
-              <div className="inspector-empty memory-empty">
-                <Sparkles size={20} />
-                <span>尚未生成记忆检查点</span>
-                <small>在顶部操作中选择“总结”即可创建。</small>
-              </div>
-            ) : summaries.map(summary => (
-              <article key={summary.id} className={`memory-card ${summary.active ? 'active' : ''}`}>
-                <div className="memory-card-head">
-                  <div>
-                    {editingSummaryId === summary.id ? (
-                      <input
-                        className="memory-title-input"
-                        value={summaryTitle}
-                        onChange={event => setSummaryTitle(event.target.value)}
-                        aria-label="记忆检查点标题"
-                      />
-                    ) : <strong>{summary.title}</strong>}
-                    <small>覆盖至消息 #{summary.covered_through_id}</small>
-                  </div>
-                  <span>{summary.active ? '使用中' : '已保留'}</span>
-                </div>
-                {editingSummaryId === summary.id ? (
-                  <textarea
-                    className="memory-content-input"
-                    value={summaryContent}
-                    onChange={event => setSummaryContent(event.target.value)}
-                    aria-label="记忆检查点内容"
-                  />
-                ) : <p>{summary.content}</p>}
-                <div className="memory-card-actions">
-                  {editingSummaryId === summary.id ? (
-                    <button onClick={() => saveSummary(summary)}><Save size={12} />保存记忆</button>
-                  ) : (
-                    <button onClick={() => beginSummaryEdit(summary)}><Pencil size={12} />编辑</button>
-                  )}
-                  <button onClick={() => updateSummary(summary, { active: !summary.active })}>
-                    <RotateCcw size={12} />{summary.active ? '恢复完整历史' : '启用'}
-                  </button>
-                </div>
               </article>
             ))}
           </section>

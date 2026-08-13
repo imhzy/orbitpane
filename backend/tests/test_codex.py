@@ -14,6 +14,16 @@ class CodexProviderTests(TestCase):
         self.settings = Settings.from_env()
         self.provider = CodexCliProvider(self.settings)
 
+    def test_permission_modes_map_to_cli_flags(self) -> None:
+        self.assertEqual(
+            self.provider._permission_args("workspace"),
+            ["--sandbox", "workspace-write"],
+        )
+        self.assertEqual(
+            self.provider._permission_args("unrestricted"),
+            ["--dangerously-bypass-approvals-and-sandbox"],
+        )
+
     def test_fetch_models_uses_visible_cli_catalog(self) -> None:
         completed = CompletedProcess(
             args=["codex", "debug", "models"],

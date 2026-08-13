@@ -2,7 +2,7 @@
 
 OrbitPane is a secure, self-hosted mission control for running coding agents inside
 explicitly allowed server projects. Its browser PWA provides persistent
-projects, queued execution, editable memory checkpoints, full-text search,
+projects, queued execution, inline summary checkpoints, full-text search,
 realtime execution and reconnect support without coupling the UI
 protocol to a specific agent provider. Google Antigravity is the default
 provider, with OpenAI Codex available behind a feature flag.
@@ -77,8 +77,8 @@ Useful security settings:
 - `ORBITPANE_AUTH_TTL_SECONDS`: signed login token lifetime, default 12 hours.
 - `ORBITPANE_DATABASE_PATH`: SQLite database location. Tests always use an
   isolated temporary database and never share production persistence.
-- `ORBITPANE_ANTIGRAVITY_DANGEROUS_SKIP_PERMISSIONS`: provider permission override;
-  defaults to `false` and should only be enabled inside an isolated environment.
+- Agent filesystem permissions are selected per project. New projects default to
+  unrestricted mode; workspace-restricted mode can be selected explicitly.
 
 In development, an unset PIN and signing secret are replaced with process-local
 random values, so login credentials and sessions do not survive a restart.
@@ -193,10 +193,10 @@ events:
 - Failed PIN attempts are rate-limited in memory.
 - Only one task runs per project at a time; additional messages enter an
   editable, reorderable and cancelable FIFO queue.
-- Project pins, tags, archives, preferred models and drafts are persisted on the
+- Project pins, archives, preferred models and drafts are persisted on the
   server. The browser retains caches and drafts for offline recovery.
-- Summary checkpoints are explicit, editable memory boundaries and can be
-  enabled or disabled without deleting full history.
+- Summary checkpoints create collapsible boundaries directly in the chat while
+  retaining the full history for on-demand review.
 - Task runs retain status, duration and input/output/context character metrics.
 - WebSockets use application-level heartbeats and automatically reconnect.
 - Deleting a running conversation interrupts its process group first.

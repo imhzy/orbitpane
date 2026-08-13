@@ -49,11 +49,13 @@ export interface Conversation {
   provider: string
   is_pinned: boolean
   is_archived: boolean
-  tags: string[]
   preferred_model: string
+  permission_mode: PermissionMode
   draft: string
   active_summary_id?: number | null
 }
+
+export type PermissionMode = 'workspace' | 'unrestricted'
 
 export interface ModelsResponse {
   provider: string
@@ -132,17 +134,6 @@ export interface WorkspaceStatus {
   files: WorkspaceChange[]
   counts: Record<string, number>
   truncated?: boolean
-}
-
-export interface SummaryCheckpoint {
-  id: number
-  conversation_id: number
-  message_id: number
-  covered_through_id: number
-  title: string
-  content: string
-  created_at: string
-  active: boolean
 }
 
 export interface SearchResult {

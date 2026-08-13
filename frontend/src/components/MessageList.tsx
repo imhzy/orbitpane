@@ -1,11 +1,17 @@
 import React, { Suspense, lazy } from 'react'
 import { motion } from 'framer-motion'
-import { AlertCircle, Info, FileText, User, Check, Copy, ThumbsUp, ThumbsDown, RotateCcw, Clock, ListTodo, Gauge } from 'lucide-react'
+import { AlertCircle, Info, FileText, User, Check, Copy, ThumbsUp, ThumbsDown, RotateCcw, Clock, ListTodo, Gauge, ChevronDown, ChevronUp, History, Sparkles } from 'lucide-react'
 import { LogoIcon } from '../LogoIcon'
 import { AgentExecutionTimeline } from './AgentExecutionTimeline'
 import type { Message } from '../lib/types'
 
 const MarkdownContent = lazy(() => import('./MarkdownContent'))
+
+function messageKey(message: Message, index: number): string {
+  return message.id
+    ? `message-${message.id}`
+    : `${message.role}-${message.run_id ?? message.timestamp ?? index}`
+}
 
 interface MessageListProps {
   messages: Message[]
@@ -31,9 +37,28 @@ export function MessageList({
   formatTimestamp,
   messagesEndRef
 }: MessageListProps) {
+  const latestSummaryIndex = messages.reduce((latest, message, index) => (
+    message.role === 'summary' && !message.isThinking && Boolean(message.content)
+      ? index
+      : latest
+  ), -1)
+  const latestSummaryKey = latestSummaryIndex >= 0
+    ? messageKey(messages[latestSummaryIndex], latestSummaryIndex)
+    : null
+  const [expandedHistoryKey, setExpandedHistoryKey] = React.useState<string | null>(null)
+  const [expandedSummaryKey, setExpandedSummaryKey] = React.useState<string | null>(null)
+  const isHistoryExpanded = latestSummaryKey !== null && expandedHistoryKey === latestSummaryKey
+  const summarizedMessageCount = latestSummaryIndex > 0
+    ? messages.slice(0, latestSummaryIndex).filter(message => message.role !== 'system').length
+    : 0
+
   return (
     <>
       {messages.map((m, i) => {
+        if (latestSummaryIndex >= 0 && i < latestSummaryIndex && !isHistoryExpanded) {
+          return null
+        }
+
         if (m.role === 'system') {
           return (
             <div key={i} className={`system-msg ${m.isError ? 'error' : ''}`}>
@@ -43,11 +68,87 @@ export function MessageList({
           )
         }
 
+        const key = messageKey(m, i)
+        const isCompletedSummary = m.role === 'summary' && !m.isThinking && Boolean(m.content)
+        if (isCompletedSummary) {
+          const isLatestSummary = i === latestSummaryIndex
+          const isSummaryExpanded = expandedSummaryKey === key
+          return (
+            <motion.section
+              key={key}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2 }}
+              className={`conversation-summary-boundary ${isLatestSummary ? 'latest' : ''}`}
+              aria-label="对话总结分隔"
+              data-message-id={m.id}
+            >
+              <div className="summary-boundary-rule" aria-hidden="true" />
+              <div className="summary-boundary-card">
+                <div className="summary-boundary-icon" aria-hidden="true">
+                  <Sparkles size={16} />
+                </div>
+                <div className="summary-boundary-copy">
+                  <strong>{isLatestSummary ? '此前对话已总结' : '历史总结检查点'}</strong>
+                  <span>
+                    {isLatestSummary
+                      ? `${summarizedMessageCount} 条历史消息已收起，可随时展开查看`
+                      : '这段历史曾在这里生成总结'}
+                  </span>
+                </div>
+                <div className="summary-boundary-actions">
+                  <button
+                    type="button"
+                    aria-expanded={isSummaryExpanded}
+                    onClick={() => setExpandedSummaryKey(isSummaryExpanded ? null : key)}
+                  >
+                    <FileText size={13} />
+                    {isSummaryExpanded ? '收起总结' : '查看总结'}
+                    {isSummaryExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                  </button>
+                  {isLatestSummary && summarizedMessageCount > 0 && (
+                    <button
+                      type="button"
+                      className="summary-history-toggle"
+                      aria-expanded={isHistoryExpanded}
+                      onClick={() => setExpandedHistoryKey(isHistoryExpanded ? null : key)}
+                    >
+                      <History size={13} />
+                      {isHistoryExpanded ? '收起上方对话' : '展开上方对话'}
+                      {isHistoryExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                    </button>
+                  )}
+                </div>
+              </div>
+              {isSummaryExpanded && (
+                <div className="summary-boundary-content">
+                  <div className="markdown-body">
+                    <Suspense fallback={<div className="message-loading-placeholder">{m.content}</div>}>
+                      <MarkdownContent content={m.content} enableCodeBlocks />
+                    </Suspense>
+                  </div>
+                  <div className="summary-boundary-meta">
+                    {m.timestamp && <span><Clock size={11} />{formatTimestamp(m.timestamp)}</span>}
+                    <button
+                      type="button"
+                      onClick={() => copyMessageText(m.content, i)}
+                    >
+                      {copiedMsgIdx === i ? <Check size={12} /> : <Copy size={12} />}
+                      {copiedMsgIdx === i ? '已复制' : '复制总结'}
+                    </button>
+                  </div>
+                </div>
+              )}
+              <div className="summary-boundary-rule" aria-hidden="true" />
+            </motion.section>
+          )
+        }
+
         const isLastAgentMessage = m.role === 'agent' && i === messages.length - 1
 
         return (
           <motion.div 
-            key={m.run_id ? `${m.role}-${m.run_id}` : `${m.role}-${m.timestamp ?? 'message'}-${i}`}
+            key={key}
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.2 }}

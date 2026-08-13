@@ -75,6 +75,12 @@ class AntigravityProvider(AgentProvider):
     def available(self) -> bool:
         return shutil.which(self.settings.antigravity_command) is not None
 
+    @staticmethod
+    def _permission_args(permission_mode: str) -> list[str]:
+        if permission_mode == "unrestricted":
+            return ["--dangerously-skip-permissions"]
+        return ["--sandbox"]
+
     async def run(self, request: AgentRequest, emit: EmitEvent) -> AgentResult:
         if not self.available:
             raise ProviderError(
@@ -101,8 +107,7 @@ class AntigravityProvider(AgentProvider):
             "--log-file",
             str(log_path),
         ]
-        if self.settings.antigravity_skip_permissions:
-            command.append("--dangerously-skip-permissions")
+        command.extend(self._permission_args(request.permission_mode))
 
         environment = os.environ.copy()
         for key in tuple(environment):

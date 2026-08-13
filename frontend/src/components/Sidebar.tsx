@@ -5,7 +5,7 @@ import {
   ChevronRight, Compass, FolderPlus,
   Check, Pencil, Layers, HardDrive, RefreshCw, Cpu,
   Search, Star, LogOut, ChevronDown, Maximize2, Minimize2,
-  ArchiveRestore, ShieldCheck
+  ArchiveRestore, ShieldAlert, ShieldCheck
 } from 'lucide-react'
 import { LogoIcon } from '../LogoIcon'
 import type { Conversation, Provider } from '../lib/types'
@@ -105,6 +105,7 @@ export function Sidebar(_props: SidebarProps) {
     startEditingConv, setEditingConvId, deleteConversation, getProviderBadge,
     providers, newConvName, setNewConvName, selectedDir, setSelectedDir,
     currentPath, setCurrentPath, selectedProvider, setSelectedProvider,
+    selectedPermissionMode, setSelectedPermissionMode,
     defaultProvider, items, loadDir, getBreadcrumbParts, createConversation,
     loadConversations, updateConversation, showToast
   } = useAppContext()
@@ -157,8 +158,7 @@ export function Sidebar(_props: SidebarProps) {
   const filteredConvs = conversations.filter(c =>
     c.is_archived === showArchived && (
       c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.path.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.tags.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase()))
+      c.path.toLowerCase().includes(searchTerm.toLowerCase())
     )
   ).sort((a, b) => {
     const aPin = a.is_pinned ? 1 : 0
@@ -239,7 +239,7 @@ export function Sidebar(_props: SidebarProps) {
                   <input
                     type="text"
                     className="sidebar-search-input"
-                    placeholder="搜索项目、路径或标签..."
+                    placeholder="搜索项目或路径..."
                     value={searchTerm}
                     onChange={e => setSearchTerm(e.target.value)}
                   />
@@ -250,7 +250,7 @@ export function Sidebar(_props: SidebarProps) {
                   )}
                 </div>
               )}
-              {conversations.some(conversation => conversation.is_archived) && (
+              {(showArchived || conversations.some(conversation => conversation.is_archived)) && (
                 <button
                   className={`archived-toggle-btn ${showArchived ? 'active' : ''}`}
                   onClick={() => setShowArchived(previous => !previous)}
@@ -349,10 +349,6 @@ export function Sidebar(_props: SidebarProps) {
                                 <span className={`conv-provider-tag ${badge.className}`}>
                                   {badge.text}
                                 </span>
-                                {conv.tags.slice(0, 1).map(tag => (
-                                  <span className="conv-tag" key={tag}>{tag}</span>
-                                ))}
-                                {conv.tags.length > 1 && <span className="conv-tag">+{conv.tags.length - 1}</span>}
                               </div>
                               <span className="item-subtitle" title={conv.path}>{conv.path}</span>
                             </>
@@ -603,11 +599,29 @@ export function Sidebar(_props: SidebarProps) {
                       </div>
                     </div>
                   </div>
-                  <div className="permission-preview-card">
-                    <ShieldCheck size={22} />
-                    <div>
-                      <strong>受限工作区权限</strong>
-                      <p>Agent 仅在已选项目路径内工作；不会默认启用跳过权限检查。</p>
+                  <div className="permission-mode-section">
+                    <span className="cw-label">文件系统权限</span>
+                    <div className="permission-mode-options" role="radiogroup" aria-label="文件系统权限">
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={selectedPermissionMode === 'workspace'}
+                        className={selectedPermissionMode === 'workspace' ? 'selected' : ''}
+                        onClick={() => setSelectedPermissionMode('workspace')}
+                      >
+                        <ShieldCheck size={20} />
+                        <span><strong>受限工作区</strong><small>在沙箱内读写所选项目</small></span>
+                      </button>
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={selectedPermissionMode === 'unrestricted'}
+                        className={`danger ${selectedPermissionMode === 'unrestricted' ? 'selected' : ''}`}
+                        onClick={() => setSelectedPermissionMode('unrestricted')}
+                      >
+                        <ShieldAlert size={20} />
+                        <span><strong>完全访问</strong><small>默认；跳过审批与沙箱，可访问运行账户允许的路径</small></span>
+                      </button>
                     </div>
                   </div>
                   <div className="provider-capability-list">
@@ -626,7 +640,7 @@ export function Sidebar(_props: SidebarProps) {
                     <div><dt>名称</dt><dd>{newConvName}</dd></div>
                     <div><dt>路径</dt><dd>{selectedDir}</dd></div>
                     <div><dt>Agent</dt><dd>{providers.find(provider => provider.id === (selectedProvider || defaultProvider))?.name || selectedProvider}</dd></div>
-                    <div><dt>权限</dt><dd>受限工作区</dd></div>
+                    <div><dt>权限</dt><dd>{selectedPermissionMode === 'workspace' ? '受限工作区' : '完全访问'}</dd></div>
                   </dl>
                 </div>
               )}

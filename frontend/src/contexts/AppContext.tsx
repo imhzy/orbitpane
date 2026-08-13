@@ -1,5 +1,5 @@
 import React, { createContext, useContext } from 'react';
-import type { Conversation, Provider, DirItem, ToastKind } from '../lib/types';
+import type { Conversation, Provider, DirItem, PermissionMode, ToastKind } from '../lib/types';
 import type { Message } from '../lib/types';
 
 export interface AppContextType {
@@ -31,7 +31,7 @@ export interface AppContextType {
   selectConversation: (conv: Conversation) => void;
   updateConversation: (
     id: number,
-    values: Partial<Pick<Conversation, 'name' | 'path' | 'provider' | 'is_pinned' | 'is_archived' | 'tags' | 'preferred_model' | 'draft'>>,
+    values: Partial<Pick<Conversation, 'name' | 'path' | 'provider' | 'is_pinned' | 'is_archived' | 'preferred_model' | 'permission_mode' | 'draft'>>,
     options?: { silent?: boolean },
   ) => Promise<Conversation | null>;
 
@@ -48,6 +48,8 @@ export interface AppContextType {
   defaultProvider: string;
   selectedProvider: string;
   setSelectedProvider: (provider: string) => void;
+  selectedPermissionMode: PermissionMode;
+  setSelectedPermissionMode: (mode: PermissionMode) => void;
   models: string[];
   selectedModel: string;
   setSelectedModel: (model: string) => void;

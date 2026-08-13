@@ -15,6 +15,7 @@ class AgentRequest:
     prompt: str
     history: tuple[Message, ...]
     model: str
+    permission_mode: str = "unrestricted"
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,4 +73,3 @@ class AgentProvider(ABC):
             "available": self.available,
             "models": list(self.models),
         }
-

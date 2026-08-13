@@ -20,6 +20,7 @@ class DatabaseTests(unittest.TestCase):
         conversation = self.database.create_conversation(
             "Workspace", self.temp_dir.name, "antigravity"
         )
+        self.assertEqual(conversation.permission_mode, "unrestricted")
         message_id = self.database.add_message(
             conversation.id,
             "user",
@@ -42,15 +43,15 @@ class DatabaseTests(unittest.TestCase):
             conversation.id,
             name="Renamed",
             is_pinned=True,
-            tags=("frontend", "pwa"),
             preferred_model="test-model",
+            permission_mode="unrestricted",
             draft="unfinished",
         )
         self.assertIsNotNone(updated)
         assert updated is not None
         self.assertEqual(updated.name, "Renamed")
         self.assertTrue(updated.is_pinned)
-        self.assertEqual(updated.tags, ("frontend", "pwa"))
+        self.assertEqual(updated.permission_mode, "unrestricted")
         self.assertEqual(updated.draft, "unfinished")
 
         checkpoint = self.database.create_summary_checkpoint(

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -59,8 +58,8 @@ class Database:
                     provider TEXT NOT NULL DEFAULT 'antigravity',
                     is_pinned INTEGER NOT NULL DEFAULT 0,
                     is_archived INTEGER NOT NULL DEFAULT 0,
-                    tags_json TEXT NOT NULL DEFAULT '[]',
                     preferred_model TEXT NOT NULL DEFAULT '',
+                    permission_mode TEXT NOT NULL DEFAULT 'unrestricted',
                     draft TEXT NOT NULL DEFAULT '',
                     active_summary_id INTEGER
                 );
@@ -159,8 +158,8 @@ class Database:
             "provider": "TEXT NOT NULL DEFAULT 'antigravity'",
             "is_pinned": "INTEGER NOT NULL DEFAULT 0",
             "is_archived": "INTEGER NOT NULL DEFAULT 0",
-            "tags_json": "TEXT NOT NULL DEFAULT '[]'",
             "preferred_model": "TEXT NOT NULL DEFAULT ''",
+            "permission_mode": "TEXT NOT NULL DEFAULT 'unrestricted'",
             "draft": "TEXT NOT NULL DEFAULT ''",
             "active_summary_id": "INTEGER",
         }
@@ -181,11 +180,6 @@ class Database:
 
     @staticmethod
     def _conversation(row: sqlite3.Row) -> Conversation:
-        try:
-            raw_tags = json.loads(row["tags_json"] or "[]")
-            tags = tuple(str(tag) for tag in raw_tags if str(tag).strip())
-        except (TypeError, ValueError, json.JSONDecodeError):
-            tags = ()
         return Conversation(
             id=int(row["id"]),
             name=str(row["name"]),
@@ -194,8 +188,12 @@ class Database:
             provider=str(row["provider"] or DEFAULT_PROVIDER_ID),
             is_pinned=bool(row["is_pinned"]),
             is_archived=bool(row["is_archived"]),
-            tags=tags,
             preferred_model=str(row["preferred_model"] or ""),
+            permission_mode=(
+                "unrestricted"
+                if row["permission_mode"] == "unrestricted"
+                else "workspace"
+            ),
             draft=str(row["draft"] or ""),
             active_summary_id=(
                 int(row["active_summary_id"])
@@ -245,12 +243,14 @@ class Database:
         provider: str,
         *,
         preferred_model: str = "",
+        permission_mode: str = "unrestricted",
     ) -> Conversation:
         with self.connect() as connection:
             cursor = connection.execute(
-                "INSERT INTO conversations(name, path, provider, preferred_model) "
-                "VALUES (?, ?, ?, ?)",
-                (name, path, provider, preferred_model),
+                "INSERT INTO conversations"
+                "(name, path, provider, preferred_model, permission_mode) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (name, path, provider, preferred_model, permission_mode),
             )
             conversation_id = int(cursor.lastrowid)
         conversation = self.get_conversation(conversation_id)
@@ -267,8 +267,8 @@ class Database:
         provider: str | None = None,
         is_pinned: bool | None = None,
         is_archived: bool | None = None,
-        tags: tuple[str, ...] | None = None,
         preferred_model: str | None = None,
+        permission_mode: str | None = None,
         draft: str | None = None,
         active_summary_id: int | None | object = ...,
     ) -> Conversation | None:
@@ -280,8 +280,8 @@ class Database:
             ("provider", provider),
             ("is_pinned", int(is_pinned) if is_pinned is not None else None),
             ("is_archived", int(is_archived) if is_archived is not None else None),
-            ("tags_json", json.dumps(tags, ensure_ascii=False) if tags is not None else None),
             ("preferred_model", preferred_model),
+            ("permission_mode", permission_mode),
             ("draft", draft),
         )
         for column, value in fields:
@@ -573,14 +573,14 @@ class Database:
                 "SELECT 'conversation' AS result_type, c.id AS conversation_id, "
                 "NULL AS message_id, c.name AS title, c.path AS snippet, c.created_at "
                 "FROM conversations c WHERE c.is_archived = 0 AND "
-                "(lower(c.name) LIKE ? OR lower(c.path) LIKE ? OR lower(c.tags_json) LIKE ?) "
+                "(lower(c.name) LIKE ? OR lower(c.path) LIKE ?) "
                 "UNION ALL "
                 "SELECT 'message' AS result_type, m.conversation_id, m.id AS message_id, "
                 "c.name AS title, substr(m.content, 1, 280) AS snippet, m.timestamp AS created_at "
                 "FROM messages m JOIN conversations c ON c.id = m.conversation_id "
                 "WHERE c.is_archived = 0 AND lower(m.content) LIKE ? "
                 "ORDER BY created_at DESC LIMIT ?",
-                (pattern, pattern, pattern, pattern, limit),
+                (pattern, pattern, pattern, limit),
             ).fetchall()
         return [
             {

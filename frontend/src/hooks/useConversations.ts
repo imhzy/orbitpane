@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { apiFetch } from '../lib/api'
-import type { Conversation, DirItem, Provider, ModelsResponse, AgentsResponse, ToastKind } from '../lib/types'
+import type { Conversation, DirItem, Provider, ModelsResponse, AgentsResponse, PermissionMode, ToastKind } from '../lib/types'
 
 const CONVERSATION_CACHE_KEY = 'orbitpane_conversations_cache_v2'
 const PROVIDER_CACHE_KEY = 'orbitpane_provider_cache_v2'
@@ -30,8 +30,8 @@ function normalizeConversation(value: unknown): Conversation | null {
     provider: typeof raw.provider === 'string' ? raw.provider : 'antigravity',
     is_pinned: Boolean(raw.is_pinned),
     is_archived: Boolean(raw.is_archived),
-    tags: Array.isArray(raw.tags) ? raw.tags.filter(tag => typeof tag === 'string') : [],
     preferred_model: typeof raw.preferred_model === 'string' ? raw.preferred_model : '',
+    permission_mode: raw.permission_mode === 'workspace' ? 'workspace' : 'unrestricted',
     draft: typeof raw.draft === 'string' ? raw.draft : '',
     active_summary_id: typeof raw.active_summary_id === 'number' ? raw.active_summary_id : null,
   }
@@ -78,6 +78,7 @@ export function useConversations(showToast: (msg: string, kind?: ToastKind) => v
   const [selectedDir, setSelectedDir] = useState<string>('')
   const [newConvName, setNewConvName] = useState('')
   const [selectedProvider, setSelectedProvider] = useState<string>('')
+  const [selectedPermissionMode, setSelectedPermissionMode] = useState<PermissionMode>('unrestricted')
 
   const [editingConvId, setEditingConvId] = useState<number | null>(null)
   const [editingConvName, setEditingConvName] = useState<string>('')
@@ -202,7 +203,7 @@ export function useConversations(showToast: (msg: string, kind?: ToastKind) => v
   const updateConversation = useCallback((
     conversationId: number,
     values: Partial<Pick<Conversation,
-      'name' | 'path' | 'provider' | 'is_pinned' | 'is_archived' | 'tags' | 'preferred_model' | 'draft'
+      'name' | 'path' | 'provider' | 'is_pinned' | 'is_archived' | 'preferred_model' | 'permission_mode' | 'draft'
     >>,
     options: { silent?: boolean } = {},
   ) => {
@@ -321,6 +322,8 @@ export function useConversations(showToast: (msg: string, kind?: ToastKind) => v
     setNewConvName,
     selectedProvider,
     setSelectedProvider,
+    selectedPermissionMode,
+    setSelectedPermissionMode,
     editingConvId,
     setEditingConvId,
     editingConvName,

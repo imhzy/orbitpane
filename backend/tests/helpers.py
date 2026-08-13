@@ -19,7 +19,6 @@ def test_settings(tmp_path: Path) -> Settings:
         antigravity_command="true",
         antigravity_models=("test-model",),
         antigravity_proxy_url=None,
-        antigravity_skip_permissions=False,
         codex_enabled=False,
         codex_command="codex",
         codex_models=(),

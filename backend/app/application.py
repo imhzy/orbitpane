@@ -391,6 +391,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 str(path),
                 provider.id,
                 preferred_model=preferred_model,
+                permission_mode=request.permission_mode,
             )
         )
 
@@ -400,7 +401,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     async def update_conversation(conversation_id: int, request: ConversationUpdate):
         if coordinator.is_running(conversation_id) and (
-            request.path is not None or request.provider is not None
+            request.path is not None
+            or request.provider is not None
+            or request.permission_mode is not None
         ):
             raise HTTPException(
                 status_code=409,
@@ -428,11 +431,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if provider_id is None:
                 raise HTTPException(status_code=404, detail="Conversation not found")
             preferred_model = providers.get(provider_id).validate_model(preferred_model)
-        tags = None
-        if request.tags is not None:
-            tags = tuple(
-                dict.fromkeys(tag.strip()[:40] for tag in request.tags if tag.strip())
-            )
         conversation = database.update_conversation(
             conversation_id,
             name=name,
@@ -440,8 +438,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             provider=selected_provider.id if selected_provider else None,
             is_pinned=request.is_pinned,
             is_archived=request.is_archived,
-            tags=tags,
             preferred_model=preferred_model,
+            permission_mode=request.permission_mode,
             draft=request.draft,
         )
         if conversation is None:

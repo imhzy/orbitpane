@@ -18,6 +18,13 @@ from backend.tests.helpers import test_settings
 
 
 class AntigravityModelCatalogTests(TestCase):
+    def test_permission_modes_map_to_cli_flags(self) -> None:
+        self.assertEqual(AntigravityProvider._permission_args("workspace"), ["--sandbox"])
+        self.assertEqual(
+            AntigravityProvider._permission_args("unrestricted"),
+            ["--dangerously-skip-permissions"],
+        )
+
     def test_fetch_models_parses_cli_output(self) -> None:
         completed = CompletedProcess(
             args=["agy", "models"],

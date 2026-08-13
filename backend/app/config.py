@@ -42,7 +42,6 @@ class Settings:
     antigravity_command: str
     antigravity_models: tuple[str, ...]
     antigravity_proxy_url: str | None
-    antigravity_skip_permissions: bool
     codex_enabled: bool
     codex_command: str
     codex_models: tuple[str, ...]
@@ -105,10 +104,6 @@ class Settings:
             ),
             antigravity_proxy_url=(
                 os.getenv("ORBITPANE_ANTIGRAVITY_PROXY_URL") or None
-            ),
-            antigravity_skip_permissions=_as_bool(
-                os.getenv("ORBITPANE_ANTIGRAVITY_DANGEROUS_SKIP_PERMISSIONS"),
-                default=False,
             ),
             codex_enabled=_as_bool(os.getenv("CODEX_ENABLED"), default=False),
             codex_command=os.getenv("CODEX_COMMAND", "codex").strip(),

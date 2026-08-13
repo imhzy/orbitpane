@@ -53,10 +53,41 @@ class ApplicationTests(IsolatedAsyncioTestCase):
         )
         self.assertEqual(response.status_code, 201, response.text)
         self.assertEqual(response.json()["provider"], "antigravity")
+        self.assertEqual(response.json()["permission_mode"], "unrestricted")
 
         listed = await self.client.get("/api/conversations", headers=headers)
         self.assertEqual(listed.status_code, 200)
         self.assertEqual(len(listed.json()), 1)
+
+    async def test_conversation_permission_mode_can_be_selected_and_updated(self) -> None:
+        headers = await self.login_headers()
+        created = await self.client.post(
+            "/api/conversations",
+            headers=headers,
+            json={
+                "name": "Unrestricted workspace",
+                "path": str(self.workspace),
+                "provider": "antigravity",
+                "permission_mode": "unrestricted",
+            },
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        self.assertEqual(created.json()["permission_mode"], "unrestricted")
+
+        updated = await self.client.put(
+            f"/api/conversations/{created.json()['id']}",
+            headers=headers,
+            json={"permission_mode": "workspace"},
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        self.assertEqual(updated.json()["permission_mode"], "workspace")
+
+        invalid = await self.client.put(
+            f"/api/conversations/{created.json()['id']}",
+            headers=headers,
+            json={"permission_mode": "invalid"},
+        )
+        self.assertEqual(invalid.status_code, 422)
 
     async def test_workspace_cannot_escape_allowed_root(self) -> None:
         response = await self.client.get(

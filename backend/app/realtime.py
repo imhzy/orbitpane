@@ -285,6 +285,7 @@ class AgentCoordinator:
             prompt=augmented_prompt,
             history=history,
             model=item.model,
+            permission_mode=conversation.permission_mode,
         )
         provider = self.providers.get(item.provider)
         self.database.update_run(

@@ -91,6 +91,8 @@ export default function App() {
     setNewConvName,
     selectedProvider,
     setSelectedProvider,
+    selectedPermissionMode,
+    setSelectedPermissionMode,
     editingConvId,
     setEditingConvId,
     editingConvName,
@@ -621,6 +623,7 @@ export default function App() {
         name: newConvName,
         path: selectedDir,
         provider: selectedProvider || defaultProvider,
+        permission_mode: selectedPermissionMode,
       })
     })
       .then(data => {
@@ -630,6 +633,7 @@ export default function App() {
         setCurrentPath(defaultWorkspaceRoot)
         setSelectedDir(defaultWorkspaceRoot)
         setSelectedProvider(defaultProvider)
+        setSelectedPermissionMode('unrestricted')
         selectConversation(data)
       })
       .catch(err => {
@@ -768,11 +772,11 @@ export default function App() {
     const conversationId = activeConv.id
     apiFetch<{ status: string }>(`/api/conversations/${conversationId}/summarize`, { method: 'POST' })
       .then(() => {
-        showToast('记忆检查点任务已提交', 'info')
+        showToast('对话总结任务已提交', 'info')
       })
       .catch(err => {
         console.error(err)
-        showToast('创建记忆检查点失败', 'error')
+        showToast('创建对话总结失败', 'error')
       })
   }
 
@@ -995,6 +999,7 @@ export default function App() {
     editingConvId, setEditingConvId, editingConvName, setEditingConvName,
     startEditingConv, saveConvName, providers, defaultProvider,
     selectedProvider, setSelectedProvider, models, selectedModel,
+    selectedPermissionMode, setSelectedPermissionMode,
     setSelectedModel, loadModels, loadProviders, getProviderBadge,
     formatModelName, workspaceRoots, defaultWorkspaceRoot,
     currentPath, setCurrentPath, items, selectedDir,
