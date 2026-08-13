@@ -66,7 +66,11 @@ function taskLabel(status: TaskRecord['status']): string {
   }[status]
 }
 
-export function WorkspaceInspector() {
+interface WorkspaceInspectorProps {
+  onActiveTaskCountChange?: (count: number) => void
+}
+
+export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspectorProps) {
   const {
     activeConv,
     isConnected,
@@ -149,11 +153,36 @@ export function WorkspaceInspector() {
       setMobileOpen(true)
     }
     window.addEventListener('orbitpane-open-inspector', openInspector)
-    return () => window.removeEventListener('orbitpane-open-inspector', openInspector)
+    const closeInspector = () => {
+      setMobileOpen(false)
+    }
+    window.addEventListener('orbitpane-close-inspector', closeInspector)
+    return () => {
+      window.removeEventListener('orbitpane-open-inspector', openInspector)
+      window.removeEventListener('orbitpane-close-inspector', closeInspector)
+    }
+  }, [])
+
+  useEffect(() => {
+    const syncPanelFromHistory = () => {
+      const requestedPanel = new URLSearchParams(window.location.search).get('panel')
+      if (requestedPanel === 'tasks') {
+        setTab('tasks')
+        setMobileOpen(true)
+      } else if (window.innerWidth < 1280) {
+        setMobileOpen(false)
+      }
+    }
+    window.addEventListener('popstate', syncPanelFromHistory)
+    return () => window.removeEventListener('popstate', syncPanelFromHistory)
   }, [])
 
   const closeMobileInspector = () => {
     setMobileOpen(false)
+    if (window.history.state?.orbitpanePanel === 'tasks') {
+      window.history.back()
+      return
+    }
     const url = new URL(window.location.href)
     url.searchParams.delete('panel')
     window.history.replaceState({}, '', url.toString())
@@ -162,6 +191,10 @@ export function WorkspaceInspector() {
   const activeTasks = useMemo(() => tasks.filter(task => (
     ['queued', 'starting', 'running'].includes(task.status)
   )), [tasks])
+
+  useEffect(() => {
+    onActiveTaskCountChange?.(activeTasks.length)
+  }, [activeTasks.length, onActiveTaskCountChange])
   const contextPercent = Math.min(
     100,
     Math.round((stats.context_chars / Math.max(1, stats.context_limit || 120_000)) * 100),

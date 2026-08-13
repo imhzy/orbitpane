@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Square, Send, CornerDownLeft, AtSign, ListPlus } from 'lucide-react'
+import { Square, Send, CornerDownLeft, AtSign, ListPlus, Plus } from 'lucide-react'
 import { ModelSelector } from './ModelSelector'
 import { FileMentionPicker } from './FileMentionPicker'
 import { apiFetch } from '../lib/api'
 import { playSendSound, playClickSound } from '../lib/sound'
+import { haptic } from '../lib/nativeFeedback'
 import type { Conversation, FileSearchItem, FileSearchResponse, ToastKind } from '../lib/types'
 
 interface FileMention {
@@ -198,6 +199,7 @@ export function ChatInput({
       return
     }
     if (input.trim()) {
+      haptic('success')
       playSendSound()
       sendMessage()
       if (!isConnected) {
@@ -208,6 +210,7 @@ export function ChatInput({
   }
 
   const handleInterrupt = () => {
+    haptic('warning')
     playClickSound()
     socketRef.current?.send(JSON.stringify({ action: 'interrupt' }))
     showToast('正在中断当前任务…', 'warning')
@@ -308,6 +311,19 @@ export function ChatInput({
         
         <div className="input-bottom-bar">
           <div className="input-bottom-left">
+            <button
+              type="button"
+              className="input-reference-btn"
+              aria-label="引用项目文件"
+              title="引用项目文件"
+              onClick={() => {
+                const separator = input && !input.endsWith(' ') ? ' ' : ''
+                setInput(previous => `${previous}${separator}@`)
+                window.requestAnimationFrame(() => textareaRef.current?.focus())
+              }}
+            >
+              <Plus size={15} />
+            </button>
             <ModelSelector
               selectedModel={selectedModel}
               setSelectedModel={setSelectedModel}

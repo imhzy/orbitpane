@@ -27,6 +27,15 @@ export default defineConfig({
         dir: 'ltr',
         categories: ['developer', 'productivity', 'utilities'],
         orientation: 'any',
+        share_target: {
+          action: '/?action=share',
+          method: 'GET',
+          params: {
+            title: 'title',
+            text: 'text',
+            url: 'url'
+          }
+        },
         shortcuts: [
           {
             name: '新建项目',

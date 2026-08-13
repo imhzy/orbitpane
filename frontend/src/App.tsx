@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { Suspense, lazy, useState, useEffect, useRef, useCallback } from 'react'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useConversations } from './hooks/useConversations'
 import { useWebSocket } from './hooks/useWebSocket'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Check, ArrowDown, Cpu, MessageSquare, Loader2, AlertCircle, Info, TriangleAlert, WifiOff } from 'lucide-react'
+import { Check, ArrowDown, Cpu, MessageSquare, AlertCircle, Info, TriangleAlert, WifiOff, RefreshCw } from 'lucide-react'
 import './App.css'
 import './Workspace.css'
 import { apiFetch } from './lib/api'
@@ -17,11 +17,13 @@ import { ChatHeader } from './components/ChatHeader'
 import { WelcomeScreen } from './components/WelcomeScreen'
 import { MessageList } from './components/MessageList'
 import { ChatInput } from './components/ChatInput'
-import { CommandPalette } from './components/CommandPalette'
-import { WorkspaceInspector } from './components/WorkspaceInspector'
-import { PwaInstallPrompt } from './components/PwaInstallPrompt'
 import { AppContext } from './contexts/AppContext'
 import type { AppContextType } from './contexts/AppContext'
+import { haptic, updateAppBadge } from './lib/nativeFeedback'
+
+const CommandPalette = lazy(() => import('./components/CommandPalette').then(module => ({ default: module.CommandPalette })))
+const WorkspaceInspector = lazy(() => import('./components/WorkspaceInspector').then(module => ({ default: module.WorkspaceInspector })))
+const PwaInstallPrompt = lazy(() => import('./components/PwaInstallPrompt').then(module => ({ default: module.PwaInstallPrompt })))
 
 
 function formatTimestamp(ts?: string | number) {
@@ -121,6 +123,10 @@ export default function App() {
   const shouldAutoScrollRef = useRef(true)
   const scrollAnimationFrameRef = useRef<number | null>(null)
   const pendingAutoScrollTopRef = useRef<number | null>(null)
+  const conversationScrollPositionsRef = useRef(new Map<number, number>())
+  const pullStartYRef = useRef<number | null>(null)
+  const [pullDistance, setPullDistance] = useState(0)
+  const [isPullRefreshing, setIsPullRefreshing] = useState(false)
 
   const isNearBottom = useCallback(() => {
     const container = messagesContainerRef.current
@@ -197,10 +203,12 @@ export default function App() {
   const [applyUpdate, setApplyUpdate] = useState<null | (() => void)>(null)
   const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const draftConversationIdRef = useRef<number | null>(null)
+  const shareHandledRef = useRef(false)
   const [copiedMsgIdx, setCopiedMsgIdx] = useState<number | null>(null)
   const [feedbackState, setFeedbackState] = useState<Record<number, 'up' | 'down'>>({})
   const [isExporting, setIsExporting] = useState(false)
   const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false)
+  const [mobileTaskCount, setMobileTaskCount] = useState(0)
 
   const getBreadcrumbParts = (pathStr: string) => {
     const normalizedPath = pathStr.replace(/\/+$/, '') || '/'
@@ -311,6 +319,33 @@ export default function App() {
     pendingAutoScrollTopRef.current = null
   }, [])
 
+  const handlePullStart = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
+    const container = messagesContainerRef.current
+    if (!container || container.scrollTop > 0 || event.touches.length !== 1) return
+    pullStartYRef.current = event.touches[0].clientY
+  }, [])
+
+  const handlePullMove = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
+    if (pullStartYRef.current === null || event.touches.length !== 1) return
+    const distance = Math.max(0, event.touches[0].clientY - pullStartYRef.current)
+    setPullDistance(Math.min(92, distance * 0.48))
+  }, [])
+
+  const handlePullEnd = useCallback(() => {
+    const shouldRefresh = pullDistance >= 54 && !!activeConvRef.current && !isPullRefreshing
+    pullStartYRef.current = null
+    setPullDistance(0)
+    if (!shouldRefresh || !activeConvRef.current) return
+    setIsPullRefreshing(true)
+    haptic('light')
+    Promise.resolve(loadHistory(activeConvRef.current.id, true))
+      .then(() => {
+        haptic('success')
+        showToast('对话已刷新')
+      })
+      .finally(() => setIsPullRefreshing(false))
+  }, [activeConvRef, isPullRefreshing, loadHistory, pullDistance, showToast])
+
   const scheduleScrollToBottom = useCallback(() => {
     if (!shouldAutoScrollRef.current || scrollAnimationFrameRef.current !== null) return
 
@@ -364,11 +399,39 @@ export default function App() {
     }
   })
 
-  const triggerVibration = () => {
-    if (typeof navigator !== 'undefined' && navigator.vibrate) {
-      navigator.vibrate(50)
+  const triggerVibration = () => haptic('light')
+
+  useEffect(() => {
+    void updateAppBadge(mobileTaskCount)
+  }, [mobileTaskCount])
+
+  useEffect(() => {
+    let edgeStart: { x: number; y: number } | null = null
+    const onPointerDown = (event: PointerEvent) => {
+      if (window.innerWidth >= 769 || event.pointerType !== 'touch' || event.clientX > 24 || isDrawerOpen) return
+      edgeStart = { x: event.clientX, y: event.clientY }
     }
-  }
+    const onPointerUp = (event: PointerEvent) => {
+      if (!edgeStart) return
+      const horizontalDistance = event.clientX - edgeStart.x
+      const verticalDistance = Math.abs(event.clientY - edgeStart.y)
+      edgeStart = null
+      if (horizontalDistance > 72 && verticalDistance < 60) {
+        haptic('light')
+        setDrawerMode('sessions')
+        setIsDrawerOpen(true)
+      }
+    }
+    const cancel = () => { edgeStart = null }
+    window.addEventListener('pointerdown', onPointerDown, { passive: true })
+    window.addEventListener('pointerup', onPointerUp, { passive: true })
+    window.addEventListener('pointercancel', cancel, { passive: true })
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('pointerup', onPointerUp)
+      window.removeEventListener('pointercancel', cancel)
+    }
+  }, [isDrawerOpen])
 
   // Dynamic Viewport Height for Mobile Browser / PWA Keyboard
   useEffect(() => {
@@ -489,6 +552,24 @@ export default function App() {
   }, [isLoggedIn])
 
   useEffect(() => {
+    if (!isLoggedIn || !activeConversationId || shareHandledRef.current) return
+    const url = new URL(window.location.href)
+    if (url.searchParams.get('action') !== 'share') return
+    const sharedText = [
+      url.searchParams.get('title'),
+      url.searchParams.get('text'),
+      url.searchParams.get('url'),
+    ].filter(Boolean).join('\n')
+    if (!sharedText) return
+    shareHandledRef.current = true
+    setInput(previous => previous ? `${previous}\n${sharedText}` : sharedText)
+    for (const key of ['action', 'title', 'text', 'url']) url.searchParams.delete(key)
+    window.history.replaceState({}, '', url.toString())
+    window.requestAnimationFrame(() => textareaRef.current?.focus())
+    showToast('分享内容已放入输入框', 'info')
+  }, [activeConversationId, isLoggedIn, showToast])
+
+  useEffect(() => {
     let channel: BroadcastChannel | null = null
     try {
       channel = new BroadcastChannel('orbitpane-sync')
@@ -602,6 +683,10 @@ export default function App() {
   const selectConversation = (conv: Conversation, updateUrl = true) => {
     triggerVibration()
     const isDifferentConversation = activeConvRef.current?.id !== conv.id
+    const previousConversationId = activeConvRef.current?.id
+    if (previousConversationId && messagesContainerRef.current) {
+      conversationScrollPositionsRef.current.set(previousConversationId, messagesContainerRef.current.scrollTop)
+    }
     activeConvRef.current = conv
     setActiveConv(conv)
     shouldAutoScrollRef.current = true
@@ -626,6 +711,15 @@ export default function App() {
         const last = [...msgs].reverse().find(m => m.model)
         if (conv.preferred_model) setSelectedModel(conv.preferred_model)
         else if (last?.model) setSelectedModel(last.model)
+        window.requestAnimationFrame(() => {
+          const savedPosition = conversationScrollPositionsRef.current.get(conv.id)
+          if (messagesContainerRef.current && savedPosition !== undefined) {
+            shouldAutoScrollRef.current = false
+            messagesContainerRef.current.scrollTop = savedPosition
+          } else {
+            scrollToBottom(false)
+          }
+        })
       }
     })
     connectWebSocket(conv, false)
@@ -1018,6 +1112,25 @@ export default function App() {
     setIsLoggedIn(true)
   }
 
+  const showProjectHome = () => {
+    const conversationId = activeConvRef.current?.id
+    if (conversationId && messagesContainerRef.current) {
+      conversationScrollPositionsRef.current.set(conversationId, messagesContainerRef.current.scrollTop)
+    }
+    activeConvRef.current = null
+    setActiveConv(null)
+    setMessages([])
+    setCopiedMsgIdx(null)
+    setFeedbackState({})
+    historyRequestRef.current += 1
+    disconnectCurrentSocket()
+    window.dispatchEvent(new CustomEvent('orbitpane-close-inspector'))
+    const url = new URL(window.location.href)
+    url.searchParams.delete('id')
+    url.searchParams.delete('panel')
+    window.history.replaceState({}, '', url.toString())
+  }
+
   if (isLoggedIn === null) {
     return <div className="app-container" aria-label="正在验证登录状态" />
   }
@@ -1028,7 +1141,8 @@ export default function App() {
 
   const contextValue: AppContextType = {
     theme, toggleTheme, showToast, isDrawerOpen, setIsDrawerOpen,
-    drawerMode, setDrawerMode, isCmdPaletteOpen, setIsCmdPaletteOpen,
+    drawerMode, setDrawerMode, showProjectHome, activeTaskCount: mobileTaskCount,
+    isCmdPaletteOpen, setIsCmdPaletteOpen,
     conversations, isConversationsLoading, activeConv, setActiveConv,
     deleteConversation, createConversation, loadConversations, selectConversation,
     updateConversation,
@@ -1094,15 +1208,30 @@ export default function App() {
           ref={messagesContainerRef}
           onScroll={handleMessagesScroll}
           onWheel={handleMessagesScrollIntent}
-          onTouchStart={handleMessagesScrollIntent}
+          onTouchStart={event => {
+            handleMessagesScrollIntent()
+            handlePullStart(event)
+          }}
+          onTouchMove={handlePullMove}
+          onTouchEnd={handlePullEnd}
+          onTouchCancel={handlePullEnd}
           onPointerDown={handleMessagesScrollIntent}
           onKeyDownCapture={handleMessagesScrollIntent}
         >
+          <div
+            className={`pull-refresh-indicator ${pullDistance >= 54 || isPullRefreshing ? 'ready' : ''}`}
+            style={{ height: pullDistance }}
+            aria-hidden="true"
+          >
+            <RefreshCw size={15} className={isPullRefreshing ? 'animate-spin' : ''} />
+            <span>{isPullRefreshing ? '正在同步' : pullDistance >= 54 ? '松开刷新' : '下拉刷新'}</span>
+          </div>
           <div className="chat-message-list" ref={messagesContentRef}>
             {(isHistoryLoading && (!activeConv || messages.filter(m => m.role !== 'system').length === 0)) ? (
-              <div className="chat-history-loading">
-                <Loader2 className="spinner-icon" size={32} />
-                <p>正在加载对话...</p>
+              <div className="chat-history-loading" aria-label="正在加载对话">
+                <div className="history-skeleton history-skeleton-agent skeleton-shimmer" />
+                <div className="history-skeleton history-skeleton-user skeleton-shimmer" />
+                <div className="history-skeleton history-skeleton-agent short skeleton-shimmer" />
               </div>
             ) : (!activeConv || messages.filter(m => m.role !== 'system').length === 0) ? (
               <WelcomeScreen
@@ -1178,39 +1307,47 @@ export default function App() {
         </div>
       </div>
 
-      <WorkspaceInspector />
+      <Suspense fallback={null}>
+        <WorkspaceInspector
+          onActiveTaskCountChange={setMobileTaskCount}
+        />
+      </Suspense>
 
       {/* Command Palette */}
-      <CommandPalette
-        isOpen={isCmdPaletteOpen}
-        onClose={() => setIsCmdPaletteOpen(false)}
-        onNewWorkspace={() => {
-          setIsDrawerOpen(true)
-          setDrawerMode('create')
-        }}
-        onToggleTheme={toggleTheme}
-        theme={theme}
-        onClearMessages={clearMessages}
-        onExportImage={exportConversationAsImage}
-        onSelectConv={(id, messageId) => {
-          const found = conversations.find(c => c.id === id)
-          if (found) {
-            selectConversation(found)
-            if (messageId) {
-              window.setTimeout(() => {
-                document.querySelector(`[data-message-id="${messageId}"]`)?.scrollIntoView({
-                  block: 'center',
-                  behavior: 'smooth',
-                })
-              }, 350)
+      <Suspense fallback={null}>
+        <CommandPalette
+          isOpen={isCmdPaletteOpen}
+          onClose={() => setIsCmdPaletteOpen(false)}
+          onNewWorkspace={() => {
+            setIsDrawerOpen(true)
+            setDrawerMode('create')
+          }}
+          onToggleTheme={toggleTheme}
+          theme={theme}
+          onClearMessages={clearMessages}
+          onExportImage={exportConversationAsImage}
+          onSelectConv={(id, messageId) => {
+            const found = conversations.find(c => c.id === id)
+            if (found) {
+              selectConversation(found)
+              if (messageId) {
+                window.setTimeout(() => {
+                  document.querySelector(`[data-message-id="${messageId}"]`)?.scrollIntoView({
+                    block: 'center',
+                    behavior: 'smooth',
+                  })
+                }, 350)
+              }
             }
-          }
-        }}
-        conversations={conversations}
-      />
+          }}
+          conversations={conversations}
+        />
+      </Suspense>
 
       {/* PWA Mobile Install Prompt */}
-      <PwaInstallPrompt showToast={showToast} />
+      <Suspense fallback={null}>
+        <PwaInstallPrompt showToast={showToast} />
+      </Suspense>
 
       {/* Toast Notification */}
       <AnimatePresence>

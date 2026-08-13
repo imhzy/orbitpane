@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect } from 'react'
-import { Menu, Pencil, Sun, Moon, Eraser, Plus, Download, Command, FileText, MoreVertical, Wifi, WifiOff, Loader2, ListChecks, RefreshCw } from 'lucide-react'
+import { Menu, ChevronLeft, Pencil, Sun, Moon, Eraser, Plus, Download, Command, FileText, MoreVertical, Wifi, WifiOff, Loader2, ListChecks, RefreshCw } from 'lucide-react'
 import { LogoIcon } from '../LogoIcon'
 import { ModelSelector } from './ModelSelector'
 import { requestPwaUpdate } from '../lib/pwaUpdate'
+import { haptic } from '../lib/nativeFeedback'
 
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -19,7 +20,7 @@ export function ChatHeader(_props: ChatHeaderProps) {
     setIsDrawerOpen, setDrawerMode, selectedModel, setSelectedModel, models,
     formatModelName, loadModels, theme, toggleTheme, setIsCmdPaletteOpen,
     isExporting, exportConversationAsImage, messages, clearMessages, summarizeMessages,
-    isConnected, isReconnecting, connectWebSocket, showToast
+    isConnected, isReconnecting, connectWebSocket, showToast, showProjectHome, activeTaskCount
   } = useAppContext()
 
   const connectionState = !activeConv
@@ -57,11 +58,11 @@ export function ChatHeader(_props: ChatHeaderProps) {
         <button 
           className="icon-btn" 
           style={{ visibility: isDrawerOpen ? 'hidden' : 'visible' }}
-          onClick={() => setIsDrawerOpen(true)}
-          title="展开工作区菜单 (⌘B)"
-          aria-label="展开工作区菜单"
+          onClick={() => activeConv ? showProjectHome() : setIsDrawerOpen(true)}
+          title={activeConv ? '返回项目列表' : '展开工作区菜单 (⌘B)'}
+          aria-label={activeConv ? '返回项目列表' : '展开工作区菜单'}
         >
-          <Menu size={18} />
+          {activeConv ? <ChevronLeft size={20} /> : <Menu size={18} />}
         </button>
 
         <LogoIcon size={24} />
@@ -220,25 +221,62 @@ export function ChatHeader(_props: ChatHeaderProps) {
           </button>
         )}
 
+        {activeConv && (
+          <button
+            type="button"
+            className="mobile-only-action icon-btn contextual-task-btn"
+            aria-label={`打开当前对话任务${activeTaskCount > 0 ? `，${activeTaskCount} 个进行中` : ''}`}
+            title="当前对话任务与上下文"
+            onClick={() => {
+              haptic('selection')
+              const url = new URL(window.location.href)
+              url.searchParams.set('panel', 'tasks')
+              window.history.pushState({ ...window.history.state, orbitpanePanel: 'tasks' }, '', url.toString())
+              window.dispatchEvent(new CustomEvent('orbitpane-open-inspector', { detail: 'tasks' }))
+            }}
+          >
+            <ListChecks size={17} />
+            {activeTaskCount > 0 && <span className="contextual-task-badge">{Math.min(activeTaskCount, 99)}</span>}
+          </button>
+        )}
+
         {/* Mobile Actions Dropdown (Global + Conversation) */}
         <div className="mobile-only-action actions-dropdown-wrapper" ref={actionsMenuRef}>
           <button 
             className="icon-btn"
             title="更多选项"
-            onClick={() => setIsActionsMenuOpen(!isActionsMenuOpen)}
+            aria-expanded={isActionsMenuOpen}
+            aria-haspopup="menu"
+            onClick={() => {
+              haptic('selection')
+              setIsActionsMenuOpen(!isActionsMenuOpen)
+            }}
           >
             <MoreVertical size={16} />
           </button>
           
           <AnimatePresence>
             {isActionsMenuOpen && (
-              <motion.div
-                initial={{ opacity: 0, y: -5, scale: 0.98 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -5, scale: 0.98 }}
-                transition={{ duration: 0.15 }}
-                className="actions-dropdown-menu"
-              >
+              <>
+                <motion.button
+                  type="button"
+                  className="mobile-sheet-backdrop actions-sheet-backdrop"
+                  aria-label="关闭更多操作"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  onClick={() => setIsActionsMenuOpen(false)}
+                />
+                <motion.div
+                  initial={{ opacity: 0, y: -5, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -5, scale: 0.98 }}
+                  transition={{ duration: 0.15 }}
+                  className="actions-dropdown-menu mobile-actions-sheet"
+                  role="menu"
+                >
+                <div className="mobile-sheet-grabber" aria-hidden="true" />
+                <div className="mobile-sheet-title">更多操作</div>
                 <button
                   className="actions-dropdown-item"
                   onClick={() => {
@@ -258,16 +296,6 @@ export function ChatHeader(_props: ChatHeaderProps) {
                 >
                   {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
                   <span>切换主题</span>
-                </button>
-                <button
-                  className="actions-dropdown-item"
-                  onClick={() => {
-                    window.dispatchEvent(new CustomEvent('orbitpane-open-inspector', { detail: 'tasks' }))
-                    setIsActionsMenuOpen(false)
-                  }}
-                >
-                  <ListChecks size={14} />
-                  <span>任务中心</span>
                 </button>
                 <button
                   className="actions-dropdown-item"
@@ -327,7 +355,8 @@ export function ChatHeader(_props: ChatHeaderProps) {
                   </>
                 )}
 
-              </motion.div>
+                </motion.div>
+              </>
             )}
           </AnimatePresence>
         </div>

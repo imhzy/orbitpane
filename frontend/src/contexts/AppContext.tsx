@@ -15,6 +15,8 @@ export interface AppContextType {
   setIsDrawerOpen: React.Dispatch<React.SetStateAction<boolean>>;
   drawerMode: 'sessions' | 'create';
   setDrawerMode: React.Dispatch<React.SetStateAction<'sessions' | 'create'>>;
+  showProjectHome: () => void;
+  activeTaskCount: number;
 
   // Command Palette
   isCmdPaletteOpen: boolean;

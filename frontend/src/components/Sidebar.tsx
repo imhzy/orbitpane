@@ -5,12 +5,13 @@ import {
   ChevronRight, Compass, FolderPlus,
   Check, Pencil, Layers, HardDrive, RefreshCw, Cpu,
   Search, Star, LogOut, ChevronDown, Maximize2, Minimize2,
-  ArchiveRestore, ShieldAlert, ShieldCheck
+  Archive, ArchiveRestore, ShieldAlert, ShieldCheck
 } from 'lucide-react'
 import { LogoIcon } from '../LogoIcon'
 import type { Conversation, Provider } from '../lib/types'
 import { apiFetch } from '../lib/api'
 import { AUTH_EXPIRED_EVENT } from '../lib/auth'
+import { haptic } from '../lib/nativeFeedback'
 
 import { useAppContext } from '../contexts/AppContext'
 
@@ -115,8 +116,37 @@ export function Sidebar(_props: SidebarProps) {
   const isCancelingRef = React.useRef(false)
   const [showArchived, setShowArchived] = useState(false)
   const [createStep, setCreateStep] = useState<1 | 2 | 3>(1)
+  const [contextConv, setContextConv] = useState<Conversation | null>(null)
+  const longPressRef = React.useRef<{ timer: number; x: number; y: number } | null>(null)
+  const suppressClickRef = React.useRef(false)
 
   const [isHighlighting, setIsHighlighting] = useState(false)
+
+  const cancelLongPress = () => {
+    if (longPressRef.current) window.clearTimeout(longPressRef.current.timer)
+    longPressRef.current = null
+  }
+
+  const beginLongPress = (event: React.PointerEvent, conversation: Conversation) => {
+    if (event.pointerType !== 'touch') return
+    cancelLongPress()
+    longPressRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      timer: window.setTimeout(() => {
+        suppressClickRef.current = true
+        haptic('light')
+        setContextConv(conversation)
+        longPressRef.current = null
+      }, 460),
+    }
+  }
+
+  const moveLongPress = (event: React.PointerEvent) => {
+    const pending = longPressRef.current
+    if (!pending) return
+    if (Math.abs(event.clientX - pending.x) > 10 || Math.abs(event.clientY - pending.y) > 10) cancelLongPress()
+  }
 
   useEffect(() => {
     if (isDrawerOpen && window.innerWidth < 1024) {
@@ -308,9 +338,23 @@ export function Sidebar(_props: SidebarProps) {
                         key={conv.id} 
                         className={`list-item ${activeConv?.id === conv.id ? 'selected' : ''} ${isPinned ? 'pinned-item' : ''}`}
                         onClick={() => {
+                          if (suppressClickRef.current) {
+                            suppressClickRef.current = false
+                            return
+                          }
                           if (!isEditing) {
                             selectConversation(conv)
                           }
+                        }}
+                        onPointerDown={event => beginLongPress(event, conv)}
+                        onPointerMove={moveLongPress}
+                        onPointerUp={cancelLongPress}
+                        onPointerCancel={cancelLongPress}
+                        onContextMenu={event => {
+                          if (!window.matchMedia('(pointer: coarse)').matches) return
+                          event.preventDefault()
+                          setContextConv(conv)
+                          haptic('light')
                         }}
                       >
                         <div className={`item-icon ${badge.type}`}>
@@ -692,6 +736,58 @@ export function Sidebar(_props: SidebarProps) {
             </button>
           </div>
         </motion.div>
+      )}
+      {contextConv && (
+        <>
+          <motion.button
+            type="button"
+            className="mobile-sheet-backdrop project-actions-backdrop"
+            aria-label="关闭项目操作"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setContextConv(null)}
+          />
+          <motion.div
+            className="mobile-bottom-sheet project-actions-sheet"
+            role="menu"
+            drag="y"
+            dragConstraints={{ top: 0, bottom: 180 }}
+            dragElastic={0.08}
+            dragMomentum={false}
+            onDragEnd={(_event, info) => {
+              if (info.offset.y > 90 || info.velocity.y > 500) setContextConv(null)
+            }}
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+          >
+            <div className="mobile-sheet-grabber" aria-hidden="true" />
+            <div className="mobile-sheet-title">{contextConv.name}</div>
+            <button type="button" role="menuitem" onClick={() => {
+              void updateConversation(contextConv.id, { is_pinned: !contextConv.is_pinned })
+              haptic('selection')
+              setContextConv(null)
+            }}><Star size={17} fill={contextConv.is_pinned ? 'currentColor' : 'none'} />{contextConv.is_pinned ? '取消星标' : '星标置顶'}</button>
+            <button type="button" role="menuitem" onClick={() => {
+              setEditingConvId(contextConv.id)
+              setEditingConvName(contextConv.name)
+              setContextConv(null)
+            }}><Pencil size={17} />重命名项目</button>
+            <button type="button" role="menuitem" onClick={() => {
+              void updateConversation(contextConv.id, { is_archived: !contextConv.is_archived }).then(() => {
+                void loadConversations(false)
+              })
+              setContextConv(null)
+            }}><Archive size={17} />{contextConv.is_archived ? '恢复项目' : '归档项目'}</button>
+            <button type="button" role="menuitem" className="destructive" onClick={event => {
+              deleteConversation(event, contextConv.id)
+              haptic('warning')
+              setContextConv(null)
+            }}><Trash2 size={17} />删除项目</button>
+          </motion.div>
+        </>
       )}
     </AnimatePresence>
   )

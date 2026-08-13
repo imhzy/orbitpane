@@ -4,6 +4,7 @@ import { AlertCircle, Info, FileText, User, Check, Copy, ThumbsUp, ThumbsDown, R
 import { LogoIcon } from '../LogoIcon'
 import { AgentExecutionTimeline } from './AgentExecutionTimeline'
 import type { Message } from '../lib/types'
+import { haptic } from '../lib/nativeFeedback'
 
 const MarkdownContent = lazy(() => import('./MarkdownContent'))
 
@@ -47,10 +48,39 @@ export function MessageList({
     : null
   const [expandedHistoryKey, setExpandedHistoryKey] = React.useState<string | null>(null)
   const [expandedSummaryKey, setExpandedSummaryKey] = React.useState<string | null>(null)
+  const [contextMessageIndex, setContextMessageIndex] = React.useState<number | null>(null)
+  const longPressRef = React.useRef<{ timer: number; x: number; y: number } | null>(null)
   const isHistoryExpanded = latestSummaryKey !== null && expandedHistoryKey === latestSummaryKey
   const summarizedMessageCount = latestSummaryIndex > 0
     ? messages.slice(0, latestSummaryIndex).filter(message => message.role !== 'system').length
     : 0
+
+  const cancelLongPress = () => {
+    if (longPressRef.current) window.clearTimeout(longPressRef.current.timer)
+    longPressRef.current = null
+  }
+
+  const beginLongPress = (event: React.PointerEvent, index: number) => {
+    if (event.pointerType !== 'touch') return
+    cancelLongPress()
+    longPressRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      timer: window.setTimeout(() => {
+        haptic('light')
+        setContextMessageIndex(index)
+        longPressRef.current = null
+      }, 460),
+    }
+  }
+
+  const moveLongPress = (event: React.PointerEvent) => {
+    const pending = longPressRef.current
+    if (!pending) return
+    if (Math.abs(event.clientX - pending.x) > 10 || Math.abs(event.clientY - pending.y) > 10) {
+      cancelLongPress()
+    }
+  }
 
   return (
     <>
@@ -155,6 +185,16 @@ export function MessageList({
             className={`message-row ${m.role}`}
             data-turn={Math.floor(i / 2) + 1}
             data-message-id={m.id}
+            onPointerDown={event => beginLongPress(event, i)}
+            onPointerMove={moveLongPress}
+            onPointerUp={cancelLongPress}
+            onPointerCancel={cancelLongPress}
+            onContextMenu={event => {
+              if (!window.matchMedia('(pointer: coarse)').matches) return
+              event.preventDefault()
+              haptic('light')
+              setContextMessageIndex(i)
+            }}
           >
             <div className="message-header">
               <div className="message-author">
@@ -281,6 +321,61 @@ export function MessageList({
           </motion.div>
         )
       })}
+      {contextMessageIndex !== null && messages[contextMessageIndex] && (
+        <>
+          <motion.button
+            type="button"
+            className="mobile-sheet-backdrop message-actions-backdrop"
+            aria-label="关闭消息操作"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setContextMessageIndex(null)}
+          />
+          <motion.div
+            className="mobile-bottom-sheet message-actions-sheet"
+            role="menu"
+            drag="y"
+            dragConstraints={{ top: 0, bottom: 180 }}
+            dragElastic={0.08}
+            dragMomentum={false}
+            onDragEnd={(_event, info) => {
+              if (info.offset.y > 90 || info.velocity.y > 500) setContextMessageIndex(null)
+            }}
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+          >
+            <div className="mobile-sheet-grabber" aria-hidden="true" />
+            <div className="mobile-sheet-title">消息操作</div>
+            <button type="button" role="menuitem" onClick={() => {
+              copyMessageText(messages[contextMessageIndex].content, contextMessageIndex)
+              setContextMessageIndex(null)
+            }}><Copy size={17} />复制内容</button>
+            {messages[contextMessageIndex].role === 'agent' && (
+              <>
+                <button type="button" role="menuitem" onClick={() => {
+                  handleFeedback(contextMessageIndex, 'up')
+                  haptic('success')
+                  setContextMessageIndex(null)
+                }}><ThumbsUp size={17} />回答有帮助</button>
+                <button type="button" role="menuitem" onClick={() => {
+                  handleFeedback(contextMessageIndex, 'down')
+                  haptic('warning')
+                  setContextMessageIndex(null)
+                }}><ThumbsDown size={17} />回答需改进</button>
+                {contextMessageIndex === messages.length - 1 && (
+                  <button type="button" role="menuitem" onClick={() => {
+                    regenerateLastResponse()
+                    setContextMessageIndex(null)
+                  }}><RotateCcw size={17} />重新生成</button>
+                )}
+              </>
+            )}
+          </motion.div>
+        </>
+      )}
       <div ref={messagesEndRef} />
     </>
   )
