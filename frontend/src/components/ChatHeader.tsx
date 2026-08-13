@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
-import { Menu, Pencil, Sun, Moon, Eraser, Plus, Download, Command, FileText, MoreVertical, Wifi, WifiOff, Loader2, ListChecks } from 'lucide-react'
+import { Menu, Pencil, Sun, Moon, Eraser, Plus, Download, Command, FileText, MoreVertical, Wifi, WifiOff, Loader2, ListChecks, RefreshCw } from 'lucide-react'
 import { LogoIcon } from '../LogoIcon'
 import { ModelSelector } from './ModelSelector'
+import { requestPwaUpdate } from '../lib/pwaUpdate'
 
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -18,7 +19,7 @@ export function ChatHeader(_props: ChatHeaderProps) {
     setIsDrawerOpen, setDrawerMode, selectedModel, setSelectedModel, models,
     formatModelName, loadModels, theme, toggleTheme, setIsCmdPaletteOpen,
     isExporting, exportConversationAsImage, messages, clearMessages, summarizeMessages,
-    isConnected, isReconnecting, connectWebSocket
+    isConnected, isReconnecting, connectWebSocket, showToast
   } = useAppContext()
 
   const connectionState = !activeConv
@@ -32,6 +33,7 @@ export function ChatHeader(_props: ChatHeaderProps) {
   const onOpenCmdPalette = () => setIsCmdPaletteOpen(true)
 
   const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false)
+  const [isCheckingForUpdate, setIsCheckingForUpdate] = useState(false)
   const actionsMenuRef = useRef<HTMLDivElement>(null)
   const isCancelingRef = useRef(false)
 
@@ -266,6 +268,26 @@ export function ChatHeader(_props: ChatHeaderProps) {
                 >
                   <ListChecks size={14} />
                   <span>任务中心</span>
+                </button>
+                <button
+                  className="actions-dropdown-item"
+                  disabled={isCheckingForUpdate}
+                  onClick={() => {
+                    setIsActionsMenuOpen(false)
+                    setIsCheckingForUpdate(true)
+                    showToast('正在拉取最新版本…', 'info')
+                    void requestPwaUpdate()
+                      .then(result => {
+                        if (result === 'current') showToast('当前已是最新版本')
+                        if (result === 'updating') showToast('新版本已获取，正在安装…', 'info')
+                        if (result === 'reloading') showToast('正在切换到最新版本…', 'info')
+                      })
+                      .catch(() => showToast('更新检查失败，请确认网络连接', 'error'))
+                      .finally(() => setIsCheckingForUpdate(false))
+                  }}
+                >
+                  <RefreshCw size={14} className={isCheckingForUpdate ? 'animate-spin' : ''} />
+                  <span>{isCheckingForUpdate ? '正在更新…' : '更新应用'}</span>
                 </button>
                 
                 {activeConv && (

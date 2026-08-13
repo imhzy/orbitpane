@@ -37,6 +37,8 @@
   padding-top: var(--sat);
   padding-bottom: var(--sab);
   transition: background-color var(--transition-normal), border-color var(--transition-normal);
+  touch-action: pan-y;
+  will-change: transform;
 }
 
 .drawer-header {
@@ -2269,8 +2271,7 @@
 @media (max-width: 768px) {
   /* --- App Shell & Container --- */
   .app-container {
-    height: 100dvh;
-    height: var(--app-height, 100vh);
+    height: 100%;
   }
 
   /* --- Navigation Header --- */
@@ -2481,7 +2482,7 @@
 
   /* --- Input Area & Mobile Keyboard Offset --- */
   .input-area {
-    padding: var(--space-2) var(--space-3) calc(var(--space-2) + var(--sab));
+    padding: var(--space-2) var(--space-3);
     max-width: 100%;
     width: 100%;
     box-sizing: border-box;
@@ -3222,7 +3223,7 @@
   position: relative;
   width: 100%;
   flex-shrink: 0;
-  padding-bottom: var(--sab);
+  min-height: 0;
 }
 
 .floating-scroll-bottom-btn {
@@ -3344,8 +3345,11 @@
   .floating-scroll-bottom-btn {
     right: var(--space-4);
   }
-  .input-area {
-    padding-bottom: max(var(--space-3), env(safe-area-inset-bottom));
+}
+
+@media (max-width: 768px) {
+  .keyboard-open .input-box:focus-within {
+    transform: none;
   }
 }
 

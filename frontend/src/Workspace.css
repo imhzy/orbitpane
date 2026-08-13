@@ -2,8 +2,7 @@
    retired incrementally without continuing its legacy cascade. */
 
 /* App state banners */
-.offline-banner,
-.update-banner {
+.offline-banner {
   min-height: 34px;
   display: flex;
   align-items: center;
@@ -17,23 +16,6 @@
   flex-shrink: 0;
   z-index: 30;
 }
-
-.update-banner {
-  color: var(--accent-text);
-  background: var(--accent-subtle-bg);
-  border-color: var(--accent-border);
-}
-
-.update-banner button {
-  border: 1px solid var(--accent-border);
-  border-radius: var(--radius-sm);
-  padding: 3px 9px;
-  color: var(--text-primary);
-  background: var(--bg-surface);
-  cursor: pointer;
-}
-
-.update-banner button.dismiss { color: var(--text-secondary); background: transparent; }
 
 /* Compact header and persistent connection state */
 .chat-header { min-width: 0; }
@@ -547,13 +529,8 @@
   .chat-header { background-color: var(--bg-header); }
   .toast,.input-box,.file-mention-picker { background-color: var(--bg-glass); }
 }
-@supports not (height: 100dvh) {
-  .app-container,#root,html,body { height: 100vh; }
-}
-
 @media (max-width: 768px) {
-  .offline-banner,.update-banner { justify-content: flex-start; font-size: 10px; }
-  .update-banner { flex-wrap: wrap; }
+  .offline-banner { justify-content: flex-start; font-size: 10px; }
   .input-capability-row span:nth-child(2) { display: none; }
   .interrupt-task-btn span { display: none; }
   .interrupt-task-btn { width: 36px; padding: 0; justify-content: center; }

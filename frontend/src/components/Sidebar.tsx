@@ -170,7 +170,7 @@ export function Sidebar(_props: SidebarProps) {
     <AnimatePresence>
       {isDrawerOpen && (
         <motion.div 
-          initial={{ x: '-100%', marginLeft: -320 }} animate={{ x: 0, marginLeft: 0 }} exit={{ x: '-100%', marginLeft: -320 }}
+          initial={{ x: '-100%' }} animate={{ x: 0 }} exit={{ x: '-100%' }}
           transition={springConfig}
           className={`drawer ${drawerMode === 'create' ? 'create-mode' : ''} ${drawerMode === 'create' && isDirectoryExpanded ? 'directory-focus-mode' : ''} ${isHighlighting ? 'drawer-highlight' : ''}`}
           role="dialog"
@@ -178,7 +178,8 @@ export function Sidebar(_props: SidebarProps) {
           aria-label="项目菜单"
           drag="x"
           dragConstraints={{ left: -340, right: 0 }}
-          dragElastic={0.1}
+          dragElastic={0}
+          dragMomentum={false}
           onDragEnd={(_e, { offset, velocity }) => {
             if (offset.x < -100 || velocity.x < -300) {
               setIsDrawerOpen(false)

@@ -282,9 +282,7 @@ export function ChatInput({
             updateMentionFromTextarea(event.currentTarget)
           }}
           onFocus={() => {
-            window.scrollTo(0, 0)
             setTimeout(() => {
-              window.scrollTo(0, 0)
               if (isNearBottom()) {
                 scrollToBottom(true)
               }

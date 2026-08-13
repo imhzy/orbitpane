@@ -19,6 +19,7 @@ import { MessageList } from './components/MessageList'
 import { ChatInput } from './components/ChatInput'
 import { CommandPalette } from './components/CommandPalette'
 import { WorkspaceInspector } from './components/WorkspaceInspector'
+import { PwaInstallPrompt } from './components/PwaInstallPrompt'
 import { AppContext } from './contexts/AppContext'
 import type { AppContextType } from './contexts/AppContext'
 
@@ -112,6 +113,10 @@ export default function App() {
   const messagesContentRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const viewportBaselineRef = useRef({
+    width: window.visualViewport?.width ?? window.innerWidth,
+    height: window.visualViewport?.height ?? window.innerHeight,
+  })
 
   const shouldAutoScrollRef = useRef(true)
   const scrollAnimationFrameRef = useRef<number | null>(null)
@@ -368,16 +373,42 @@ export default function App() {
   // Dynamic Viewport Height for Mobile Browser / PWA Keyboard
   useEffect(() => {
     const updateAppHeight = () => {
-      const vv = window.visualViewport
-      const h = vv ? vv.height : window.innerHeight
-      document.documentElement.style.setProperty('--app-height', `${h}px`)
-      window.scrollTo(0, 0)
+      const viewport = window.visualViewport
+      const viewportHeight = viewport?.height ?? window.innerHeight
+      const viewportWidth = viewport?.width ?? window.innerWidth
+      const viewportOffsetTop = viewport?.offsetTop ?? 0
+      const baseline = viewportBaselineRef.current
+
+      // A large width change means the device rotated. Start a fresh height
+      // baseline so the new orientation is not mistaken for an open keyboard.
+      if (Math.abs(viewportWidth - baseline.width) > 80) {
+        baseline.width = viewportWidth
+        baseline.height = viewportHeight
+      } else {
+        baseline.height = Math.max(baseline.height, viewportHeight)
+      }
+
+      const keyboardOpen = baseline.height - viewportHeight > 120
+      document.documentElement.style.setProperty('--app-height', `${viewportHeight}px`)
+      // iOS pans the visual viewport as well as shrinking it for the keyboard.
+      // Compensate for that pan so the fixed app shell remains aligned with the
+      // actually visible rectangle instead of leaving the composer above it.
+      document.documentElement.style.setProperty('--viewport-offset-top', `${viewportOffsetTop}px`)
+      document.documentElement.classList.toggle('keyboard-open', keyboardOpen)
     }
     updateAppHeight()
 
+    let animationFrame = 0
+    let settleTimer = 0
+
     const handleResize = () => {
       updateAppHeight()
-      window.scrollTo(0, 0)
+      // WebKit can publish offsetTop a frame (or two) after the resize event.
+      // Re-read it after layout and once more after the keyboard animation.
+      window.cancelAnimationFrame(animationFrame)
+      window.clearTimeout(settleTimer)
+      animationFrame = window.requestAnimationFrame(updateAppHeight)
+      settleTimer = window.setTimeout(updateAppHeight, 100)
       if (isNearBottom()) {
         scrollToBottom(false)
       }
@@ -395,6 +426,11 @@ export default function App() {
         window.visualViewport.removeEventListener('scroll', handleResize)
       }
       window.removeEventListener('resize', handleResize)
+      window.cancelAnimationFrame(animationFrame)
+      window.clearTimeout(settleTimer)
+      document.documentElement.classList.remove('keyboard-open')
+      document.documentElement.style.removeProperty('--app-height')
+      document.documentElement.style.removeProperty('--viewport-offset-top')
     }
   }, [isNearBottom, scrollToBottom])
 
@@ -1050,13 +1086,6 @@ export default function App() {
             <span>当前离线：可查看缓存并继续编辑草稿，恢复网络后自动重连</span>
           </div>
         )}
-        {applyUpdate && (
-          <div className="update-banner" role="status">
-            <span>新版本已就绪；当前草稿会保留。</span>
-            <button onClick={() => applyUpdate()}>安全更新</button>
-            <button className="dismiss" onClick={() => setApplyUpdate(null)}>稍后</button>
-          </div>
-        )}
         <ChatHeader />
 
         <div
@@ -1180,6 +1209,8 @@ export default function App() {
         conversations={conversations}
       />
 
+      {/* PWA Mobile Install Prompt */}
+      <PwaInstallPrompt showToast={showToast} />
 
       {/* Toast Notification */}
       <AnimatePresence>
@@ -1214,6 +1245,16 @@ export default function App() {
         variant="destructive"
         onConfirm={confirmState.onConfirm}
         onCancel={() => setConfirmState(prev => ({ ...prev, isOpen: false }))}
+      />
+
+      <ConfirmDialog
+        isOpen={!!applyUpdate}
+        title="发现新版本"
+        description="新版本已准备就绪。更新会重新加载应用，当前草稿会自动保留。"
+        confirmText="立即更新"
+        cancelText="稍后"
+        onConfirm={() => applyUpdate?.()}
+        onCancel={() => setApplyUpdate(null)}
       />
     </div>
     </AppContext.Provider>

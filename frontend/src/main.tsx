@@ -3,17 +3,29 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 import { registerSW } from 'virtual:pwa-register'
+import { activatePwaUpdate, configurePwaUpdate, consumeManualUpdateRequest } from './lib/pwaUpdate'
 
 const updateServiceWorker = registerSW({
   immediate: true,
   onNeedRefresh() {
+    if (consumeManualUpdateRequest()) {
+      void activatePwaUpdate()
+      return
+    }
     window.dispatchEvent(new CustomEvent('orbitpane-update-ready', {
-      detail: () => updateServiceWorker(true),
+      detail: () => void activatePwaUpdate(),
     }))
   },
   onOfflineReady() {
     window.dispatchEvent(new CustomEvent('orbitpane-offline-ready'))
   },
+  onRegisteredSW(_swScriptUrl, registration) {
+    configurePwaUpdate({ registration })
+  },
+})
+
+configurePwaUpdate({
+  activateWaitingWorker: () => updateServiceWorker(true),
 })
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: any }> {

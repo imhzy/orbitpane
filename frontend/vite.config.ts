@@ -10,6 +10,7 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'prompt',
+      // main.tsx owns registration so it can also surface update lifecycle events.
       injectRegister: false,
       includeAssets: ['favicon.svg', 'favicon.ico', 'pwa-64x64.png', 'pwa-192x192.png', 'pwa-512x512.png', 'apple-touch-icon-180x180.png', 'maskable-icon-512x512.png'],
       manifest: {
@@ -19,6 +20,8 @@ export default defineConfig({
         theme_color: '#09090b',
         background_color: '#09090b',
         display: 'standalone',
+        start_url: '/',
+        scope: '/',
         id: '/',
         lang: 'zh-CN',
         dir: 'ltr',
