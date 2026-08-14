@@ -365,7 +365,12 @@ class Database:
                 "UPDATE messages SET content = ? WHERE id = ?", (content, message_id)
             )
 
-    def clear_messages(self, conversation_id: int) -> None:
+    def clear_history(self, conversation_id: int) -> None:
+        """Drop every trace of previous turns: messages, summaries and runs.
+
+        Run records carry the prompts of queued/finished tasks, so leaving them
+        behind would keep the task center showing content the user just cleared.
+        """
         with self.connect() as connection:
             connection.execute(
                 "DELETE FROM summary_checkpoints WHERE conversation_id = ?",
@@ -373,6 +378,9 @@ class Database:
             )
             connection.execute(
                 "DELETE FROM messages WHERE conversation_id = ?", (conversation_id,)
+            )
+            connection.execute(
+                "DELETE FROM runs WHERE conversation_id = ?", (conversation_id,)
             )
             connection.execute(
                 "UPDATE conversations SET active_summary_id = NULL WHERE id = ?",

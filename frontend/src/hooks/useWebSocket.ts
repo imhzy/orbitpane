@@ -513,6 +513,19 @@ export function useWebSocket(
           return
         }
 
+        if (data.type === 'history_cleared') {
+          // The server dropped messages, summaries and the whole queue, so no
+          // transient turn may survive here either.
+          historyRequestRef.current += 1
+          isAgentThinkingRef.current = false
+          awaitingPendingStart = false
+          pendingSendMessagesRef.current.delete(conv.id)
+          localStorage.removeItem(`orbitpane_history_${conv.id}`)
+          setMessages([])
+          window.dispatchEvent(new CustomEvent('orbitpane-task-change'))
+          return
+        }
+
         if (data.type === 'ready') {
           if (!awaitingPendingStart) {
             isAgentThinkingRef.current = false

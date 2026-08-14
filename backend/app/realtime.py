@@ -643,6 +643,26 @@ class AgentCoordinator:
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
 
+    async def clear_history(
+        self, conversation_id: int, reason: str = "历史记录已清空"
+    ) -> None:
+        """Reset a conversation: stop the running task, drop the whole queue.
+
+        Cancelling first guarantees no task can persist a message or a run
+        record after the wipe, and the final broadcast lets every connected
+        client discard the transient turns it is still rendering.
+        """
+        await self.cancel(conversation_id, reason=reason)
+        self.database.clear_history(conversation_id)
+        await self.hub.broadcast(
+            conversation_id,
+            {
+                "type": "history_cleared",
+                "conversation_id": conversation_id,
+                "queue": [],
+            },
+        )
+
     def is_running(self, conversation_id: int) -> bool:
         task = self._tasks.get(conversation_id)
         return bool(task and not task.done())

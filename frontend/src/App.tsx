@@ -878,16 +878,20 @@ export default function App() {
     setConfirmState({
       isOpen: true,
       title: '清空会话消息',
-      description: '确定要清空当前会话的所有消息吗？此操作不可逆。',
+      description: '确定要清空当前会话的所有消息和排队任务吗？此操作不可逆。',
       onConfirm: () => {
         setConfirmState(prev => ({ ...prev, isOpen: false }))
         apiFetch<{ status: string }>(`/api/history/${conversationId}`, { method: 'DELETE' })
           .then(() => {
+            pendingSendMessagesRef.current.delete(conversationId)
+            localStorage.removeItem(`orbitpane_history_${conversationId}`)
             if (activeConvRef.current?.id === conversationId) {
               historyRequestRef.current += 1
-              pendingSendMessagesRef.current.delete(conversationId)
+              isAgentThinkingRef.current = false
               setMessages([])
             }
+            window.dispatchEvent(new CustomEvent('orbitpane-task-change'))
+            showToast('会话消息与排队任务已清空')
           })
           .catch(err => {
             console.error(err)

@@ -200,6 +200,51 @@ class AgentCoordinatorTests(IsolatedAsyncioTestCase):
             self.assertEqual(runs[str(third["run_id"])]["status"], "canceled")
             self.assertTrue(any(message["type"] == "queue_changed" for _, message in hub.messages))
 
+    async def test_clear_history_drops_queue_messages_and_run_records(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database = Database(Path(temp_dir) / "orbitpane-test.db")
+            database.migrate()
+            conversation = database.create_conversation("Test", temp_dir, "fake")
+            provider = BlockingProvider()
+            hub = RecordingHub()
+            coordinator = AgentCoordinator(
+                database,
+                FakeRegistry(provider),  # type: ignore[arg-type]
+                hub,
+            )
+
+            await coordinator.submit(
+                conversation,
+                content="first",
+                model="test-model",
+                provider_id="fake",
+            )
+            await coordinator.submit(
+                conversation,
+                content="queued",
+                model="test-model",
+                provider_id="fake",
+            )
+            self.assertEqual(len(coordinator.queue_items(conversation.id)), 1)
+
+            await coordinator.clear_history(conversation.id)
+            await self.wait_until_finished(coordinator, conversation.id)
+
+            self.assertEqual(coordinator.queue_items(conversation.id), [])
+            self.assertEqual(database.list_messages(conversation.id), [])
+            self.assertEqual(
+                database.list_runs(conversation_id=conversation.id), []
+            )
+            self.assertEqual(
+                coordinator.task_catalog(conversation_id=conversation.id), []
+            )
+            self.assertTrue(
+                any(
+                    message["type"] == "history_cleared"
+                    for _, message in hub.messages
+                )
+            )
+
     async def test_elapsed_time_and_stream_identity_are_server_authoritative(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             database = Database(

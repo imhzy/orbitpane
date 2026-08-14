@@ -66,6 +66,41 @@ class DatabaseTests(unittest.TestCase):
         self.assertTrue(self.database.delete_conversation(conversation.id))
         self.assertEqual(self.database.list_messages(conversation.id), [])
 
+    def test_clear_history_also_drops_summaries_and_runs(self) -> None:
+        conversation = self.database.create_conversation(
+            "Workspace", self.temp_dir.name, "antigravity"
+        )
+        message_id = self.database.add_message(
+            conversation.id, "user", "hello", run_id="run-1"
+        )
+        self.database.create_summary_checkpoint(
+            conversation.id, message_id, message_id, "summary"
+        )
+        for run_id, status, prompt in (
+            ("run-1", "completed", "hello"),
+            ("run-2", "queued", "queued task"),
+        ):
+            self.database.create_run(
+                run_id,
+                conversation.id,
+                status=status,
+                prompt=prompt,
+                model="test-model",
+                provider="antigravity",
+                is_summary=False,
+            )
+
+        self.database.clear_history(conversation.id)
+
+        self.assertEqual(self.database.list_messages(conversation.id), [])
+        self.assertEqual(
+            self.database.list_summary_checkpoints(conversation.id), []
+        )
+        self.assertEqual(
+            self.database.list_runs(conversation_id=conversation.id), []
+        )
+        self.assertIsNone(self.database.active_summary_message_id(conversation.id))
+
 
 if __name__ == "__main__":
     unittest.main()
