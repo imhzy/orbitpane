@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { Plus, FolderGit2, Folder, ArrowRight, Code2, Sparkles, Terminal, ShieldCheck } from 'lucide-react'
+import { Plus, FolderGit2, Folder, ArrowRight } from 'lucide-react'
 import { LogoIcon } from '../LogoIcon'
 import type { Conversation, Message } from '../lib/types'
 import { MissionControl } from './MissionControl'
@@ -9,44 +9,16 @@ interface WelcomeScreenProps {
   messages: Message[]
   setIsDrawerOpen: (open: boolean) => void
   setDrawerMode?: (mode: 'sessions' | 'create') => void
-  onQuickPrompt?: (promptText: string) => void
   conversations?: Conversation[]
   selectConversation?: (conv: Conversation) => void
 }
 
-const QUICK_SUGGESTIONS = [
-  {
-    icon: Code2,
-    title: '项目架构概览',
-    desc: '梳理核心技术栈与目录职责',
-    prompt: '请分析当前项目结构，说明主要模块职责与代码组织规范。',
-  },
-  {
-    icon: Terminal,
-    title: '检查代码变更',
-    desc: '查看分支改动与未提交工作',
-    prompt: '请运行 git status 和 git diff 检查最近的修改状态。',
-  },
-  {
-    icon: Sparkles,
-    title: '重构优化建议',
-    desc: '审查关键组件交互与 UI 样式',
-    prompt: '请审查前端交互与视觉设计，提出具体的优化重构建议。',
-  },
-  {
-    icon: ShieldCheck,
-    title: '自动化测试',
-    desc: '运行项目测试用例并排除故障',
-    prompt: '请查看测试用例覆盖情况，并检查是否存在潜在运行错误。',
-  },
-]
 
 export function WelcomeScreen({
   activeConv,
   messages,
   setIsDrawerOpen,
   setDrawerMode,
-  onQuickPrompt,
   conversations = [],
   selectConversation,
 }: WelcomeScreenProps) {
@@ -112,33 +84,8 @@ export function WelcomeScreen({
               <span className="font-mono truncate" style={{ minWidth: 0 }}>{activeConv.path}</span>
             </div>
             <p className="session-empty-tip">
-              工程工作区已就绪。快捷选择提示词或在下方输入框发送开发指令：
+              工程工作区已就绪。
             </p>
-
-            {/* Quick Suggestion Chips */}
-            <div className="quick-suggestions-grid">
-              {QUICK_SUGGESTIONS.map((item, idx) => {
-                const IconComponent = item.icon
-                return (
-                  <motion.button
-                    key={idx}
-                    whileHover={{ scale: 1.02, translateY: -2 }}
-                    whileTap={{ scale: 0.98 }}
-                    className="suggestion-chip-card"
-                    onClick={() => onQuickPrompt?.(item.prompt)}
-                    aria-label={`快捷开发指令：${item.title}`}
-                  >
-                    <div className="suggestion-chip-header">
-                      <div className="suggestion-icon-badge">
-                        <IconComponent size={14} />
-                      </div>
-                      <span className="suggestion-chip-title">{item.title}</span>
-                    </div>
-                    <span className="suggestion-chip-desc">{item.desc}</span>
-                  </motion.button>
-                )
-              })}
-            </div>
           </div>
         </motion.div>
       )}

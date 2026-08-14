@@ -336,15 +336,16 @@ export function MessageList({
             className="mobile-bottom-sheet message-actions-sheet"
             role="menu"
             drag="y"
-            dragConstraints={{ top: 0, bottom: 180 }}
+            dragDirectionLock={true}
+            dragConstraints={{ top: 0, bottom: 800 }}
             dragElastic={0.08}
             dragMomentum={false}
             onDragEnd={(_event, info) => {
               if (info.offset.y > 90 || info.velocity.y > 500) setContextMessageIndex(null)
             }}
-            initial={{ y: '100%' }}
+            initial={{ y: 800 }}
             animate={{ y: 0 }}
-            exit={{ y: '100%' }}
+            exit={{ y: 800 }}
             transition={{ type: 'spring', damping: 28, stiffness: 320 }}
           >
             <div className="mobile-sheet-grabber" aria-hidden="true" />

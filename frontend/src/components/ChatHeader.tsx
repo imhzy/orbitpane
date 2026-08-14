@@ -268,12 +268,20 @@ export function ChatHeader(_props: ChatHeaderProps) {
                   onClick={() => setIsActionsMenuOpen(false)}
                 />
                 <motion.div
-                  initial={{ opacity: 0, y: -5, scale: 0.98 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -5, scale: 0.98 }}
-                  transition={{ duration: 0.15 }}
                   className="actions-dropdown-menu mobile-actions-sheet"
                   role="menu"
+                  drag="y"
+                  dragDirectionLock={true}
+                  dragConstraints={{ top: 0, bottom: 800 }}
+                  dragElastic={0.08}
+                  dragMomentum={false}
+                  onDragEnd={(_event, info) => {
+                    if (info.offset.y > 90 || info.velocity.y > 500) setIsActionsMenuOpen(false)
+                  }}
+                  initial={{ y: 800 }}
+                  animate={{ y: 0 }}
+                  exit={{ y: 800 }}
+                  transition={{ type: 'spring', damping: 28, stiffness: 320 }}
                 >
                 <div className="mobile-sheet-grabber" aria-hidden="true" />
                 <div className="mobile-sheet-title">更多操作</div>

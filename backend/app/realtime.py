@@ -622,7 +622,7 @@ class AgentCoordinator:
         await provider.interrupt(conversation_id)
         return True
 
-    async def cancel(self, conversation_id: int) -> None:
+    async def cancel(self, conversation_id: int, reason: str = "工作区已删除") -> None:
         async with self._lock:
             queued = self._queues.pop(conversation_id, [])
         for item in queued:
@@ -630,8 +630,9 @@ class AgentCoordinator:
                 item.run_id,
                 status="canceled",
                 completed_at=_utc_now(),
-                error="工作区已删除",
+                error=reason,
             )
+        await self._broadcast_queue(conversation_id)
         await self.interrupt(conversation_id)
         async with self._lock:
             task = self._tasks.get(conversation_id)

@@ -471,10 +471,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         dependencies=[Depends(require_auth)],
     )
     async def clear_history(conversation_id: int):
-        if coordinator.is_running(conversation_id):
-            raise HTTPException(status_code=409, detail="Conversation is currently running")
         if database.get_conversation(conversation_id) is None:
             raise HTTPException(status_code=404, detail="Conversation not found")
+        await coordinator.cancel(conversation_id, reason="历史记录已清空")
         database.clear_messages(conversation_id)
         return {"status": "ok"}
 

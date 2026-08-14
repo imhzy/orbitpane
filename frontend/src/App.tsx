@@ -1241,10 +1241,6 @@ export default function App() {
                 setDrawerMode={setDrawerMode}
                 conversations={conversations}
                 selectConversation={selectConversation}
-                onQuickPrompt={(prompt) => {
-                  setInput(prompt)
-                  setTimeout(() => textareaRef.current?.focus(), 50)
-                }}
               />
             ) : (
               <MessageList

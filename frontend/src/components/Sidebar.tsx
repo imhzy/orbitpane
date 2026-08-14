@@ -200,15 +200,16 @@ export function Sidebar(_props: SidebarProps) {
     <AnimatePresence>
       {isDrawerOpen && (
         <motion.div 
-          initial={{ x: '-100%' }} animate={{ x: 0 }} exit={{ x: '-100%' }}
+          initial={{ x: -400 }} animate={{ x: 0 }} exit={{ x: -400 }}
           transition={springConfig}
           className={`drawer ${drawerMode === 'create' ? 'create-mode' : ''} ${drawerMode === 'create' && isDirectoryExpanded ? 'directory-focus-mode' : ''} ${isHighlighting ? 'drawer-highlight' : ''}`}
           role="dialog"
           aria-modal={window.innerWidth < 1024 ? true : undefined}
           aria-label="项目菜单"
           drag="x"
-          dragConstraints={{ left: -340, right: 0 }}
-          dragElastic={0}
+          dragDirectionLock={true}
+          dragConstraints={{ left: -400, right: 0 }}
+          dragElastic={0.1}
           dragMomentum={false}
           onDragEnd={(_e, { offset, velocity }) => {
             if (offset.x < -100 || velocity.x < -300) {
@@ -752,15 +753,16 @@ export function Sidebar(_props: SidebarProps) {
             className="mobile-bottom-sheet project-actions-sheet"
             role="menu"
             drag="y"
-            dragConstraints={{ top: 0, bottom: 180 }}
-            dragElastic={0.08}
+            dragDirectionLock={true}
+            dragConstraints={{ top: 0, bottom: 800 }}
+            dragElastic={0.1}
             dragMomentum={false}
             onDragEnd={(_event, info) => {
               if (info.offset.y > 90 || info.velocity.y > 500) setContextConv(null)
             }}
-            initial={{ y: '100%' }}
+            initial={{ y: 800 }}
             animate={{ y: 0 }}
-            exit={{ y: '100%' }}
+            exit={{ y: 800 }}
             transition={{ type: 'spring', damping: 28, stiffness: 320 }}
           >
             <div className="mobile-sheet-grabber" aria-hidden="true" />
