@@ -43,9 +43,14 @@ class AntigravityModelCatalogTests(TestCase):
         ) as run_mock:
             models = fetch_antigravity_models("agy")
 
+        # The display name the CLI already prints is kept instead of being
+        # discarded and re-derived on the client.
         self.assertEqual(
             models,
-            ("gemini-3.6-flash-high", "claude-sonnet-4-6"),
+            (
+                ("gemini-3.6-flash-high", "Gemini 3.6 Flash (High)"),
+                ("claude-sonnet-4-6", "Claude Sonnet 4.6 (Thinking)"),
+            ),
         )
         run_mock.assert_called_once_with(
             ["agy", "models"],
@@ -61,13 +66,33 @@ class AntigravityModelCatalogTests(TestCase):
                 patch.dict("os.environ", {}, clear=True),
                 patch(
                     "backend.app.agents.antigravity.fetch_antigravity_models",
-                    return_value=("live-model",),
+                    return_value=(("live-model", "Live Model"),),
                 ) as fetch_mock,
             ):
                 self.assertEqual(provider.models, ("live-model",))
                 self.assertEqual(provider.models, ("live-model",))
+                self.assertEqual(
+                    provider.model_catalog(),
+                    [{"id": "live-model", "display_name": "Live Model"}],
+                )
 
         fetch_mock.assert_called_once_with("true")
+
+    def test_model_catalog_falls_back_to_humanized_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            provider = AntigravityProvider(test_settings(Path(temp_dir)))
+            with (
+                patch.dict("os.environ", {}, clear=True),
+                patch(
+                    "backend.app.agents.antigravity.fetch_antigravity_models",
+                    return_value=(),
+                ),
+            ):
+                # Settings fall back to ("test-model",) with no CLI labels.
+                self.assertEqual(
+                    provider.model_catalog(),
+                    [{"id": "test-model", "display_name": "Test Model"}],
+                )
 
 
 class AntigravityProviderTests(IsolatedAsyncioTestCase):

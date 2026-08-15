@@ -3,9 +3,11 @@ import { Square, Send, CornerDownLeft, AtSign, ListPlus, Plus } from 'lucide-rea
 import { ModelSelector } from './ModelSelector'
 import { FileMentionPicker } from './FileMentionPicker'
 import { apiFetch } from '../lib/api'
-import { playSendSound, playClickSound } from '../lib/sound'
 import { haptic } from '../lib/nativeFeedback'
-import type { Conversation, FileSearchItem, FileSearchResponse, ToastKind } from '../lib/types'
+import { useEscapeLayer } from '../hooks/useEscapeLayer'
+import { REFERENCE_FILE_EVENT } from '../lib/appEvents'
+import { readJson, writeJson } from '../lib/storage'
+import type { Conversation, FileSearchItem, FileSearchResponse, ModelOption, ToastKind } from '../lib/types'
 
 interface FileMention {
   start: number
@@ -43,8 +45,7 @@ interface ChatInputProps {
   scrollToBottom: (smooth: boolean) => void
   selectedModel: string
   setSelectedModel: (model: string) => void
-  models: string[]
-  formatModelName: (modelId: string) => string
+  models: ModelOption[]
   loadModels: () => void
   socketRef: React.MutableRefObject<WebSocket | null>
   connectWebSocket: (conv: Conversation, isManual?: boolean) => void
@@ -67,7 +68,6 @@ export function ChatInput({
   selectedModel,
   setSelectedModel,
   models,
-  formatModelName,
   loadModels,
   socketRef,
   connectWebSocket,
@@ -88,6 +88,10 @@ export function ChatInput({
     ? recentFiles
     : fileResults
 
+  // While the picker is open it owns Escape, so dismissing it never reaches
+  // the drawer or any other overlay behind the composer.
+  useEscapeLayer(mention !== null, () => setMention(null))
+
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
@@ -103,14 +107,8 @@ export function ChatInput({
       setRecentFiles([])
       return
     }
-    try {
-      const stored = JSON.parse(
-        localStorage.getItem(`orbitpane_recent_files_${activeConversationId}`) || '[]',
-      )
-      setRecentFiles(Array.isArray(stored) ? stored.slice(0, 5) : [])
-    } catch {
-      setRecentFiles([])
-    }
+    const stored = readJson<unknown>(`orbitpane_recent_files_${activeConversationId}`, [])
+    setRecentFiles(Array.isArray(stored) ? (stored as FileSearchItem[]).slice(0, 5) : [])
   }, [activeConversationId])
 
   useEffect(() => {
@@ -159,8 +157,8 @@ export function ChatInput({
       setInput(previous => `${previous}${previous && !previous.endsWith(' ') ? ' ' : ''}@${path}`)
       window.requestAnimationFrame(() => textareaRef.current?.focus())
     }
-    window.addEventListener('orbitpane-reference-file', handleReferenceFile)
-    return () => window.removeEventListener('orbitpane-reference-file', handleReferenceFile)
+    window.addEventListener(REFERENCE_FILE_EVENT, handleReferenceFile)
+    return () => window.removeEventListener(REFERENCE_FILE_EVENT, handleReferenceFile)
   }, [setInput, textareaRef])
 
   const updateMentionFromTextarea = useCallback((textarea: HTMLTextAreaElement) => {
@@ -183,7 +181,7 @@ export function ChatInput({
     setMention(null)
     setRecentFiles(previous => {
       const next = [item, ...previous.filter(recent => recent.path !== item.path)].slice(0, 5)
-      localStorage.setItem(`orbitpane_recent_files_${activeConversationId}`, JSON.stringify(next))
+      writeJson(`orbitpane_recent_files_${activeConversationId}`, next)
       return next
     })
     window.requestAnimationFrame(() => {
@@ -194,13 +192,12 @@ export function ChatInput({
 
   const handleSendClick = () => {
     if (!activeConv) {
-      showToast('请先选择或新建一个工作区会话')
+      showToast('请先选择或新建一个项目', 'warning')
       setIsDrawerOpen(true)
       return
     }
     if (input.trim()) {
       haptic('success')
-      playSendSound()
       sendMessage()
       if (!isConnected) {
         showToast('消息已保存，连接恢复后自动发送', 'info')
@@ -211,7 +208,6 @@ export function ChatInput({
 
   const handleInterrupt = () => {
     haptic('warning')
-    playClickSound()
     socketRef.current?.send(JSON.stringify({ action: 'interrupt' }))
     showToast('正在中断当前任务…', 'warning')
   }
@@ -221,10 +217,17 @@ export function ChatInput({
       <div
         ref={inputBoxRef}
         className={`input-box ${input.trim() ? 'has-text' : ''} ${isAgentThinking ? 'thinking-state' : ''}`}
-        onClick={() => {
+        onClick={event => {
           if (!activeConv) {
             setIsDrawerOpen(true)
+            return
           }
+          // The idle composer is much taller than its 32px textarea, so tapping
+          // the surrounding padding has to focus the field rather than do
+          // nothing — the whole box reads as "the input" on a phone.
+          const target = event.target as HTMLElement
+          if (target.closest('button, a, textarea, input, [role="option"]')) return
+          textareaRef.current?.focus()
         }}
       >
         {mention && activeConv && (
@@ -261,19 +264,13 @@ export function ChatInput({
                 selectFile(visibleFileResults[activeFileIndex])
                 return
               }
-              if (e.key === 'Escape') {
-                e.preventDefault()
-                setMention(null)
-                return
-              }
               if (e.key === 'Enter') {
                 e.preventDefault()
                 return
               }
             }
             if (e.key === 'Enter' && !e.shiftKey && !isAgentThinking && input.trim()) {
-              playSendSound()
-            }
+                    }
             handleKeyDown(e)
           }}
           onSelect={event => updateMentionFromTextarea(event.currentTarget)}
@@ -292,7 +289,7 @@ export function ChatInput({
             }, 100)
           }}
           disabled={!activeConv}
-          placeholder={!activeConv ? "选择工程工作区后开启对话..." : "向 OrbitPane 描述需求..."}
+          placeholder={!activeConv ? "选择项目后开始对话…" : "向 OrbitPane 描述需求…"}
           aria-label="消息输入框"
           aria-autocomplete="list"
           aria-controls={mention ? 'file-mention-results' : undefined}
@@ -328,7 +325,6 @@ export function ChatInput({
               selectedModel={selectedModel}
               setSelectedModel={setSelectedModel}
               models={models}
-              formatModelName={formatModelName}
               position="input"
               onOpen={loadModels}
             />

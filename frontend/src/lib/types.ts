@@ -17,8 +17,19 @@ export interface FileSearchResponse {
   truncated: boolean
 }
 
+export type MessageFeedback = 'up' | 'down' | ''
+
 export interface Message {
   id?: number
+  /**
+   * Stable client-side identity, assigned when a message first appears.
+   *
+   * React keys must not change while a message streams: the server ids arrive
+   * in stages (none -> run_id -> row id), and keying off those remounted the
+   * whole subtree mid-answer, replaying entry animations and discarding the
+   * execution timeline's expanded state.
+   */
+  localId?: string
   role: 'user' | 'agent' | 'system' | 'summary'
   content: string
   thought?: string
@@ -39,6 +50,7 @@ export interface Message {
   input_chars?: number
   output_chars?: number
   context_chars?: number
+  feedback?: MessageFeedback
 }
 
 export interface Conversation {
@@ -57,16 +69,24 @@ export interface Conversation {
 
 export type PermissionMode = 'workspace' | 'unrestricted'
 
+/** A model id paired with the label its provider publishes for it. */
+export interface ModelOption {
+  id: string
+  display_name: string
+}
+
 export interface ModelsResponse {
   provider: string
-  models: string[]
+  models: ModelOption[]
 }
 
 export interface Provider {
   id: string
   name: string
+  /** Badge colour family chosen by the backend, not guessed from the id. */
+  tone: string
   available: boolean
-  models: string[]
+  models: ModelOption[]
 }
 
 export interface AgentsResponse {

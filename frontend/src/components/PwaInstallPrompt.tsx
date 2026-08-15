@@ -1,3 +1,4 @@
+import { readText, writeText } from '../lib/storage'
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Share, PlusSquare, X, Check, Apple, Smartphone, Download, Info } from 'lucide-react'
@@ -73,7 +74,7 @@ export function PwaInstallPrompt({ showToast }: PwaInstallPromptProps) {
     // iOS and Android WebViews do not expose Chrome's native prompt, so those
     // environments retain the manual installation guide. Android Chrome waits
     // for beforeinstallprompt instead of showing a misleading early CTA.
-    const dismissedTime = localStorage.getItem('orbitpane_pwa_dismissed')
+    const dismissedTime = readText('orbitpane_pwa_dismissed')
     const COOLDOWN = 12 * 60 * 60 * 1000 // 12 hours cooldown if closed
     let timer: number | undefined
 
@@ -97,7 +98,7 @@ export function PwaInstallPrompt({ showToast }: PwaInstallPromptProps) {
 
   const handleDismiss = () => {
     setPromptBannerOpen(false)
-    localStorage.setItem('orbitpane_pwa_dismissed', Date.now().toString())
+    writeText('orbitpane_pwa_dismissed', Date.now().toString())
   }
 
   const handleInstallClick = async () => {
@@ -213,7 +214,7 @@ export function PwaInstallPrompt({ showToast }: PwaInstallPromptProps) {
                   <img src="/pwa-192x192.png" alt="OrbitPane" className="pwa-preview-icon" />
                   <div>
                     <div className="pwa-preview-name">OrbitPane</div>
-                    <div className="pwa-preview-sub">智能 Agent 协作工作区 (PWA)</div>
+                    <div className="pwa-preview-sub">智能 Agent 协作工作台 (PWA)</div>
                   </div>
                 </div>
 

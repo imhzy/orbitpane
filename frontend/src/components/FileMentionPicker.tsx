@@ -85,7 +85,7 @@ export function FileMentionPicker({
 
         {!loading && items.length === 0 && (
           <div className="file-mention-empty">
-            {query ? `没有找到“${query}”` : '当前工作区内没有可引用的文件'}
+            {query ? `没有找到“${query}”` : '当前项目内没有可引用的文件'}
           </div>
         )}
       </div>

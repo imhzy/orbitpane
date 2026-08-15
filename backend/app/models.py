@@ -16,7 +16,7 @@ class Conversation:
     is_pinned: bool = False
     is_archived: bool = False
     preferred_model: str = ""
-    permission_mode: str = "unrestricted"
+    permission_mode: str = "workspace"
     draft: str = ""
     active_summary_id: int | None = None
 
@@ -35,6 +35,7 @@ class Message:
     input_chars: int = 0
     output_chars: int = 0
     context_chars: int = 0
+    feedback: str = ""
 
 
 class LoginRequest(BaseModel):
@@ -46,7 +47,9 @@ class ConversationCreate(BaseModel):
     path: str = Field(min_length=1, max_length=4096)
     provider: str = Field(default="antigravity", min_length=1, max_length=40)
     preferred_model: str = Field(default="", max_length=120)
-    permission_mode: Literal["workspace", "unrestricted"] = "unrestricted"
+    # Sandboxed by default: unrestricted skips approvals entirely, so it has to
+    # be an explicit choice rather than something a client can omit into.
+    permission_mode: Literal["workspace", "unrestricted"] = "workspace"
 
 
 class ConversationUpdate(BaseModel):
@@ -79,3 +82,8 @@ class SummaryUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=120)
     content: str | None = Field(default=None, min_length=1, max_length=200_000)
     active: bool | None = None
+
+
+class MessageFeedbackUpdate(BaseModel):
+    #: Empty string clears an existing rating.
+    feedback: Literal["up", "down", ""]

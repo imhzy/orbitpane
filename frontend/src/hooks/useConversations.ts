@@ -1,19 +1,28 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { apiFetch } from '../lib/api'
-import type { Conversation, DirItem, Provider, ModelsResponse, AgentsResponse, PermissionMode, ToastKind } from '../lib/types'
+import { rememberModelLabels } from '../lib/providers'
+import { pruneConversationKeys, readJson, writeJson } from '../lib/storage'
+import type { Conversation, DirItem, Provider, ModelOption, ModelsResponse, AgentsResponse, PermissionMode, ToastKind } from '../lib/types'
 
 const CONVERSATION_CACHE_KEY = 'orbitpane_conversations_cache_v2'
 const PROVIDER_CACHE_KEY = 'orbitpane_provider_cache_v2'
 
-function readCache<T>(key: string, fallback: T): T {
-  try {
-    const value = localStorage.getItem(key)
-    if (!value) return fallback
-    const parsed = JSON.parse(value) as T | null
-    return parsed === null ? fallback : parsed
-  } catch {
-    return fallback
-  }
+const readCache = readJson
+
+/** Older caches stored plain id strings; upgrade them in place. */
+function normalizeModelOptions(value: unknown): ModelOption[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap(entry => {
+    if (typeof entry === 'string') return [{ id: entry, display_name: entry }]
+    if (
+      entry && typeof entry === 'object'
+      && typeof (entry as ModelOption).id === 'string'
+    ) {
+      const option = entry as ModelOption
+      return [{ id: option.id, display_name: option.display_name || option.id }]
+    }
+    return []
+  })
 }
 
 function normalizeConversation(value: unknown): Conversation | null {
@@ -31,7 +40,9 @@ function normalizeConversation(value: unknown): Conversation | null {
     is_pinned: Boolean(raw.is_pinned),
     is_archived: Boolean(raw.is_archived),
     preferred_model: typeof raw.preferred_model === 'string' ? raw.preferred_model : '',
-    permission_mode: raw.permission_mode === 'workspace' ? 'workspace' : 'unrestricted',
+    // Fail closed: only an explicit 'unrestricted' unlocks the sandbox, so a
+    // malformed or truncated payload cannot silently widen permissions.
+    permission_mode: raw.permission_mode === 'unrestricted' ? 'unrestricted' : 'workspace',
     draft: typeof raw.draft === 'string' ? raw.draft : '',
     active_summary_id: typeof raw.active_summary_id === 'number' ? raw.active_summary_id : null,
   }
@@ -67,7 +78,7 @@ export function useConversations(showToast: (msg: string, kind?: ToastKind) => v
     })()
   ))
   const [defaultProvider, setDefaultProvider] = useState<string>('antigravity')
-  const [models, setModels] = useState<string[]>([])
+  const [models, setModels] = useState<ModelOption[]>([])
   const [selectedModel, setSelectedModelState] = useState<string>('')
   const modelsRequestRef = useRef(0)
 
@@ -78,7 +89,7 @@ export function useConversations(showToast: (msg: string, kind?: ToastKind) => v
   const [selectedDir, setSelectedDir] = useState<string>('')
   const [newConvName, setNewConvName] = useState('')
   const [selectedProvider, setSelectedProvider] = useState<string>('')
-  const [selectedPermissionMode, setSelectedPermissionMode] = useState<PermissionMode>('unrestricted')
+  const [selectedPermissionMode, setSelectedPermissionMode] = useState<PermissionMode>('workspace')
 
   const [editingConvId, setEditingConvId] = useState<number | null>(null)
   const [editingConvName, setEditingConvName] = useState<string>('')
@@ -90,7 +101,7 @@ export function useConversations(showToast: (msg: string, kind?: ToastKind) => v
         setDefaultWorkspaceRoot(data.default_root)
         setCurrentPath(previous => previous || data.default_root)
         setSelectedDir(previous => previous || data.default_root)
-        localStorage.setItem('orbitpane_workspace_roots', JSON.stringify(data))
+        writeJson('orbitpane_workspace_roots', data)
         return data
       })
       .catch(error => {
@@ -112,7 +123,7 @@ export function useConversations(showToast: (msg: string, kind?: ToastKind) => v
       .then(data => {
         if (data.providers) {
           setProviders(data.providers)
-          localStorage.setItem(PROVIDER_CACHE_KEY, JSON.stringify(data.providers))
+          writeJson(PROVIDER_CACHE_KEY, data.providers)
         }
         if (data.default_provider) {
           setDefaultProvider(data.default_provider)
@@ -128,28 +139,29 @@ export function useConversations(showToast: (msg: string, kind?: ToastKind) => v
       : (activeConvRef.current?.provider || defaultProvider || 'antigravity')
     const requestId = ++modelsRequestRef.current
     const cacheKey = `orbitpane_models_${provider}`
+    const applyModels = (nextModels: ModelOption[]) => {
+      setModels(nextModels)
+      rememberModelLabels(nextModels)
+      if (nextModels.length === 0) return
+      setSelectedModelState(previous => {
+        const preferred = activeConvRef.current?.preferred_model
+        const has = (id: string) => nextModels.some(model => model.id === id)
+        if (preferred && has(preferred)) return preferred
+        return has(previous) ? previous : nextModels[0].id
+      })
+    }
+
     return apiFetch<ModelsResponse>(`/api/models?provider=${encodeURIComponent(provider)}`)
       .then(data => {
         if (requestId !== modelsRequestRef.current) return
-        const nextModels = data.models || []
-        setModels(nextModels)
-        localStorage.setItem(cacheKey, JSON.stringify(nextModels))
-        if (nextModels.length > 0) {
-          setSelectedModelState(previous => {
-            const preferred = activeConvRef.current?.preferred_model
-            if (preferred && nextModels.includes(preferred)) return preferred
-            return nextModels.includes(previous) ? previous : nextModels[0]
-          })
-        }
+        const nextModels = normalizeModelOptions(data.models)
+        applyModels(nextModels)
+        writeJson(cacheKey, nextModels)
       })
       .catch(error => {
         if (requestId !== modelsRequestRef.current) return
         console.error(error)
-        const cached = readCache<string[]>(cacheKey, [])
-        setModels(cached)
-        if (cached.length > 0) {
-          setSelectedModelState(previous => cached.includes(previous) ? previous : cached[0])
-        }
+        applyModels(normalizeModelOptions(readCache<unknown>(cacheKey, [])))
       })
   }, [defaultProvider])
 
@@ -160,7 +172,10 @@ export function useConversations(showToast: (msg: string, kind?: ToastKind) => v
         const normalized = normalizeConversations(data)
         conversationsRef.current = normalized
         setConversations(normalized)
-        localStorage.setItem(CONVERSATION_CACHE_KEY, JSON.stringify(normalized))
+        writeJson(CONVERSATION_CACHE_KEY, normalized)
+        // Deletions made elsewhere (another tab, another device) also free the
+        // per-conversation keys they left behind here.
+        pruneConversationKeys(normalized.map(conversation => conversation.id))
         if (isInitial) {
           const conversationId = new URLSearchParams(window.location.search).get('id')
           if (conversationId) {

@@ -1,6 +1,21 @@
 import React, { createContext, useContext } from 'react';
-import type { Conversation, Provider, DirItem, PermissionMode, ToastKind } from '../lib/types';
+import type {
+  Conversation, Provider, DirItem, ModelOption, PermissionMode, ProviderBadge, ToastKind,
+} from '../lib/types';
 import type { Message } from '../lib/types';
+import type { ShowToastOptions } from '../hooks/useToasts';
+
+/** A queued confirmation. `id` de-duplicates repeated requests. */
+export interface ConfirmRequest {
+  id: string;
+  title: string;
+  description: string;
+  confirmText?: string;
+  cancelText?: string;
+  variant?: 'default' | 'destructive';
+  onConfirm: () => void;
+  onCancel?: () => void;
+}
 
 export interface AppContextType {
   // Theme
@@ -8,7 +23,10 @@ export interface AppContextType {
   toggleTheme: () => void;
 
   // Toast
-  showToast: (msg: string, kind?: ToastKind) => void;
+  showToast: (msg: string, kind?: ToastKind, options?: ShowToastOptions) => void;
+
+  // Confirmation dialogs share one queued instance.
+  requestConfirm: (request: ConfirmRequest) => void;
 
   // Drawer / Sidebar
   isDrawerOpen: boolean;
@@ -16,6 +34,8 @@ export interface AppContextType {
   drawerMode: 'sessions' | 'create';
   setDrawerMode: React.Dispatch<React.SetStateAction<'sessions' | 'create'>>;
   showProjectHome: () => void;
+  /** Closes the drawer, warning first if the create form has unsaved input. */
+  requestCloseDrawer: () => void;
   activeTaskCount: number;
 
   // Command Palette
@@ -52,12 +72,12 @@ export interface AppContextType {
   setSelectedProvider: (provider: string) => void;
   selectedPermissionMode: PermissionMode;
   setSelectedPermissionMode: (mode: PermissionMode) => void;
-  models: string[];
+  models: ModelOption[];
   selectedModel: string;
   setSelectedModel: (model: string) => void;
   loadModels: (providerId?: string) => void;
   loadProviders: () => void;
-  getProviderBadge: (providerId?: string, providersCatalog?: Provider[]) => { text: string; type: string; className: string; Icon: React.ElementType };
+  getProviderBadge: (providerId?: string, providersCatalog?: Provider[]) => ProviderBadge;
   formatModelName: (id: string) => string;
 
   // File System (Create Workspace)
@@ -92,7 +112,7 @@ export interface AppContextType {
   isAgentThinking: boolean;
   isAgentThinkingRef: React.MutableRefObject<boolean>;
   pendingSendMessagesRef: React.MutableRefObject<Map<number, Array<{ content: string; model: string; provider: string }>>>;
-  loadHistory: (convId: number, silent?: boolean) => void;
+  loadHistory: (convId: number, silent?: boolean) => Promise<Message[] | null> | void;
   socketRef: React.MutableRefObject<WebSocket | null>;
   socketConversationIdRef: React.MutableRefObject<number | null>;
 }

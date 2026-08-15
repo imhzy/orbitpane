@@ -15,6 +15,21 @@
   --font-heading: Inter, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", "Noto Sans Mono CJK SC", ui-monospace, monospace;
 
+  /* Type scale. 11px is the hard floor: below that CJK glyphs lose strokes and
+     the text stops being readable at arm's length on a laptop. Every font-size
+     in the app resolves to one of these — no ad-hoc or half-pixel values. */
+  --text-2xs: 11px;  /* badges, metadata (floor) */
+  --text-xs: 12px;   /* secondary labels */
+  --text-sm: 13px;   /* control text */
+  --text-base: 14px; /* dense body, mobile message text */
+  --text-md: 15px;   /* body */
+  --text-lg: 18px;   /* dialog and section titles */
+  --text-xl: 24px;
+  --text-2xl: 32px;
+  /* Functional, not a visual step: iOS Safari zooms the page when a focused
+     input renders below 16px, so form fields opt out of the ramp. */
+  --text-input: 16px;
+
   /* Radii - Precise, modern software corners */
   --radius-sm: 6px;
   --radius-md: 10px;
@@ -41,13 +56,22 @@
   --border-color: rgba(255, 255, 255, 0.1);
   --border-subtle: rgba(255, 255, 255, 0.05);
   --border-focus: rgba(59, 130, 246, 0.5);
-  --border-glow: transparent;
 
-  /* Typography colors */
-  --text-primary: #f4f4f5; /* Zinc 100 */
-  --text-secondary: #a1a1aa; /* Zinc 400 */
-  --text-tertiary: #8b8b95;
-  --text-inverse: #09090b;
+  /* Typography colors. Three genuinely distinct steps; contrast measured
+     against --bg-primary. Keep the gaps wide enough that the hierarchy still
+     reads after the browser applies its own antialiasing. */
+  --text-primary: #fafafa;   /* 19.1:1 */
+  --text-secondary: #c4c4cc; /* 11.5:1 */
+  --text-tertiary: #94949e;  /*  6.6:1 */
+
+  /* Agent execution step semantics. Referenced by AgentExecutionTimeline so
+     the step colors follow the theme instead of being frozen for dark mode. */
+  --step-exec: #60a5fa;
+  --step-file: #fbbf24;
+  --step-search: #c084fc;
+  --step-plan: #34d399;
+  --step-thought: #a1a1aa;
+  --step-tool: #22d3ee;
 
   /* Accent - Developer Blue */
   --brand-primary: #2563eb; /* Blue 600 */
@@ -57,16 +81,30 @@
   --accent-border: rgba(37, 99, 235, 0.25);
   
   /* Solid professional brand tone */
-  --brand-gradient: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
-  --text-gradient: linear-gradient(135deg, #f4f4f5 0%, #d4d4d8 100%);
+  --brand-secondary: #7c3aed; /* Violet 600 - second stop of the brand ramp */
+  /* Foreground for filled brand/danger surfaces. Distinct from --text-inverse,
+     which follows the theme and would go near-black on a blue button in dark
+     mode. Stays white in both themes because both ramps are dark enough. */
+  --on-brand: #ffffff;
+  --brand-gradient: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-secondary) 100%);
+  --success-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  --text-gradient: linear-gradient(135deg, #fafafa 0%, #d4d4d8 100%);
 
-  /* Semantic Colors */
+  /* Semantic Colors.
+     `--*-color` fills shapes (dots, bars, solid buttons). `--*-text` is the
+     same meaning tuned for *text*, which needs more contrast because these
+     labels usually sit on their own tinted background rather than on the page
+     background. Using the fill colour for small text is what pushed several
+     11px chips under 4.5:1 in light mode. */
   --danger-color: #ef4444; /* Red 500 */
+  --danger-text: #f87171;
   --danger-bg: rgba(239, 68, 68, 0.1);
   --success-color: #10b981; /* Emerald 500 */
+  --success-text: #34d399;
   --success-bg: rgba(16, 185, 129, 0.1);
   --success-border: rgba(16, 185, 129, 0.2);
   --warning-color: #f59e0b;
+  --warning-text: #fbbf24;
   --warning-bg: rgba(245, 158, 11, 0.1);
   --warning-border: rgba(245, 158, 11, 0.2);
   --info-color: #3b82f6;
@@ -78,15 +116,20 @@
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
   --shadow-float: 0 8px 24px rgba(0, 0, 0, 0.5);
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5);
-  --shadow-glow: none;
 
   --scrollbar-thumb: rgba(255, 255, 255, 0.12);
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.25);
 
-  /* Spacing Scale (4px base) */
+  /* Spacing Scale (4px base). Half-steps exist because dense control chrome
+     genuinely needs the 6/10/14px rungs; without them those values end up as
+     ad-hoc literals scattered through the stylesheets. */
+  --space-0-5: 2px;
   --space-1: 4px;
+  --space-1-5: 6px;
   --space-2: 8px;
+  --space-2-5: 10px;
   --space-3: 12px;
+  --space-3-5: 14px;
   --space-4: 16px;
   --space-5: 20px;
   --space-6: 24px;
@@ -99,7 +142,6 @@
   --transition-normal: 0.2s ease;
   --transition-slow: 0.3s ease;
   --transition-spring: 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  --transition-spring-bouncy: 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 
   /* Backdrop */
   --glass-blur: blur(16px);
@@ -126,27 +168,41 @@
   --border-color: #e2e8f0;
   --border-subtle: #f1f5f9;
   --border-focus: rgba(37, 99, 235, 0.4);
-  --border-glow: transparent;
 
-  --text-primary: #0f172a;
-  --text-secondary: #64748b;
-  --text-tertiary: #64748b;
-  --text-inverse: #ffffff;
+  /* Contrast measured against --bg-primary (#f8fafc); every step clears 4.5:1
+     so tertiary text stays legible instead of collapsing into secondary. */
+  --text-primary: #0f172a;   /* 17.1:1 */
+  --text-secondary: #475569; /*  7.2:1 */
+  /* Darker than slate-500 so it still clears 4.5:1 on --bg-surface-hover,
+     not only on the lightest page background. */
+  --text-tertiary: #5b6879;  /*  5.4:1 on bg-primary, 5.2:1 on bg-surface-hover */
+
+  --step-exec: #1d4ed8;
+  --step-file: #b45309;
+  --step-search: #7e22ce;
+  --step-plan: #047857;
+  --step-thought: #52525b;
+  --step-tool: #0e7490;
 
   --accent-color: #2563eb;
   --accent-text: #1e40af;
   --accent-subtle-bg: rgba(37, 99, 235, 0.08);
   --accent-border: rgba(37, 99, 235, 0.2);
   
-  --brand-gradient: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
+  --brand-secondary: #6d28d9;
+  --brand-gradient: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-secondary) 100%);
+  --success-gradient: linear-gradient(135deg, #059669 0%, #047857 100%);
   --text-gradient: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
 
   --danger-color: #dc2626;
+  --danger-text: #b91c1c;
   --danger-bg: rgba(220, 38, 38, 0.08);
   --success-color: #059669;
+  --success-text: #047857;
   --success-bg: rgba(5, 150, 105, 0.08);
   --success-border: rgba(5, 150, 105, 0.15);
   --warning-color: #d97706;
+  --warning-text: #b45309;
   --warning-bg: rgba(217, 119, 6, 0.08);
   --warning-border: rgba(217, 119, 6, 0.15);
   --info-color: #2563eb;
@@ -157,7 +213,6 @@
   --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.06);
   --shadow-float: 0 8px 24px rgba(15, 23, 42, 0.08);
   --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.1);
-  --shadow-glow: none;
 
   --scrollbar-thumb: rgba(15, 23, 42, 0.12);
   --scrollbar-thumb-hover: rgba(15, 23, 42, 0.25);
@@ -211,7 +266,7 @@ body {
   background: var(--bg-primary);
   color: var(--text-primary);
   overflow: hidden;
-  font-size: 15px;
+  font-size: var(--text-md);
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -261,6 +316,19 @@ button:focus:not(:focus-visible) {
 img, svg {
   display: block;
   max-width: 100%;
+}
+
+/* Available to assistive tech, invisible on screen. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* Reduced Motion */

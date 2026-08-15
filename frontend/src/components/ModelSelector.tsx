@@ -1,19 +1,22 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Cpu, ChevronDown, Check } from 'lucide-react'
+import { formatModelName } from '../lib/providers'
+import { useEscapeLayer } from '../hooks/useEscapeLayer'
+import type { ModelOption } from '../lib/types'
 
 export interface ModelSelectorProps {
   selectedModel: string
   setSelectedModel: (model: string) => void
-  models: string[]
-  formatModelName: (modelId: string) => string
+  models: ModelOption[]
   position: 'header' | 'input'
   onOpen?: () => void
 }
 
-export function ModelSelector({ selectedModel, setSelectedModel, models, formatModelName, position, onOpen }: ModelSelectorProps) {
+export function ModelSelector({ selectedModel, setSelectedModel, models, position, onOpen }: ModelSelectorProps) {
   const [isOpen, setIsOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  useEscapeLayer(isOpen, () => setIsOpen(false))
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -34,21 +37,21 @@ export function ModelSelector({ selectedModel, setSelectedModel, models, formatM
   }
 
   const isInput = position === 'input'
-  const modelOptions = models.map(m => (
+  const modelOptions = models.map(model => (
     <button
-      key={m}
+      key={model.id}
       role="option"
-      aria-selected={selectedModel === m}
-      className={`model-dropdown-item ${selectedModel === m ? 'selected' : ''}`}
+      aria-selected={selectedModel === model.id}
+      className={`model-dropdown-item ${selectedModel === model.id ? 'selected' : ''}`}
       onClick={() => {
-        setSelectedModel(m)
+        setSelectedModel(model.id)
         setIsOpen(false)
       }}
     >
       <div className="model-item-icon">
-        {selectedModel === m ? <Check size={14} /> : <div style={{ width: 14 }} />}
+        {selectedModel === model.id ? <Check size={14} /> : <div style={{ width: 14 }} />}
       </div>
-      <span className="model-item-name">{formatModelName(m)}</span>
+      <span className="model-item-name">{model.display_name}</span>
     </button>
   ))
 

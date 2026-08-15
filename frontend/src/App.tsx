@@ -1,24 +1,41 @@
-import { Suspense, lazy, useState, useEffect, useRef, useCallback } from 'react'
+import { Suspense, lazy, useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useConversations } from './hooks/useConversations'
 import { useWebSocket } from './hooks/useWebSocket'
+import { useToasts } from './hooks/useToasts'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Check, ArrowDown, Cpu, MessageSquare, AlertCircle, Info, TriangleAlert, WifiOff, RefreshCw } from 'lucide-react'
+import { ArrowDown, WifiOff, RefreshCw } from 'lucide-react'
 import './App.css'
 import './Workspace.css'
-import { apiFetch } from './lib/api'
+import { apiFetch, describeApiError } from './lib/api'
 import { AUTH_EXPIRED_EVENT, clearLegacyAuthState } from './lib/auth'
-import type { Conversation, Provider, ToastKind, ToastMessage } from './lib/types'
+import {
+  BACKGROUND_REFRESH_MS,
+  CLOSE_INSPECTOR_EVENT,
+  CONVERSATIONS_CHANGED_EVENT,
+  OFFLINE_READY_EVENT,
+  REQUEST_INTERRUPT_EVENT,
+  TASK_CHANGE_EVENT,
+  UPDATE_READY_EVENT,
+  emitConversationsChanged,
+  emitTaskChange,
+  subscribeToOtherTabs,
+} from './lib/appEvents'
+import { formatModelName, getProviderBadge } from './lib/providers'
+import { nextLocalId } from './lib/messageIdentity'
+import { forgetConversation, readJson, readText, remove, writeText } from './lib/storage'
+import type { Conversation, MessageFeedback } from './lib/types'
 
 import { Login } from './components/Login'
 import { ConfirmDialog } from './components/ConfirmDialog'
+import { ToastStack } from './components/Toast'
 import { Sidebar } from './components/Sidebar'
 import { ChatHeader } from './components/ChatHeader'
 import { WelcomeScreen } from './components/WelcomeScreen'
 import { MessageList } from './components/MessageList'
 import { ChatInput } from './components/ChatInput'
 import { AppContext } from './contexts/AppContext'
-import type { AppContextType } from './contexts/AppContext'
+import type { AppContextType, ConfirmRequest } from './contexts/AppContext'
 import { haptic, updateAppBadge } from './lib/nativeFeedback'
 
 const CommandPalette = lazy(() => import('./components/CommandPalette').then(module => ({ default: module.CommandPalette })))
@@ -34,13 +51,13 @@ function formatTimestamp(ts?: string | number) {
 }
 
 export default function App() {
-  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
-    return (localStorage.getItem('theme') as 'dark' | 'light') || 'dark'
-  })
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => (
+    readText('theme') === 'light' ? 'light' : 'dark'
+  ))
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
-    localStorage.setItem('theme', theme)
+    writeText('theme', theme)
     const metaThemeColors = document.querySelectorAll('meta[name="theme-color"]')
     metaThemeColors.forEach(metaThemeColor => {
       // Use #ffffff for light mode to seamlessly blend with the white header
@@ -53,19 +70,7 @@ export default function App() {
     setTheme(prev => (prev === 'dark' ? 'light' : 'dark'))
   }
 
-  // Toast Notification state
-  const [toast, setToast] = useState<ToastMessage | null>(null)
-  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const showToast = useCallback((msg: string, kind: ToastKind = 'success') => {
-    if (toastTimerRef.current) {
-      clearTimeout(toastTimerRef.current)
-    }
-    setToast({ id: Date.now(), message: msg, kind })
-    toastTimerRef.current = setTimeout(() => {
-      setToast(null)
-      toastTimerRef.current = null
-    }, 2200)
-  }, [])
+  const { toasts, showToast, dismissToast, runWithUndo } = useToasts()
 
   // Login State
   const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null)
@@ -189,26 +194,46 @@ export default function App() {
   // Command Palette State
   const [isCmdPaletteOpen, setIsCmdPaletteOpen] = useState(false)
 
-  // Confirm dialog state
-  const [confirmState, setConfirmState] = useState<{
-    isOpen: boolean
-    title: string
-    description: string
-    onConfirm: () => void
-  }>({ isOpen: false, title: '', description: '', onConfirm: () => {} })
+  /**
+   * One dialog at a time, queued.
+   *
+   * Two independent <ConfirmDialog> instances used to be mounted side by side;
+   * when a PWA update landed while a delete confirmation was open, both were
+   * visible and a single keypress reached both handlers.
+   */
+  const [confirmQueue, setConfirmQueue] = useState<ConfirmRequest[]>([])
+  const activeConfirm = confirmQueue[0] ?? null
+
+  const requestConfirm = useCallback((request: ConfirmRequest) => {
+    setConfirmQueue(queue => (
+      // Re-requesting the same dialog (double click, repeated shortcut) must not
+      // stack duplicates the user has to dismiss twice.
+      queue.some(existing => existing.id === request.id)
+        ? queue
+        : [...queue, request]
+    ))
+  }, [])
+
+  const closeActiveConfirm = useCallback(() => {
+    setConfirmQueue(queue => queue.slice(1))
+  }, [])
 
   // Interactive feedback states
   const [input, setInput] = useState('')
   const [isOnline, setIsOnline] = useState(() => navigator.onLine)
-  const [applyUpdate, setApplyUpdate] = useState<null | (() => void)>(null)
   const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const draftConversationIdRef = useRef<number | null>(null)
   const shareHandledRef = useRef(false)
-  const [copiedMsgIdx, setCopiedMsgIdx] = useState<number | null>(null)
-  const [feedbackState, setFeedbackState] = useState<Record<number, 'up' | 'down'>>({})
+  /* Keyed by the message's stable local id, never by array index: the history
+     reload after every turn re-orders the array, which used to move the copy
+     tick and the thumbs rating onto whichever message landed at that index. */
+  const [copiedMessageKey, setCopiedMessageKey] = useState<string | null>(null)
   const [isExporting, setIsExporting] = useState(false)
   const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false)
   const [mobileTaskCount, setMobileTaskCount] = useState(0)
+  /* Projects hidden by an open undo window. They are still on the server, so
+     they must not reappear when the list refreshes mid-countdown. */
+  const [pendingDeletionIds, setPendingDeletionIds] = useState<number[]>([])
 
   const getBreadcrumbParts = (pathStr: string) => {
     const normalizedPath = pathStr.replace(/\/+$/, '') || '/'
@@ -238,54 +263,6 @@ export default function App() {
       result = [first, second, ellipsis, secondLast, last]
     }
     return result
-  }
-
-  const formatModelName = (id: string) => {
-    if (id === 'gemini-3.6-flash-high') return 'Gemini 3.6 Flash (High)'
-    if (id === 'gemini-3.6-flash-medium') return 'Gemini 3.6 Flash (Medium)'
-    if (id === 'gemini-3.6-flash-low') return 'Gemini 3.6 Flash (Low)'
-    if (id === 'gemini-3.5-flash-high') return 'Gemini 3.5 Flash (High)'
-    if (id === 'gemini-3.5-flash-medium') return 'Gemini 3.5 Flash (Medium)'
-    if (id === 'gemini-3.5-flash-low') return 'Gemini 3.5 Flash (Low)'
-    if (id === 'gemini-3.1-pro-high') return 'Gemini 3.1 Pro (High)'
-    if (id === 'gemini-3.1-pro-low') return 'Gemini 3.1 Pro (Low)'
-    if (id === 'claude-sonnet-4-6') return 'Claude Sonnet 4.6'
-    if (id === 'claude-opus-4-6-thinking') return 'Claude Opus 4.6 (Thinking)'
-    if (id === 'gpt-oss-120b-medium') return 'GPT-OSS 120B (Medium)'
-    if (id === 'gpt-5.6-sol') return 'GPT-5.6 Sol (Default)'
-    if (id === 'gpt-5.6-terra') return 'GPT-5.6 Terra'
-    if (id === 'gpt-5.6-luna') return 'GPT-5.6 Luna'
-    if (id === 'gpt-5.5') return 'GPT-5.5'
-    if (id === 'gpt-5.4') return 'GPT-5.4'
-    if (id === 'gpt-5.4-mini') return 'GPT-5.4 Mini'
-    return id.split('-').map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ')
-  }
-
-  const getProviderBadge = (providerId?: string, providersCatalog: Provider[] = []) => {
-    const pid = (providerId || 'antigravity').toLowerCase()
-    if (pid === 'codex' || pid.includes('codex')) {
-      return {
-        text: 'ChatGPT Codex',
-        type: 'codex',
-        className: 'badge-codex',
-        Icon: Cpu,
-      }
-    }
-    if (pid === 'antigravity' || pid === 'gemini' || pid.includes('gemini') || pid.includes('google')) {
-      return {
-        text: 'Google Gemini',
-        type: 'gemini',
-        className: 'badge-gemini',
-        Icon: Cpu,
-      }
-    }
-    const matched = providersCatalog.find(p => p.id === providerId)
-    return {
-      text: matched?.name || providerId || 'Google Gemini',
-      type: 'other',
-      className: 'badge-default',
-      Icon: MessageSquare,
-    }
   }
 
   const handleMessagesScroll = useCallback(() => {
@@ -372,18 +349,33 @@ export default function App() {
     return () => window.removeEventListener(AUTH_EXPIRED_EVENT, handleExpiredAuth)
   }, [disconnectCurrentSocket, pendingSendMessagesRef])
 
+  const interruptAgent = useCallback(() => {
+    if (!isAgentThinkingRef.current) return false
+    const socket = socketRef.current
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      showToast('未连接 Agent，无法中断', 'warning')
+      return false
+    }
+    haptic('warning')
+    socket.send(JSON.stringify({ action: 'interrupt' }))
+    showToast('正在中断当前任务…', 'warning')
+    return true
+  }, [isAgentThinkingRef, showToast, socketRef])
+
+  useEffect(() => {
+    const handleRequest = () => { interruptAgent() }
+    window.addEventListener(REQUEST_INTERRUPT_EVENT, handleRequest)
+    return () => window.removeEventListener(REQUEST_INTERRUPT_EVENT, handleRequest)
+  }, [interruptAgent])
+
   // Keyboard Shortcuts
   useKeyboardShortcuts({
-    onEscape: () => {
-      if (isCmdPaletteOpen) {
-        setIsCmdPaletteOpen(false)
-      } else if (isAgentThinkingRef.current) {
-        socketRef.current?.send(JSON.stringify({ action: 'interrupt' }))
-        showToast('已中断 Agent 生成')
-      } else {
-        setIsDrawerOpen(false)
-      }
-    },
+    /* Escape belongs entirely to the overlay layer stack (useEscapeLayer), so
+       there is no global handler here. It used to double as "interrupt the
+       agent", which meant closing a rename field or the @-file picker — neither
+       of which stops the event — killed a running task. */
+    // Interrupting is destructive, so it gets its own deliberate chord.
+    onInterrupt: interruptAgent,
     onFocusInput: () => {
       textareaRef.current?.focus()
     },
@@ -530,17 +522,24 @@ export default function App() {
 
   useEffect(() => {
     const handleUpdate = (event: Event) => {
-      const updater = (event as CustomEvent<() => void>).detail
-      setApplyUpdate(() => updater)
+      const applyUpdate = (event as CustomEvent<() => void>).detail
+      requestConfirm({
+        id: 'pwa-update',
+        title: '发现新版本',
+        description: '新版本已准备就绪。更新会重新加载应用，当前草稿会自动保留。',
+        confirmText: '立即更新',
+        cancelText: '稍后',
+        onConfirm: () => applyUpdate(),
+      })
     }
     const handleOfflineReady = () => showToast('离线应用外壳已就绪', 'info')
-    window.addEventListener('orbitpane-update-ready', handleUpdate)
-    window.addEventListener('orbitpane-offline-ready', handleOfflineReady)
+    window.addEventListener(UPDATE_READY_EVENT, handleUpdate)
+    window.addEventListener(OFFLINE_READY_EVENT, handleOfflineReady)
     return () => {
-      window.removeEventListener('orbitpane-update-ready', handleUpdate)
-      window.removeEventListener('orbitpane-offline-ready', handleOfflineReady)
+      window.removeEventListener(UPDATE_READY_EVENT, handleUpdate)
+      window.removeEventListener(OFFLINE_READY_EVENT, handleOfflineReady)
     }
-  }, [showToast])
+  }, [requestConfirm, showToast])
 
   useEffect(() => {
     if (!isLoggedIn) return
@@ -569,19 +568,18 @@ export default function App() {
     showToast('分享内容已放入输入框', 'info')
   }, [activeConversationId, isLoggedIn, showToast])
 
-  useEffect(() => {
-    let channel: BroadcastChannel | null = null
-    try {
-      channel = new BroadcastChannel('orbitpane-sync')
-      channel.onmessage = event => {
-        if (event.data?.type === 'task-done' || event.data?.type === 'conversations-changed') {
-          void loadConversations(false)
-        }
+  useEffect(() => (
+    subscribeToOtherTabs(message => {
+      if (message.type === 'task-done' || message.type === 'conversations-changed') {
+        void loadConversations(false)
       }
-    } catch {
-      return
-    }
-    return () => channel?.close()
+    })
+  ), [loadConversations])
+
+  useEffect(() => {
+    const refresh = () => void loadConversations(false)
+    window.addEventListener(CONVERSATIONS_CHANGED_EVENT, refresh)
+    return () => window.removeEventListener(CONVERSATIONS_CHANGED_EVENT, refresh)
   }, [loadConversations])
 
   useEffect(() => {
@@ -592,13 +590,13 @@ export default function App() {
       setInput('')
       return
     }
-    const localDraft = localStorage.getItem(`orbitpane_draft_${conversationId}`)
+    const localDraft = readJson<string | null>(`orbitpane_draft_${conversationId}`, null)
     setInput(localDraft ?? activeConversationDraft)
   }, [activeConversationDraft, activeConversationId])
 
   useEffect(() => {
     if (!activeConversationId) return
-    localStorage.setItem(`orbitpane_draft_${activeConversationId}`, input)
+    writeText(`orbitpane_draft_${activeConversationId}`, JSON.stringify(input))
     if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current)
     draftSaveTimerRef.current = setTimeout(() => {
       void updateConversation(activeConversationId, { draft: input }, { silent: true })
@@ -608,18 +606,24 @@ export default function App() {
     }
   }, [activeConversationId, input, updateConversation])
 
-  // Dynamic data polling when drawer is open
+  /* The open drawer stays fresh from task events, with a slow poll only as a
+     safety net. It used to refetch the whole project list every 5 seconds for
+     as long as it was open, on top of two other panels doing the same. */
   useEffect(() => {
     if (!isDrawerOpen || !isLoggedIn) return
 
-    if (drawerMode === 'sessions') {
-      loadConversations(false)
-      const timer = setInterval(() => {
-        loadConversations(false)
-      }, 5000)
-      return () => clearInterval(timer)
-    } else if (drawerMode === 'create') {
+    if (drawerMode === 'create') {
       loadDir(currentPath)
+      return
+    }
+
+    const refresh = () => void loadConversations(false)
+    refresh()
+    window.addEventListener(TASK_CHANGE_EVENT, refresh)
+    const timer = window.setInterval(refresh, BACKGROUND_REFRESH_MS)
+    return () => {
+      window.removeEventListener(TASK_CHANGE_EVENT, refresh)
+      window.clearInterval(timer)
     }
   }, [isDrawerOpen, drawerMode, isLoggedIn, currentPath, loadConversations, loadDir])
 
@@ -694,8 +698,7 @@ export default function App() {
     if (isDifferentConversation) {
       isAgentThinkingRef.current = false
       setMessages([])
-      setCopiedMsgIdx(null)
-      setFeedbackState({})
+      setCopiedMessageKey(null)
     }
     if (window.innerWidth < 1024) setIsDrawerOpen(false)
     loadModels(conv.provider)
@@ -763,43 +766,62 @@ export default function App() {
         setCurrentPath(defaultWorkspaceRoot)
         setSelectedDir(defaultWorkspaceRoot)
         setSelectedProvider(defaultProvider)
-        setSelectedPermissionMode('unrestricted')
+        setSelectedPermissionMode('workspace')
         selectConversation(data)
       })
       .catch(err => {
         console.error(err)
-        showToast('创建项目失败', 'error')
+        showToast(describeApiError(err, '创建项目失败'), 'error')
       })
   }
 
   const deleteConversation = (e: React.MouseEvent, convId: number) => {
     e.stopPropagation()
-    setConfirmState({
-      isOpen: true,
+    const conversation = conversations.find(item => item.id === convId)
+    requestConfirm({
+      id: `delete-conversation-${convId}`,
       title: '删除项目',
-      description: '此操作不可撤销，确定要删除该项目及其任务记录吗？',
+      description: `确定要删除「${conversation?.name ?? '该项目'}」及其全部任务记录吗？删除后有 6 秒可以撤销。`,
+      confirmText: '删除',
+      variant: 'destructive',
       onConfirm: () => {
-        setConfirmState(prev => ({ ...prev, isOpen: false }))
-        apiFetch<{ status: string }>(`/api/conversations/${convId}`, { method: 'DELETE' })
-          .then(() => {
-            loadConversations()
-            pendingSendMessagesRef.current.delete(convId)
-            if (activeConvRef.current?.id === convId) {
-              activeConvRef.current = null
-              setActiveConv(null)
-              setMessages([])
-              isAgentThinkingRef.current = false
-              historyRequestRef.current += 1
-              disconnectCurrentSocket()
-              const url = new URL(window.location.href)
-              url.searchParams.delete('id')
-              window.history.pushState({}, '', url.toString())
-            }
-          })
-          .catch(err => {
-            console.error(err)
-            showToast('删除项目失败', 'error')
-          })
+        closeActiveConfirm()
+        // Optimistically leave the project, but hold the DELETE until the undo
+        // window closes so "undo" is a real restore rather than a re-create.
+        if (activeConvRef.current?.id === convId) {
+          activeConvRef.current = null
+          setActiveConv(null)
+          setMessages([])
+          isAgentThinkingRef.current = false
+          historyRequestRef.current += 1
+          disconnectCurrentSocket()
+          const url = new URL(window.location.href)
+          url.searchParams.delete('id')
+          window.history.pushState({}, '', url.toString())
+        }
+        setPendingDeletionIds(previous => [...previous, convId])
+
+        runWithUndo({
+          message: `已删除「${conversation?.name ?? '项目'}」`,
+          onUndo: () => {
+            setPendingDeletionIds(previous => previous.filter(id => id !== convId))
+            showToast('已恢复该项目')
+          },
+          perform: () => {
+            setPendingDeletionIds(previous => previous.filter(id => id !== convId))
+            apiFetch<{ status: string }>(`/api/conversations/${convId}`, { method: 'DELETE' })
+              .then(() => {
+                pendingSendMessagesRef.current.delete(convId)
+                forgetConversation(convId)
+                emitConversationsChanged()
+              })
+              .catch(err => {
+                console.error(err)
+                showToast(describeApiError(err, '删除项目失败'), 'error')
+                loadConversations()
+              })
+          },
+        })
       }
     })
   }
@@ -822,6 +844,7 @@ export default function App() {
     setMessages(prev => [
       ...prev,
       {
+        localId: nextLocalId(),
         role: 'user',
         content: textToSend.trim(),
         timestamp: new Date().toISOString(),
@@ -829,6 +852,7 @@ export default function App() {
         isOptimistic: true,
       },
       {
+        localId: nextLocalId(),
         role: 'agent',
         content: '',
         thought: '',
@@ -875,28 +899,45 @@ export default function App() {
   const clearMessages = () => {
     if (!activeConv) return
     const conversationId = activeConv.id
-    setConfirmState({
-      isOpen: true,
-      title: '清空会话消息',
-      description: '确定要清空当前会话的所有消息和排队任务吗？此操作不可逆。',
+    const snapshot = messages
+    requestConfirm({
+      id: `clear-history-${conversationId}`,
+      title: '清空对话记录',
+      description: '将删除该项目的全部消息、总结与排队任务。清空后有 6 秒可以撤销。',
+      confirmText: '清空',
+      variant: 'destructive',
       onConfirm: () => {
-        setConfirmState(prev => ({ ...prev, isOpen: false }))
-        apiFetch<{ status: string }>(`/api/history/${conversationId}`, { method: 'DELETE' })
-          .then(() => {
-            pendingSendMessagesRef.current.delete(conversationId)
-            localStorage.removeItem(`orbitpane_history_${conversationId}`)
+        closeActiveConfirm()
+        // Empty the view immediately, but only tell the server once the undo
+        // window closes — the rows are gone for good after that.
+        if (activeConvRef.current?.id === conversationId) {
+          historyRequestRef.current += 1
+          isAgentThinkingRef.current = false
+          setMessages([])
+        }
+
+        runWithUndo({
+          message: '对话记录已清空',
+          onUndo: () => {
             if (activeConvRef.current?.id === conversationId) {
-              historyRequestRef.current += 1
-              isAgentThinkingRef.current = false
-              setMessages([])
+              setMessages(snapshot)
             }
-            window.dispatchEvent(new CustomEvent('orbitpane-task-change'))
-            showToast('会话消息与排队任务已清空')
-          })
-          .catch(err => {
-            console.error(err)
-            showToast('清空消息失败', 'error')
-          })
+            showToast('已恢复对话记录')
+          },
+          perform: () => {
+            apiFetch<{ status: string }>(`/api/history/${conversationId}`, { method: 'DELETE' })
+              .then(() => {
+                pendingSendMessagesRef.current.delete(conversationId)
+                remove(`orbitpane_history_${conversationId}`)
+                emitTaskChange()
+              })
+              .catch(err => {
+                console.error(err)
+                showToast(describeApiError(err, '清空失败，正在恢复'), 'error')
+                void loadHistory(conversationId)
+              })
+          },
+        })
       }
     })
   }
@@ -910,7 +951,7 @@ export default function App() {
       })
       .catch(err => {
         console.error(err)
-        showToast('创建对话总结失败', 'error')
+        showToast(describeApiError(err, '生成总结失败'), 'error')
       })
   }
 
@@ -921,12 +962,17 @@ export default function App() {
     }
   }
 
-  const copyMessageText = (text: string, msgIndex: number) => {
-    navigator.clipboard.writeText(text)
-    setCopiedMsgIdx(msgIndex)
-    showToast('已复制到剪贴板')
-    setTimeout(() => setCopiedMsgIdx(null), 2000)
-  }
+  const copyMessageText = useCallback((text: string, messageKey: string) => {
+    void navigator.clipboard.writeText(text)
+      .then(() => {
+        setCopiedMessageKey(messageKey)
+        showToast('已复制到剪贴板')
+        window.setTimeout(() => {
+          setCopiedMessageKey(current => (current === messageKey ? null : current))
+        }, 2000)
+      })
+      .catch(() => showToast('复制失败，请检查浏览器权限', 'error'))
+  }, [showToast])
 
   const exportConversationAsImage = async () => {
     const targetElement = messagesContentRef.current || messagesContainerRef.current
@@ -1081,18 +1127,40 @@ export default function App() {
     }
   }
 
-  const handleFeedback = (idx: number, type: 'up' | 'down') => {
-    setFeedbackState(prev => {
-      const copy = { ...prev }
-      if (copy[idx] === type) {
-        delete copy[idx]
-      } else {
-        copy[idx] = type
-      }
-      return copy
+  /**
+   * Ratings are stored on the message row, not in component state.
+   *
+   * This used to live in a `Record<arrayIndex, 'up' | 'down'>` that was never
+   * sent anywhere and drifted onto unrelated messages as soon as the history
+   * reloaded and the array re-ordered.
+   */
+  const handleFeedback = useCallback((messageId: number | undefined, type: 'up' | 'down') => {
+    const conversationId = activeConvRef.current?.id
+    if (!conversationId || messageId === undefined) {
+      showToast('该消息尚未保存，稍后再试', 'warning')
+      return
+    }
+
+    let previous: MessageFeedback = ''
+    let next: MessageFeedback = type
+    setMessages(current => current.map(message => {
+      if (message.id !== messageId) return message
+      previous = message.feedback ?? ''
+      next = previous === type ? '' : type
+      return { ...message, feedback: next }
+    }))
+
+    apiFetch<{ feedback: MessageFeedback }>(
+      `/api/conversations/${conversationId}/messages/${messageId}/feedback`,
+      { method: 'PATCH', body: JSON.stringify({ feedback: next }) },
+    ).catch(error => {
+      console.error(error)
+      setMessages(current => current.map(message => (
+        message.id === messageId ? { ...message, feedback: previous } : message
+      )))
+      showToast('反馈保存失败', 'error')
     })
-    showToast(type === 'up' ? '感谢你的好评反馈！' : '已收到反馈，我们将持续优化')
-  }
+  }, [activeConvRef, setMessages, showToast])
 
   const regenerateLastResponse = () => {
     const lastUserMsg = [...messages].reverse().find(m => m.role === 'user')
@@ -1116,6 +1184,52 @@ export default function App() {
     setIsLoggedIn(true)
   }
 
+  /**
+   * True when the create form holds anything the user typed or chose.
+   *
+   * The old check only looked at the name and the browsed path, so switching
+   * the agent or the permission mode and then clicking the scrim discarded
+   * those choices with no warning at all.
+   */
+  const hasUnsavedDraftProject = useMemo(() => (
+    drawerMode === 'create' && (
+      newConvName.trim() !== ''
+      || (selectedDir !== '' && selectedDir !== defaultWorkspaceRoot)
+      || (currentPath !== '' && currentPath !== defaultWorkspaceRoot)
+      || (selectedProvider !== '' && selectedProvider !== defaultProvider)
+      || selectedPermissionMode !== 'workspace'
+    )
+  ), [
+    currentPath, defaultProvider, defaultWorkspaceRoot, drawerMode,
+    newConvName, selectedDir, selectedPermissionMode, selectedProvider,
+  ])
+
+  const requestCloseDrawer = useCallback(() => {
+    if (!hasUnsavedDraftProject) {
+      setIsDrawerOpen(false)
+      return
+    }
+    requestConfirm({
+      id: 'discard-draft-project',
+      title: '放弃新建项目',
+      description: '名称、目录、Agent 与权限设置都会丢失，确定要关闭吗？',
+      confirmText: '放弃',
+      variant: 'destructive',
+      onConfirm: () => setIsDrawerOpen(false),
+    })
+  }, [hasUnsavedDraftProject, requestConfirm])
+
+  /** Drop a starter suggestion into the composer rather than sending blind. */
+  const applyStarterPrompt = useCallback((prompt: string) => {
+    setInput(current => (current.trim() ? `${current.trim()}\n${prompt}` : prompt))
+    window.requestAnimationFrame(() => {
+      const textarea = textareaRef.current
+      if (!textarea) return
+      textarea.focus()
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length)
+    })
+  }, [])
+
   const showProjectHome = () => {
     const conversationId = activeConvRef.current?.id
     if (conversationId && messagesContainerRef.current) {
@@ -1124,16 +1238,21 @@ export default function App() {
     activeConvRef.current = null
     setActiveConv(null)
     setMessages([])
-    setCopiedMsgIdx(null)
-    setFeedbackState({})
+    setCopiedMessageKey(null)
     historyRequestRef.current += 1
     disconnectCurrentSocket()
-    window.dispatchEvent(new CustomEvent('orbitpane-close-inspector'))
+    window.dispatchEvent(new CustomEvent(CLOSE_INSPECTOR_EVENT))
     const url = new URL(window.location.href)
     url.searchParams.delete('id')
     url.searchParams.delete('panel')
     window.history.replaceState({}, '', url.toString())
   }
+
+  /* A project awaiting its undo window still exists server-side, so hide it
+     locally instead of letting the next list refresh bring it back. */
+  const visibleConversations = pendingDeletionIds.length === 0
+    ? conversations
+    : conversations.filter(conversation => !pendingDeletionIds.includes(conversation.id))
 
   if (isLoggedIn === null) {
     return <div className="app-container" aria-label="正在验证登录状态" />
@@ -1144,10 +1263,12 @@ export default function App() {
   }
 
   const contextValue: AppContextType = {
-    theme, toggleTheme, showToast, isDrawerOpen, setIsDrawerOpen,
-    drawerMode, setDrawerMode, showProjectHome, activeTaskCount: mobileTaskCount,
+    theme, toggleTheme, showToast, requestConfirm, isDrawerOpen, setIsDrawerOpen,
+    drawerMode, setDrawerMode, showProjectHome, requestCloseDrawer,
+    activeTaskCount: mobileTaskCount,
     isCmdPaletteOpen, setIsCmdPaletteOpen,
-    conversations, isConversationsLoading, activeConv, setActiveConv,
+    conversations: visibleConversations,
+    isConversationsLoading, activeConv, setActiveConv,
     deleteConversation, createConversation, loadConversations, selectConversation,
     updateConversation,
     editingConvId, setEditingConvId, editingConvName, setEditingConvName,
@@ -1173,22 +1294,8 @@ export default function App() {
         {isDrawerOpen && (
           <motion.div 
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="drawer-scrim" 
-            onClick={() => {
-              if (drawerMode === 'create' && (newConvName.trim() || currentPath !== defaultWorkspaceRoot)) {
-                setConfirmState({
-                  isOpen: true,
-                  title: '放弃修改',
-                  description: '有未保存的信息，确定要关闭吗？',
-                  onConfirm: () => {
-                    setConfirmState(prev => ({ ...prev, isOpen: false }))
-                    setIsDrawerOpen(false)
-                  }
-                })
-              } else {
-                setIsDrawerOpen(false)
-              }
-            }} 
+            className="drawer-scrim"
+            onClick={requestCloseDrawer}
           />
         )}
       </AnimatePresence>
@@ -1243,20 +1350,19 @@ export default function App() {
                 messages={messages}
                 setIsDrawerOpen={setIsDrawerOpen}
                 setDrawerMode={setDrawerMode}
-                conversations={conversations}
+                conversations={visibleConversations}
                 selectConversation={selectConversation}
+                onUseStarter={applyStarterPrompt}
               />
             ) : (
               <MessageList
                 key={activeConv.id}
                 messages={messages}
-                copiedMsgIdx={copiedMsgIdx}
-                feedbackState={feedbackState}
+                copiedMessageKey={copiedMessageKey}
                 isAgentThinking={!!isAgentThinking}
                 copyMessageText={copyMessageText}
                 handleFeedback={handleFeedback}
                 regenerateLastResponse={regenerateLastResponse}
-                formatModelName={formatModelName}
                 formatTimestamp={formatTimestamp}
                 messagesEndRef={messagesEndRef}
               />
@@ -1297,7 +1403,6 @@ export default function App() {
             selectedModel={selectedModel}
             setSelectedModel={setSelectedModel}
             models={models}
-            formatModelName={formatModelName}
             loadModels={loadModels}
             socketRef={socketRef}
             connectWebSocket={connectWebSocket}
@@ -1327,7 +1432,7 @@ export default function App() {
           onClearMessages={clearMessages}
           onExportImage={exportConversationAsImage}
           onSelectConv={(id, messageId) => {
-            const found = conversations.find(c => c.id === id)
+            const found = visibleConversations.find(c => c.id === id)
             if (found) {
               selectConversation(found)
               if (messageId) {
@@ -1340,7 +1445,9 @@ export default function App() {
               }
             }
           }}
-          conversations={conversations}
+          conversations={visibleConversations}
+          showToast={showToast}
+          isAgentThinking={!!isAgentThinking}
         />
       </Suspense>
 
@@ -1349,49 +1456,28 @@ export default function App() {
         <PwaInstallPrompt showToast={showToast} />
       </Suspense>
 
-      {/* Toast Notification */}
-      <AnimatePresence>
-        {toast && (
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            transition={{ duration: 0.2 }}
-            className="toast-container"
-            role="status"
-            aria-live="polite"
-          >
-            <div className={`toast ${toast.kind}`}>
-              {toast.kind === 'success' && <Check size={14} />}
-              {toast.kind === 'error' && <AlertCircle size={14} />}
-              {toast.kind === 'warning' && <TriangleAlert size={14} />}
-              {toast.kind === 'info' && <Info size={14} />}
-              <span>{toast.message}</span>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <ToastStack toasts={toasts} onDismiss={dismissToast} />
 
-      {/* Confirm Dialog */}
+      {/* One dialog at a time; further requests wait their turn in the queue. */}
       <ConfirmDialog
-        isOpen={confirmState.isOpen}
-        title={confirmState.title}
-        description={confirmState.description}
-        confirmText="确认"
-        cancelText="取消"
-        variant="destructive"
-        onConfirm={confirmState.onConfirm}
-        onCancel={() => setConfirmState(prev => ({ ...prev, isOpen: false }))}
-      />
-
-      <ConfirmDialog
-        isOpen={!!applyUpdate}
-        title="发现新版本"
-        description="新版本已准备就绪。更新会重新加载应用，当前草稿会自动保留。"
-        confirmText="立即更新"
-        cancelText="稍后"
-        onConfirm={() => applyUpdate?.()}
-        onCancel={() => setApplyUpdate(null)}
+        isOpen={activeConfirm !== null}
+        title={activeConfirm?.title ?? ''}
+        description={activeConfirm?.description ?? ''}
+        confirmText={activeConfirm?.confirmText ?? '确认'}
+        cancelText={activeConfirm?.cancelText ?? '取消'}
+        variant={activeConfirm?.variant ?? 'default'}
+        onConfirm={() => {
+          const request = activeConfirm
+          if (!request) return
+          // Handlers that need the dialog to stay open call closeActiveConfirm
+          // themselves; the default is to dismiss.
+          request.onConfirm()
+          setConfirmQueue(queue => (queue[0] === request ? queue.slice(1) : queue))
+        }}
+        onCancel={() => {
+          activeConfirm?.onCancel?.()
+          closeActiveConfirm()
+        }}
       />
     </div>
     </AppContext.Provider>

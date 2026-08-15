@@ -59,7 +59,7 @@ class Database:
                     is_pinned INTEGER NOT NULL DEFAULT 0,
                     is_archived INTEGER NOT NULL DEFAULT 0,
                     preferred_model TEXT NOT NULL DEFAULT '',
-                    permission_mode TEXT NOT NULL DEFAULT 'unrestricted',
+                    permission_mode TEXT NOT NULL DEFAULT 'workspace',
                     draft TEXT NOT NULL DEFAULT '',
                     active_summary_id INTEGER
                 );
@@ -78,6 +78,7 @@ class Database:
                     input_chars INTEGER NOT NULL DEFAULT 0,
                     output_chars INTEGER NOT NULL DEFAULT 0,
                     context_chars INTEGER NOT NULL DEFAULT 0,
+                    feedback TEXT NOT NULL DEFAULT '',
                     FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
                 );
 
@@ -159,7 +160,9 @@ class Database:
             "is_pinned": "INTEGER NOT NULL DEFAULT 0",
             "is_archived": "INTEGER NOT NULL DEFAULT 0",
             "preferred_model": "TEXT NOT NULL DEFAULT ''",
-            "permission_mode": "TEXT NOT NULL DEFAULT 'unrestricted'",
+            # Existing rows keep whatever they were created with; only projects
+            # created from here on inherit the safer default.
+            "permission_mode": "TEXT NOT NULL DEFAULT 'workspace'",
             "draft": "TEXT NOT NULL DEFAULT ''",
             "active_summary_id": "INTEGER",
         }
@@ -172,6 +175,7 @@ class Database:
             "input_chars": "INTEGER NOT NULL DEFAULT 0",
             "output_chars": "INTEGER NOT NULL DEFAULT 0",
             "context_chars": "INTEGER NOT NULL DEFAULT 0",
+            "feedback": "TEXT NOT NULL DEFAULT ''",
         }
         for name, definition in conversation_columns.items():
             self._add_column(connection, "conversations", name, definition)
@@ -217,6 +221,7 @@ class Database:
             input_chars=int(row["input_chars"] or 0),
             output_chars=int(row["output_chars"] or 0),
             context_chars=int(row["context_chars"] or 0),
+            feedback=str(row["feedback"] or ""),
         )
 
     def list_conversations(self, *, include_archived: bool = False) -> list[Conversation]:
@@ -243,7 +248,7 @@ class Database:
         provider: str,
         *,
         preferred_model: str = "",
-        permission_mode: str = "unrestricted",
+        permission_mode: str = "workspace",
     ) -> Conversation:
         with self.connect() as connection:
             cursor = connection.execute(
@@ -364,6 +369,27 @@ class Database:
             connection.execute(
                 "UPDATE messages SET content = ? WHERE id = ?", (content, message_id)
             )
+
+    def get_message(self, conversation_id: int, message_id: int) -> Message | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM messages WHERE conversation_id = ? AND id = ?",
+                (conversation_id, message_id),
+            ).fetchone()
+        return self._message(row) if row else None
+
+    def set_message_feedback(
+        self, conversation_id: int, message_id: int, feedback: str
+    ) -> Message | None:
+        """Persist a thumbs-up/down. An empty string clears the rating."""
+        with self.connect() as connection:
+            cursor = connection.execute(
+                "UPDATE messages SET feedback = ? WHERE conversation_id = ? AND id = ?",
+                (feedback, conversation_id, message_id),
+            )
+            if cursor.rowcount == 0:
+                return None
+        return self.get_message(conversation_id, message_id)
 
     def clear_history(self, conversation_id: int) -> None:
         """Drop every trace of previous turns: messages, summaries and runs.

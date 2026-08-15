@@ -1,3 +1,4 @@
+import { REFERENCE_FILE_EVENT } from '../lib/appEvents'
 import { lazy, Suspense, useState, useEffect } from 'react'
 import { Copy, Check, Code, Download, ListOrdered, MapPin, WrapText } from 'lucide-react'
 
@@ -67,7 +68,7 @@ export function CodeBlock({ children, className, ...props }: CodeBlockProps) {
         </div>
         <div className="code-block-actions">
           {fileName && (
-            <button onClick={() => window.dispatchEvent(new CustomEvent('orbitpane-reference-file', { detail: fileName }))} title="在输入框引用此文件"><MapPin size={13} /></button>
+            <button onClick={() => window.dispatchEvent(new CustomEvent(REFERENCE_FILE_EVENT, { detail: fileName }))} title="在输入框引用此文件"><MapPin size={13} /></button>
           )}
           <button className={wrapLongLines ? 'active' : ''} onClick={() => setWrapLongLines(value => !value)} title="切换代码折行"><WrapText size={13} /></button>
           <button className={showLineNumbers ? 'active' : ''} onClick={() => setShowLineNumbers(value => !value)} title="切换行号"><ListOrdered size={13} /></button>

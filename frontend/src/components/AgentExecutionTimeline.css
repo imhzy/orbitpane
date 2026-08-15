@@ -75,7 +75,7 @@
 }
 
 .execution-title {
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 500;
   color: var(--text-primary);
   white-space: nowrap;
@@ -84,9 +84,9 @@
 }
 
 .execution-duration {
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-family: var(--font-mono);
-  padding: 2px var(--space-2);
+  padding: var(--space-0-5) var(--space-2);
   border-radius: var(--radius-sm);
 }
 
@@ -108,10 +108,10 @@
 }
 
 .step-count-badge {
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--text-tertiary);
   background: rgba(255, 255, 255, 0.05);
-  padding: 2px var(--space-2);
+  padding: var(--space-0-5) var(--space-2);
   border-radius: var(--radius-full);
   border: 1px solid var(--border-subtle);
 }
@@ -135,7 +135,7 @@
 }
 
 .thinking-placeholder {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--text-tertiary);
   padding: var(--space-2) var(--space-1);
 }
@@ -145,7 +145,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  padding-left: 2px;
+  padding-left: var(--space-0-5);
 }
 
 .timeline-step {
@@ -255,7 +255,7 @@
 }
 
 .step-title {
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 500;
   color: var(--text-primary);
   font-family: var(--font-mono);
@@ -277,23 +277,28 @@
 
 .step-code {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--text-secondary);
   white-space: pre-wrap;
   word-break: break-all;
 }
 
-/* Color-coded Step Types */
-.timeline-step[data-type="exec"] .step-icon { color: #3b82f6; }
-.timeline-step[data-type="file"] .step-icon { color: #f59e0b; }
-.timeline-step[data-type="search"] .step-icon { color: #a855f7; }
-.timeline-step[data-type="plan"] .step-icon { color: #10b981; }
-.timeline-step[data-type="thought"] .step-icon { color: #64748b; }
-.timeline-step[data-type="tool"] .step-icon { color: #06b6d4; }
+/* Color-coded step types. Each step exposes its own --step-tone so the icon and
+   the completed dot stay in sync, and both themes get their own hue via the
+   --step-* tokens instead of a single set frozen for dark mode. */
+.timeline-step[data-type="exec"] { --step-tone: var(--step-exec); }
+.timeline-step[data-type="file"] { --step-tone: var(--step-file); }
+.timeline-step[data-type="search"] { --step-tone: var(--step-search); }
+.timeline-step[data-type="plan"] { --step-tone: var(--step-plan); }
+.timeline-step[data-type="thought"] { --step-tone: var(--step-thought); }
+.timeline-step[data-type="tool"] { --step-tone: var(--step-tool); }
 
-.timeline-step[data-type="exec"] .step-dot.complete { background: rgba(59, 130, 246, 0.15); color: #3b82f6; border-color: rgba(59, 130, 246, 0.3); }
-.timeline-step[data-type="file"] .step-dot.complete { background: rgba(245, 158, 11, 0.15); color: #f59e0b; border-color: rgba(245, 158, 11, 0.3); }
-.timeline-step[data-type="search"] .step-dot.complete { background: rgba(168, 85, 247, 0.15); color: #a855f7; border-color: rgba(168, 85, 247, 0.3); }
-.timeline-step[data-type="plan"] .step-dot.complete { background: rgba(16, 185, 129, 0.15); color: #10b981; border-color: rgba(16, 185, 129, 0.3); }
+.timeline-step[data-type] .step-icon { color: var(--step-tone); }
+
+.timeline-step[data-type] .step-dot.complete {
+  color: var(--step-tone);
+  background: color-mix(in srgb, var(--step-tone) 15%, transparent);
+  border-color: color-mix(in srgb, var(--step-tone) 30%, transparent);
+}
 
 

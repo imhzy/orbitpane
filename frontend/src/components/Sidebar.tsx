@@ -12,6 +12,8 @@ import type { Conversation, Provider } from '../lib/types'
 import { apiFetch } from '../lib/api'
 import { AUTH_EXPIRED_EVENT } from '../lib/auth'
 import { haptic } from '../lib/nativeFeedback'
+import { useFocusTrap } from '../hooks/useFocusTrap'
+import { useEscapeLayer } from '../hooks/useEscapeLayer'
 
 import { useAppContext } from '../contexts/AppContext'
 
@@ -51,7 +53,7 @@ function ProviderDropdown({ providers, selectedProvider, defaultProvider, setSel
         type="button"
         aria-haspopup="listbox"
         aria-expanded={isOpen}
-        aria-label="选择 Agent 接入方式"
+        aria-label="选择 Agent"
       >
         <span>{currentProvider ? currentProvider.name : '选择 Agent'}</span>
         <ChevronDown size={14} className={`provider-selector-chevron ${isOpen ? 'open' : ''}`} />
@@ -66,7 +68,7 @@ function ProviderDropdown({ providers, selectedProvider, defaultProvider, setSel
             transition={{ duration: 0.15 }}
             className="model-dropdown-menu provider-dropdown-menu"
             role="listbox"
-            aria-label="Agent 接入方式列表"
+            aria-label="Agent 列表"
           >
             {providers.map(p => (
               <button
@@ -108,19 +110,44 @@ export function Sidebar(_props: SidebarProps) {
     currentPath, setCurrentPath, selectedProvider, setSelectedProvider,
     selectedPermissionMode, setSelectedPermissionMode,
     defaultProvider, items, loadDir, getBreadcrumbParts, createConversation,
-    loadConversations, updateConversation, showToast
+    loadConversations, updateConversation, showToast, requestCloseDrawer
   } = useAppContext()
 
   const [searchTerm, setSearchTerm] = useState('')
   const [isDirectoryExpanded, setIsDirectoryExpanded] = useState(false)
   const isCancelingRef = React.useRef(false)
   const [showArchived, setShowArchived] = useState(false)
-  const [createStep, setCreateStep] = useState<1 | 2 | 3>(1)
+  const [createStep, setCreateStep] = useState<1 | 2>(1)
+  const [unrestrictedAcknowledged, setUnrestrictedAcknowledged] = useState(false)
+  const canLeaveFirstStep = Boolean(newConvName.trim() && selectedDir.trim())
+  const isSelectedProviderAvailable = providers.length === 0 || Boolean(
+    providers.find(provider => provider.id === (selectedProvider || defaultProvider))?.available
+  )
+  const canCreateProject = canLeaveFirstStep
+    && isSelectedProviderAvailable
+    && (selectedPermissionMode !== 'unrestricted' || unrestrictedAcknowledged)
   const [contextConv, setContextConv] = useState<Conversation | null>(null)
+  /* Only an overlay drawer is modal; the docked desktop column must keep Tab
+     flowing into the conversation next to it. */
+  const [isOverlayDrawer, setIsOverlayDrawer] = useState(() => window.innerWidth < 1024)
+  useEffect(() => {
+    const query = window.matchMedia('(min-width: 1024px)')
+    const sync = () => setIsOverlayDrawer(!query.matches)
+    sync()
+    query.addEventListener('change', sync)
+    return () => query.removeEventListener('change', sync)
+  }, [])
+  const drawerRef = useFocusTrap<HTMLDivElement>(isDrawerOpen && isOverlayDrawer)
+  useEscapeLayer(isDrawerOpen && isOverlayDrawer, requestCloseDrawer)
+  // Registered after the drawer layer, so cancelling a rename wins over
+  // closing the drawer for the same keypress.
+  useEscapeLayer(editingConvId !== null, () => {
+    isCancelingRef.current = true
+    setEditingConvId(null)
+  })
+  useEscapeLayer(contextConv !== null, () => setContextConv(null))
   const longPressRef = React.useRef<{ timer: number; x: number; y: number } | null>(null)
   const suppressClickRef = React.useRef(false)
-
-  const [isHighlighting, setIsHighlighting] = useState(false)
 
   const cancelLongPress = () => {
     if (longPressRef.current) window.clearTimeout(longPressRef.current.timer)
@@ -162,17 +189,9 @@ export function Sidebar(_props: SidebarProps) {
     if (!isDrawerOpen || drawerMode !== 'create') {
       setIsDirectoryExpanded(false)
       setCreateStep(1)
+      setUnrestrictedAcknowledged(false)
     }
   }, [isDrawerOpen, drawerMode])
-
-  useEffect(() => {
-    const handleHighlight = () => {
-      setIsHighlighting(true)
-      setTimeout(() => setIsHighlighting(false), 800) // Remove class after animation
-    }
-    window.addEventListener('highlight-drawer', handleHighlight)
-    return () => window.removeEventListener('highlight-drawer', handleHighlight)
-  }, [])
 
   const togglePin = (e: React.MouseEvent, id: number) => {
     e.stopPropagation()
@@ -199,12 +218,13 @@ export function Sidebar(_props: SidebarProps) {
   return (
     <AnimatePresence>
       {isDrawerOpen && (
-        <motion.div 
+        <motion.div
+          ref={drawerRef}
           initial={{ x: -400 }} animate={{ x: 0 }} exit={{ x: -400 }}
           transition={springConfig}
-          className={`drawer ${drawerMode === 'create' ? 'create-mode' : ''} ${drawerMode === 'create' && isDirectoryExpanded ? 'directory-focus-mode' : ''} ${isHighlighting ? 'drawer-highlight' : ''}`}
-          role="dialog"
-          aria-modal={window.innerWidth < 1024 ? true : undefined}
+          className={`drawer ${drawerMode === 'create' ? 'create-mode' : ''} ${drawerMode === 'create' && isDirectoryExpanded ? 'directory-focus-mode' : ''}`}
+          role={isOverlayDrawer ? 'dialog' : undefined}
+          aria-modal={isOverlayDrawer ? true : undefined}
           aria-label="项目菜单"
           drag="x"
           dragDirectionLock={true}
@@ -237,7 +257,12 @@ export function Sidebar(_props: SidebarProps) {
               >
                 <RefreshCw size={14} className={isConversationsLoading ? 'animate-spin' : ''} />
               </button>
-              <button className="icon-btn" onClick={() => setIsDrawerOpen(false)}>
+              <button
+                className="icon-btn"
+                onClick={requestCloseDrawer}
+                title="关闭菜单"
+                aria-label="关闭菜单"
+              >
                 <X size={14} />
               </button>
             </div>
@@ -271,7 +296,7 @@ export function Sidebar(_props: SidebarProps) {
                   <input
                     type="text"
                     className="sidebar-search-input"
-                    placeholder="搜索项目或路径..."
+                    placeholder="搜索项目或路径…"
                     value={searchTerm}
                     onChange={e => setSearchTerm(e.target.value)}
                   />
@@ -305,7 +330,7 @@ export function Sidebar(_props: SidebarProps) {
                     {searchTerm ? '未找到相关项目' : '暂无项目'}
                   </div>
                   <div className="text-center text-[var(--text-tertiary)] text-[12px] mt-1 mb-4">
-                    {searchTerm ? '尝试更改搜索关键词' : '点击下方按钮创建第一个项目任务舱'}
+                    {searchTerm ? '尝试更改搜索关键词' : '点击下方按钮创建第一个项目'}
                   </div>
                   {searchTerm ? (
                     <button 
@@ -371,11 +396,8 @@ export function Sidebar(_props: SidebarProps) {
                               onClick={e => e.stopPropagation()}
                               onChange={e => setEditingConvName(e.target.value)}
                               onKeyDown={e => {
+                                // Escape is handled by the layer stack above.
                                 if (e.key === 'Enter') saveConvName(conv.id)
-                                if (e.key === 'Escape') {
-                                  isCancelingRef.current = true
-                                  setEditingConvId(null)
-                                }
                               }}
                               onBlur={() => {
                                 if (isCancelingRef.current) {
@@ -485,11 +507,21 @@ export function Sidebar(_props: SidebarProps) {
               <div className="cw-header">
                 <h3 className="cw-title">配置新项目</h3>
               </div>
-              <div className="cw-stepper" aria-label={`新建项目第 ${createStep} 步，共 3 步`}>
-                {[1, 2, 3].map(step => (
-                  <span key={step} className={createStep >= step ? 'active' : ''}>
-                    <b>{step}</b>{step === 1 ? '目录' : step === 2 ? 'Agent' : '确认'}
-                  </span>
+              {/* Two steps, and the stepper is clickable: the old three-step
+                  flow made you walk back through "返回" to fix a typo in the
+                  name, and step 3 only restated what you had just entered. */}
+              <div className="cw-stepper" aria-label={`新建项目第 ${createStep} 步，共 2 步`}>
+                {([1, 2] as const).map(step => (
+                  <button
+                    key={step}
+                    type="button"
+                    className={createStep >= step ? 'active' : ''}
+                    aria-current={createStep === step ? 'step' : undefined}
+                    disabled={step > createStep && !canLeaveFirstStep}
+                    onClick={() => setCreateStep(step)}
+                  >
+                    <b>{step}</b>{step === 1 ? '项目与目录' : '运行配置'}
+                  </button>
                 ))}
               </div>
 
@@ -645,6 +677,21 @@ export function Sidebar(_props: SidebarProps) {
                       </div>
                     </div>
                   </div>
+                  {/* A missing agent CLI is the most common first-run failure.
+                      Say so here rather than letting "创建项目" fail with a
+                      backend error the user cannot interpret. */}
+                  {!isSelectedProviderAvailable && (
+                    <div className="cw-provider-warning" role="alert">
+                      <ShieldAlert size={15} />
+                      <span>
+                        <strong>该 Agent 当前不可用</strong>
+                        <small>
+                          未在服务器上检测到对应的命令行工具。请先安装并确保它在 PATH 中，
+                          或在上方切换到其他可用 Agent。
+                        </small>
+                      </span>
+                    </div>
+                  )}
                   <div className="permission-mode-section">
                     <span className="cw-label">文件系统权限</span>
                     <div className="permission-mode-options" role="radiogroup" aria-label="文件系统权限">
@@ -653,10 +700,13 @@ export function Sidebar(_props: SidebarProps) {
                         role="radio"
                         aria-checked={selectedPermissionMode === 'workspace'}
                         className={selectedPermissionMode === 'workspace' ? 'selected' : ''}
-                        onClick={() => setSelectedPermissionMode('workspace')}
+                        onClick={() => {
+                          setSelectedPermissionMode('workspace')
+                          setUnrestrictedAcknowledged(false)
+                        }}
                       >
                         <ShieldCheck size={20} />
-                        <span><strong>受限工作区</strong><small>在沙箱内读写所选项目</small></span>
+                        <span><strong>受限工作区</strong><small>默认；Agent 只能在所选目录内读写</small></span>
                       </button>
                       <button
                         type="button"
@@ -666,51 +716,69 @@ export function Sidebar(_props: SidebarProps) {
                         onClick={() => setSelectedPermissionMode('unrestricted')}
                       >
                         <ShieldAlert size={20} />
-                        <span><strong>完全访问</strong><small>默认；跳过审批与沙箱，可访问运行账户允许的路径</small></span>
+                        <span><strong>完全访问</strong><small>跳过审批与沙箱，可访问运行账户允许的所有路径</small></span>
                       </button>
                     </div>
+                    {/* Full access is a real risk, so it cannot be reached by
+                        clicking through the wizard without reading anything. */}
+                    {selectedPermissionMode === 'unrestricted' && (
+                      <label className="permission-ack">
+                        <input
+                          type="checkbox"
+                          checked={unrestrictedAcknowledged}
+                          onChange={event => setUnrestrictedAcknowledged(event.target.checked)}
+                        />
+                        <span>我了解该模式下 Agent 可以修改这台机器上运行账户能访问的任何文件。</span>
+                      </label>
+                    )}
                   </div>
                   <div className="provider-capability-list">
                     <span><Check size={12} />读取项目上下文</span>
-                    <span><Check size={12} />在安全沙箱内修改文件</span>
+                    <span><Check size={12} />在授权范围内修改文件</span>
                     <span><Check size={12} />实时展示命令与工具调用</span>
                   </div>
-                </div>
-              )}
 
-              {createStep === 3 && (
-                <div className="cw-confirm-step">
-                  <div className="cw-confirm-icon"><Check size={24} /></div>
-                  <h3>确认创建项目</h3>
-                  <dl>
-                    <div><dt>名称</dt><dd>{newConvName}</dd></div>
-                    <div><dt>路径</dt><dd>{selectedDir}</dd></div>
-                    <div><dt>Agent</dt><dd>{providers.find(provider => provider.id === (selectedProvider || defaultProvider))?.name || selectedProvider}</dd></div>
-                    <div><dt>权限</dt><dd>{selectedPermissionMode === 'workspace' ? '受限工作区' : '完全访问'}</dd></div>
+                  <dl className="cw-summary">
+                    <div><dt>名称</dt><dd>{newConvName || '—'}</dd></div>
+                    <div><dt>目录</dt><dd>{selectedDir || '—'}</dd></div>
+                    <div><dt>Agent</dt><dd>{providers.find(provider => provider.id === (selectedProvider || defaultProvider))?.name || selectedProvider || '—'}</dd></div>
+                    <div className={selectedPermissionMode === 'unrestricted' ? 'danger' : undefined}>
+                      <dt>权限</dt>
+                      <dd>{selectedPermissionMode === 'workspace' ? '受限工作区' : '完全访问'}</dd>
+                    </div>
                   </dl>
                 </div>
               )}
 
               <div className="cw-action cw-wizard-actions">
                 {createStep > 1 && (
-                  <button className="cw-back-btn" onClick={() => setCreateStep(step => (step - 1) as 1 | 2)}>
+                  <button className="cw-back-btn" onClick={() => setCreateStep(1)}>
                     返回
                   </button>
                 )}
-                {createStep < 3 ? (
+                {createStep === 1 ? (
                   <button
                     className="cw-create-btn"
-                    disabled={createStep === 1 && (!selectedDir.trim() || !newConvName.trim())}
-                    onClick={() => setCreateStep(step => (step + 1) as 2 | 3)}
+                    disabled={!canLeaveFirstStep}
+                    onClick={() => setCreateStep(2)}
                   >
                     <span>下一步</span><ChevronRight size={15} />
                   </button>
                 ) : (
                   <button
                     className="cw-create-btn"
+                    disabled={!canCreateProject}
+                    title={
+                      !isSelectedProviderAvailable
+                        ? '所选 Agent 当前不可用'
+                        : !canCreateProject
+                          ? '请先确认完全访问模式的风险'
+                          : undefined
+                    }
                     onClick={() => {
                       createConversation()
                       setCreateStep(1)
+                      setUnrestrictedAcknowledged(false)
                     }}
                   >
                     <Plus size={16} strokeWidth={2.5} />

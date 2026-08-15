@@ -1,9 +1,11 @@
+import { remove } from './storage'
 export const AUTH_EXPIRED_EVENT = 'orbitpane:auth-expired'
 
 export function clearLegacyAuthState(): void {
-  localStorage.removeItem('orbitpane-auth-token')
-  localStorage.removeItem('orbitpane-token')
-  localStorage.removeItem('isLoggedIn')
+  // Legacy keys from the pre-cookie auth scheme.
+  remove('orbitpane-auth-token')
+  remove('orbitpane-token')
+  remove('isLoggedIn')
 }
 
 export function notifyAuthExpired(): void {

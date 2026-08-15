@@ -53,7 +53,8 @@ class ApplicationTests(IsolatedAsyncioTestCase):
         )
         self.assertEqual(response.status_code, 201, response.text)
         self.assertEqual(response.json()["provider"], "antigravity")
-        self.assertEqual(response.json()["permission_mode"], "unrestricted")
+        # Omitting permission_mode must land on the sandboxed option.
+        self.assertEqual(response.json()["permission_mode"], "workspace")
 
         listed = await self.client.get("/api/conversations", headers=headers)
         self.assertEqual(listed.status_code, 200)
@@ -88,6 +89,57 @@ class ApplicationTests(IsolatedAsyncioTestCase):
             json={"permission_mode": "invalid"},
         )
         self.assertEqual(invalid.status_code, 422)
+
+    async def test_models_endpoint_returns_display_names(self) -> None:
+        headers = await self.login_headers()
+        response = await self.client.get("/api/models", headers=headers)
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()
+        self.assertEqual(
+            payload["models"],
+            [{"id": "test-model", "display_name": "Test Model"}],
+        )
+        self.assertEqual(payload["providers"][0]["tone"], "gemini")
+
+    async def test_message_feedback_round_trip(self) -> None:
+        headers = await self.login_headers()
+        created = await self.client.post(
+            "/api/conversations",
+            headers=headers,
+            json={"name": "Feedback", "path": str(self.workspace)},
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        conversation_id = created.json()["id"]
+        message_id = self.app.state.database.add_message(
+            conversation_id, "agent", "answer"
+        )
+
+        rated = await self.client.patch(
+            f"/api/conversations/{conversation_id}/messages/{message_id}/feedback",
+            headers=headers,
+            json={"feedback": "down"},
+        )
+        self.assertEqual(rated.status_code, 200, rated.text)
+        self.assertEqual(rated.json()["feedback"], "down")
+
+        history = await self.client.get(
+            f"/api/history/{conversation_id}", headers=headers
+        )
+        self.assertEqual(history.json()[0]["feedback"], "down")
+
+        invalid = await self.client.patch(
+            f"/api/conversations/{conversation_id}/messages/{message_id}/feedback",
+            headers=headers,
+            json={"feedback": "sideways"},
+        )
+        self.assertEqual(invalid.status_code, 422)
+
+        missing = await self.client.patch(
+            f"/api/conversations/{conversation_id}/messages/{message_id + 999}/feedback",
+            headers=headers,
+            json={"feedback": "up"},
+        )
+        self.assertEqual(missing.status_code, 404)
 
     async def test_workspace_cannot_escape_allowed_root(self) -> None:
         response = await self.client.get(

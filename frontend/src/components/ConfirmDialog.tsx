@@ -1,9 +1,11 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { AlertTriangle } from 'lucide-react'
+import { useFocusTrap } from '../hooks/useFocusTrap'
+import { useEscapeLayer } from '../hooks/useEscapeLayer'
 import './ConfirmDialog.css'
 
-interface ConfirmDialogProps {
+export interface ConfirmDialogProps {
   isOpen: boolean
   title: string
   description: string
@@ -24,23 +26,32 @@ export function ConfirmDialog({
   onConfirm,
   onCancel
 }: ConfirmDialogProps) {
+  const cancelRef = useRef<HTMLButtonElement | null>(null)
+  const isDestructive = variant === 'destructive'
+  // Focus lands on the safe choice, and Tab cannot escape into the page behind.
+  const dialogRef = useFocusTrap<HTMLDivElement>(isOpen, {
+    initialFocus: () => cancelRef.current,
+  })
+
+  // Topmost layer: Escape reaches this dialog and nothing behind it.
+  useEscapeLayer(isOpen, onCancel)
 
   useEffect(() => {
-    if (!isOpen) return
+    if (!isOpen || isDestructive) return
 
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        onCancel()
-      } else if (e.key === 'Enter') {
-        e.preventDefault()
-        onConfirm()
-      }
+    // Enter confirms only when the outcome is reversible. Deleting a project or
+    // clearing a conversation must be a deliberate click or a Tab away.
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Enter') return
+      const target = event.target as HTMLElement | null
+      if (target?.tagName === 'BUTTON') return
+      event.preventDefault()
+      onConfirm()
     }
 
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, onCancel, onConfirm])
+    window.addEventListener('keydown', handleKeyDown, true)
+    return () => window.removeEventListener('keydown', handleKeyDown, true)
+  }, [isOpen, isDestructive, onConfirm])
 
   return (
     <AnimatePresence>
@@ -52,41 +63,36 @@ export function ConfirmDialog({
           transition={{ duration: 0.15 }}
           className="confirm-overlay"
           onClick={onCancel}
-          role="dialog"
-          aria-modal="true"
-          aria-label={title}
         >
           <motion.div
+            ref={dialogRef}
             initial={{ opacity: 0, scale: 0.95, y: 10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 10 }}
             transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
             className="confirm-card"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="confirm-dialog-title"
+            aria-describedby="confirm-dialog-description"
             onClick={e => e.stopPropagation()}
           >
             <div className="confirm-sheet-handle" />
 
-            {variant === 'destructive' && (
-              <div style={{ 
-                width: 40, height: 40, borderRadius: 12, 
-                background: 'var(--danger-bg)', 
-                border: '1px solid var(--danger-color)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                marginBottom: 16, color: 'var(--danger-color)'
-              }}>
+            {isDestructive && (
+              <div className="confirm-danger-icon" aria-hidden="true">
                 <AlertTriangle size={20} />
               </div>
             )}
-            <h3>{title}</h3>
-            <p>{description}</p>
+            <h3 id="confirm-dialog-title">{title}</h3>
+            <p id="confirm-dialog-description">{description}</p>
             <div className="confirm-actions">
-              <button className="confirm-cancel-btn" onClick={onCancel}>
+              <button ref={cancelRef} className="confirm-cancel-btn" onClick={onCancel}>
                 {cancelText}
               </button>
-              <button 
-                className={variant === 'destructive' ? 'confirm-delete-btn' : 'confirm-cancel-btn'}
+              <button
+                className={isDestructive ? 'confirm-delete-btn' : 'confirm-primary-btn'}
                 onClick={onConfirm}
-                style={variant === 'default' ? { background: 'var(--accent-subtle-bg)', color: 'var(--accent-text)', borderColor: 'var(--accent-border)' } : undefined}
               >
                 {confirmText}
               </button>

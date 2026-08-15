@@ -63,13 +63,13 @@
 }
 
 .thinking-label {
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--text-secondary);
 }
 
 .thinking-duration {
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   font-family: var(--font-mono);
   color: var(--text-tertiary);
@@ -105,7 +105,7 @@
 }
 
 .thinking-content {
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 1.6;
   color: var(--text-secondary);
 }
@@ -119,7 +119,7 @@
 }
 
 .thinking-placeholder {
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-style: italic;
   color: var(--text-tertiary);
 }

@@ -107,7 +107,7 @@ export function Login({ onLogin }: { onLogin: () => void }) {
               <div className="login-spinner" />
             ) : (
               <>
-                进入任务舱
+                进入 OrbitPane
                 <ArrowRight size={18} />
               </>
             )}

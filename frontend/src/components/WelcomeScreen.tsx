@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { Plus, FolderGit2, Folder, ArrowRight } from 'lucide-react'
+import { Plus, FolderGit2, Folder, ArrowRight, AtSign, GitBranch, ListChecks, Sparkles } from 'lucide-react'
 import { LogoIcon } from '../LogoIcon'
 import type { Conversation, Message } from '../lib/types'
 import { MissionControl } from './MissionControl'
@@ -11,8 +11,39 @@ interface WelcomeScreenProps {
   setDrawerMode?: (mode: 'sessions' | 'create') => void
   conversations?: Conversation[]
   selectConversation?: (conv: Conversation) => void
+  /** Puts a suggestion in the composer so the user can edit before sending. */
+  onUseStarter?: (prompt: string) => void
 }
 
+/**
+ * First-run prompts for a brand new project.
+ *
+ * An empty project used to show a single line of text with nothing to act on,
+ * while the no-project screen was rich — the guidance was strongest exactly
+ * where it was least needed.
+ */
+const STARTER_PROMPTS = [
+  {
+    Icon: FolderGit2,
+    label: '梳理项目结构',
+    prompt: '请先浏览这个仓库，说明它的整体结构、技术栈和主要模块之间的关系。',
+  },
+  {
+    Icon: ListChecks,
+    label: '运行测试',
+    prompt: '找到这个项目的测试命令并运行，然后汇报结果；如果有失败的用例，分析原因。',
+  },
+  {
+    Icon: GitBranch,
+    label: '解释当前改动',
+    prompt: '查看当前尚未提交的改动，逐个说明它们做了什么、有没有风险。',
+  },
+  {
+    Icon: AtSign,
+    label: '定位一个文件',
+    prompt: '用 @ 引用具体文件后，我会针对它提问。先告诉我这个项目里最值得先读的三个文件。',
+  },
+] as const
 
 export function WelcomeScreen({
   activeConv,
@@ -21,6 +52,7 @@ export function WelcomeScreen({
   setDrawerMode,
   conversations = [],
   selectConversation,
+  onUseStarter,
 }: WelcomeScreenProps) {
   return (
     <>
@@ -39,7 +71,7 @@ export function WelcomeScreen({
             </h1>
 
             <p className="welcome-subtitle">
-              自主 Agent 代码与工程协同工作区
+              自主 Agent 代码与工程协同工作台
             </p>
 
             <div className="welcome-hero-actions">
@@ -48,12 +80,11 @@ export function WelcomeScreen({
                 onClick={() => {
                   setIsDrawerOpen(true)
                   if (setDrawerMode) setDrawerMode('create')
-                  window.dispatchEvent(new CustomEvent('highlight-drawer'))
                 }}
-                aria-label="选择或新建工程工作区"
+                aria-label="新建项目"
               >
                 <Plus size={15} strokeWidth={2} className="btn-icon" />
-                <span>新建工程工作区</span>
+                <span>新建项目</span>
                 <ArrowRight size={14} className="welcome-arrow-icon" />
               </button>
             </div>
@@ -83,9 +114,32 @@ export function WelcomeScreen({
               <Folder size={13} style={{ flexShrink: 0 }} />
               <span className="font-mono truncate" style={{ minWidth: 0 }}>{activeConv.path}</span>
             </div>
-            <p className="session-empty-tip">
-              工程工作区已就绪。
-            </p>
+
+            {onUseStarter && (
+              <div className="session-starter-block">
+                <span className="session-starter-title">
+                  <Sparkles size={13} />
+                  从这些开始
+                </span>
+                <div className="session-starter-grid">
+                  {STARTER_PROMPTS.map(({ Icon, label, prompt }) => (
+                    <button
+                      key={label}
+                      type="button"
+                      className="session-starter-card"
+                      onClick={() => onUseStarter(prompt)}
+                    >
+                      <Icon size={15} />
+                      <span>
+                        <strong>{label}</strong>
+                        <small>{prompt}</small>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <p className="session-starter-hint">点击后会填入输入框，可以先修改再发送。</p>
+              </div>
+            )}
           </div>
         </motion.div>
       )}

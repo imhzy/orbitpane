@@ -7,11 +7,20 @@ import shutil
 import subprocess
 
 from ..config import Settings
-from .base import AgentEvent, AgentProvider, AgentRequest, AgentResult, EmitEvent, ProviderError
+from .base import (
+    AgentEvent,
+    AgentProvider,
+    AgentRequest,
+    AgentResult,
+    EmitEvent,
+    ProviderError,
+    humanize_model_id,
+)
 from .process import terminate_process
 
 
-def fetch_codex_models(command: str = "codex") -> tuple[str, ...]:
+def fetch_codex_models(command: str = "codex") -> tuple[tuple[str, str], ...]:
+    """Read the (model slug, display name) pairs exposed by the Codex CLI."""
     try:
         res = subprocess.run(
             [command, "debug", "models"],
@@ -21,7 +30,8 @@ def fetch_codex_models(command: str = "codex") -> tuple[str, ...]:
         )
         if res.returncode == 0 and res.stdout:
             data = json.loads(res.stdout)
-            models: list[str] = []
+            models: list[tuple[str, str]] = []
+            seen: set[str] = set()
             for item in data.get("models", []):
                 slug = item.get("slug")
                 visibility = item.get("visibility")
@@ -29,9 +39,16 @@ def fetch_codex_models(command: str = "codex") -> tuple[str, ...]:
                     slug
                     and slug not in {"codex-auto-review", "auto"}
                     and visibility in {None, "list"}
-                    and slug not in models
+                    and slug not in seen
                 ):
-                    models.append(slug)
+                    seen.add(slug)
+                    label = (
+                        item.get("display_name")
+                        or item.get("title")
+                        or item.get("name")
+                        or humanize_model_id(slug)
+                    )
+                    models.append((slug, str(label)))
             if models:
                 return tuple(models)
     except Exception:
@@ -44,12 +61,14 @@ class CodexCliProvider(AgentProvider):
 
     id = "codex"
     display_name = "ChatGPT Codex"
+    tone = "codex"
 
     def __init__(self, settings: Settings):
         self.settings = settings
         self._processes: dict[int, asyncio.subprocess.Process] = {}
         self._interrupted: set[int] = set()
         self._cached_models: tuple[str, ...] | None = None
+        self._model_labels: dict[str, str] = {}
 
     @property
     def models(self) -> tuple[str, ...]:
@@ -57,8 +76,17 @@ class CodexCliProvider(AgentProvider):
             return self.settings.codex_models
         if self._cached_models is None:
             fetched = fetch_codex_models(self.settings.codex_command)
-            self._cached_models = fetched or self.settings.codex_models
+            if fetched:
+                self._model_labels = {model: label for model, label in fetched}
+                self._cached_models = tuple(model for model, _ in fetched)
+            else:
+                self._cached_models = self.settings.codex_models
         return self._cached_models
+
+    def model_display_name(self, model: str) -> str:
+        if not self._model_labels:
+            _ = self.models
+        return self._model_labels.get(model) or humanize_model_id(model)
 
     def validate_model(self, model: str) -> str:
         if not self.models:

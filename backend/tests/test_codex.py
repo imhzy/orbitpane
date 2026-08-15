@@ -31,7 +31,11 @@ class CodexProviderTests(TestCase):
             stdout=json.dumps(
                 {
                     "models": [
-                        {"slug": "gpt-visible", "visibility": "list"},
+                        {
+                            "slug": "gpt-visible",
+                            "visibility": "list",
+                            "display_name": "GPT Visible",
+                        },
                         {"slug": "gpt-hidden", "visibility": "hide"},
                         {"slug": "gpt-compatible"},
                         {"slug": "gpt-visible", "visibility": "list"},
@@ -46,7 +50,14 @@ class CodexProviderTests(TestCase):
         ):
             models = fetch_codex_models("codex")
 
-        self.assertEqual(models, ("gpt-visible", "gpt-compatible"))
+        # A published display name wins; entries without one are humanized.
+        self.assertEqual(
+            models,
+            (
+                ("gpt-visible", "GPT Visible"),
+                ("gpt-compatible", "GPT Compatible"),
+            ),
+        )
 
     def test_format_thought_command_execution(self) -> None:
         seen_started: set[str] = set()

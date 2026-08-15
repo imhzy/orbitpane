@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { apiFetch } from '../lib/api'
 import { AUTH_EXPIRED_EVENT } from '../lib/auth'
+import { bindRunLocalId, ensureLocalId, ensureLocalIds } from '../lib/messageIdentity'
+import { cacheHistory, readCachedHistory, remove } from '../lib/storage'
+import { broadcast, emitTaskChange } from '../lib/appEvents'
 import type { Conversation, Message, TaskRecord } from '../lib/types'
 
 export interface RealtimeEvent {
@@ -53,17 +56,19 @@ function ensureRunAgent(
       ) {
         userIndex = index
         next[index] = { ...message, run_id: runId, isOptimistic: false }
+        // The server's copy of this turn must reuse the key it already has.
+        if (message.localId) bindRunLocalId('user', runId, message.localId)
         break
       }
     }
     if (userIndex < 0) {
-      const userMessage: Message = {
+      const userMessage: Message = ensureLocalId({
         role: 'user',
         content: event.user_content,
         timestamp: new Date().toISOString(),
         provider: event.provider,
         run_id: runId,
-      }
+      })
       if (existingAgentIndex >= 0) {
         userIndex = existingAgentIndex
         next.splice(existingAgentIndex, 0, userMessage)
@@ -93,6 +98,7 @@ function ensureRunAgent(
         run_id: runId,
         isOptimistic: false,
       }
+      if (candidate.localId) bindRunLocalId('agent', runId, candidate.localId)
     }
   }
 
@@ -107,7 +113,7 @@ function ensureRunAgent(
 
   if (agentIndex < 0) {
     agentIndex = next.length
-    next.push({
+    next.push(ensureLocalId({
       role: 'agent',
       content: '',
       thought: '',
@@ -118,7 +124,7 @@ function ensureRunAgent(
       provider: event.provider,
       run_id: runId,
       streamSequence: -1,
-    })
+    }))
   }
 
   return { messages: next, agentIndex }
@@ -222,7 +228,9 @@ export function mergeHistoryWithTransientMessages(
   history: Message[],
   current: Message[],
 ): Message[] {
-  const merged = history.map(message => ({ ...message }))
+  // `ensureLocalId` resolves each server row through the run-id bridge, so a
+  // turn that streamed in this session keeps the key it streamed under.
+  const merged = ensureLocalIds(history).map(message => ({ ...message }))
   const trackedRunIds = new Set(current.flatMap(message => (
     message.run_id
     && (
@@ -340,7 +348,7 @@ export function useWebSocket(
         ) return null
         if (!silent) setIsHistoryLoading(false)
         const history = Array.isArray(data) ? data : []
-        localStorage.setItem(`orbitpane_history_${convId}`, JSON.stringify(history))
+        cacheHistory(convId, history)
         let finalMerged: Message[] = []
         setMessages(current => {
           const merged = mergeHistoryWithTransientMessages(history, current)
@@ -360,13 +368,7 @@ export function useWebSocket(
           && activeConvRef.current?.id === convId
         ) {
           if (!silent) setIsHistoryLoading(false)
-          const cached = (() => {
-            try {
-              return JSON.parse(localStorage.getItem(`orbitpane_history_${convId}`) || '[]') as Message[]
-            } catch {
-              return []
-            }
-          })()
+          const cached = readCachedHistory<Message[]>(convId, [])
           setMessages(current => {
             const merged = mergeHistoryWithTransientMessages(cached, current)
             isAgentThinkingRef.current = merged.some(message => (
@@ -479,24 +481,29 @@ export function useWebSocket(
                 if (message.role === 'user' && message.isOptimistic && !message.run_id) {
                   userIndex = index
                   next[index] = { ...message, run_id: task.run_id, isOptimistic: false }
+                  if (message.localId) bindRunLocalId('user', task.run_id, message.localId)
                   break
                 }
               }
               const agentIndex = userIndex >= 0 ? userIndex + 1 : -1
               if (agentIndex >= 0 && next[agentIndex]?.role === 'agent') {
+                const agentMessage = next[agentIndex]
                 next[agentIndex] = {
-                  ...next[agentIndex],
+                  ...agentMessage,
                   run_id: task.run_id,
                   isThinking: false,
                   isQueued: true,
                   queuePosition: task.position,
                   isOptimistic: false,
                 }
+                if (agentMessage.localId) {
+                  bindRunLocalId('agent', task.run_id, agentMessage.localId)
+                }
               }
               return next
             })
           }
-          window.dispatchEvent(new CustomEvent('orbitpane-task-change'))
+          emitTaskChange()
           return
         }
 
@@ -509,7 +516,7 @@ export function useWebSocket(
               ? { ...message, queuePosition: position }
               : { ...message, isQueued: false, streamFinished: true }
           }))
-          window.dispatchEvent(new CustomEvent('orbitpane-task-change'))
+          emitTaskChange()
           return
         }
 
@@ -520,9 +527,9 @@ export function useWebSocket(
           isAgentThinkingRef.current = false
           awaitingPendingStart = false
           pendingSendMessagesRef.current.delete(conv.id)
-          localStorage.removeItem(`orbitpane_history_${conv.id}`)
+          remove(`orbitpane_history_${conv.id}`)
           setMessages([])
-          window.dispatchEvent(new CustomEvent('orbitpane-task-change'))
+          emitTaskChange()
           return
         }
 
@@ -560,8 +567,12 @@ export function useWebSocket(
           if (data.type === 'done') {
             loadConversations(false)
             loadHistory(conv.id, true)
-            window.dispatchEvent(new CustomEvent('orbitpane-task-change'))
-            if (document.visibilityState !== 'visible' && Notification.permission === 'granted') {
+            emitTaskChange()
+            if (
+              document.visibilityState !== 'visible'
+              && typeof Notification !== 'undefined'
+              && Notification.permission === 'granted'
+            ) {
               const notification = new Notification(`${conv.name} · 任务已完成`, {
                 body: data.status === 'failed'
                   ? 'Agent 执行失败，点击查看详情'
@@ -576,13 +587,7 @@ export function useWebSocket(
                 window.location.href = url.toString()
               }
             }
-            try {
-              const channel = new BroadcastChannel('orbitpane-sync')
-              channel.postMessage({ type: 'task-done', conversationId: conv.id })
-              channel.close()
-            } catch {
-              // BroadcastChannel is optional on older WebViews.
-            }
+            broadcast({ type: 'task-done', conversationId: conv.id })
           }
           return
         }

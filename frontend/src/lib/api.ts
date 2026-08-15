@@ -10,6 +10,23 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Message to show the user for a failed request.
+ *
+ * The backend already explains *why* something was rejected ("Provider is not
+ * available: antigravity"); throwing that away for a generic "操作失败" leaves
+ * the user with nothing to act on.
+ */
+export function describeApiError(error: unknown, fallback: string): string {
+  if (error instanceof ApiError && error.message) {
+    return `${fallback}：${error.message}`
+  }
+  if (error instanceof TypeError) {
+    return `${fallback}：无法连接后端服务`
+  }
+  return fallback
+}
+
 export async function apiFetch<T>(
   path: string,
   init: RequestInit = {},

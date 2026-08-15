@@ -11,6 +11,38 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
+def load_dotenv(path: Path | None = None) -> None:
+    """Load `KEY=VALUE` pairs from a .env file into the process environment.
+
+    Real environment variables always win, so a systemd unit or a PM2 ecosystem
+    file keeps precedence over a developer's local .env. Implemented here rather
+    than pulling in python-dotenv: the format we need is a dozen lines and the
+    runtime dependency list stays at three packages.
+    """
+    env_path = path or PROJECT_ROOT / ".env"
+    try:
+        content = env_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return
+
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].lstrip()
+        key, separator, value = line.partition("=")
+        if not separator:
+            continue
+        key = key.strip()
+        if not key or key in os.environ:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        os.environ[key] = value
+
+
 def _as_bool(value: str | None, default: bool = False) -> bool:
     if value is None:
         return default
@@ -49,6 +81,7 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
+        load_dotenv()
         environment = os.getenv("ORBITPANE_ENV", "development").strip().lower()
         auth_pin = os.getenv("ORBITPANE_PIN", "")
         auth_secret = os.getenv("ORBITPANE_AUTH_SECRET", "")

@@ -1,43 +1,70 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
-export function useKeyboardShortcuts({
-  onEscape,
-  onFocusInput,
-  onCmdPalette,
-  onToggleSidebar,
-  onNewWorkspace
-}: {
-  onEscape?: () => void
+interface KeyboardShortcutHandlers {
   onFocusInput?: () => void
   onCmdPalette?: () => void
   onToggleSidebar?: () => void
   onNewWorkspace?: () => void
-}) {
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null
-      const isInputElem = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+  onInterrupt?: () => void
+}
 
-      if (e.key === 'Escape') {
-        onEscape?.()
-      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault()
+function isTextEntry(target: EventTarget | null): boolean {
+  const element = target as HTMLElement | null
+  if (!element) return false
+  return (
+    element.tagName === 'INPUT'
+    || element.tagName === 'TEXTAREA'
+    || element.isContentEditable
+  )
+}
+
+/**
+ * Global chords.
+ *
+ * Escape is deliberately *not* handled here: `useEscapeLayer` owns it so that
+ * exactly one overlay — the topmost — reacts to a given keypress. Interrupting
+ * a run lives on Cmd/Ctrl+. because it is destructive, and Escape is what
+ * people press to close things.
+ */
+export function useKeyboardShortcuts(handlers: KeyboardShortcutHandlers) {
+  const handlersRef = useRef(handlers)
+  handlersRef.current = handlers
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const {
+        onFocusInput,
+        onCmdPalette,
+        onToggleSidebar,
+        onNewWorkspace,
+        onInterrupt,
+      } = handlersRef.current
+
+      const withModifier = event.metaKey || event.ctrlKey
+      if (!withModifier || event.altKey) return
+
+      const key = event.key.toLowerCase()
+      if (key === 'k') {
+        event.preventDefault()
         onCmdPalette?.()
-      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b') {
-        e.preventDefault()
+      } else if (key === 'b') {
+        event.preventDefault()
         onToggleSidebar?.()
-      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'n') {
-        e.preventDefault()
+      } else if (key === '.') {
+        event.preventDefault()
+        onInterrupt?.()
+      } else if (key === 'j' && event.shiftKey) {
+        // Cmd/Ctrl+N is reserved by the browser for a new window and cannot be
+        // reliably intercepted, so project creation uses a chord we own.
+        event.preventDefault()
         onNewWorkspace?.()
-      } else if ((e.metaKey || e.ctrlKey) && e.key === '/') {
-        if (!isInputElem) {
-          e.preventDefault()
-          onFocusInput?.()
-        }
+      } else if (key === '/' && !isTextEntry(event.target)) {
+        event.preventDefault()
+        onFocusInput?.()
       }
     }
-    
+
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onEscape, onFocusInput, onCmdPalette, onToggleSidebar, onNewWorkspace])
+  }, [])
 }

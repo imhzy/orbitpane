@@ -1,11 +1,15 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Search, Plus, Sun, Moon,
+  Search, Plus, Sun, Moon, RefreshCw, Square,
   Eraser, Download, HelpCircle, MessageSquare, Terminal, Keyboard, FileText, Loader2
 } from 'lucide-react'
 import { apiFetch } from '../lib/api'
-import type { SearchResult } from '../lib/types'
+import { useFocusTrap } from '../hooks/useFocusTrap'
+import { useEscapeLayer } from '../hooks/useEscapeLayer'
+import { REQUEST_INTERRUPT_EVENT } from '../lib/appEvents'
+import { useUpdateCheck } from '../hooks/useUpdateCheck'
+import type { SearchResult, ToastKind } from '../lib/types'
 
 interface CommandPaletteProps {
   isOpen: boolean
@@ -17,6 +21,8 @@ interface CommandPaletteProps {
   onExportImage: () => void
   onSelectConv: (id: number, messageId?: number | null) => void
   conversations: Array<{ id: number; name: string; path: string }>
+  showToast: (msg: string, kind?: ToastKind) => void
+  isAgentThinking: boolean
 }
 
 export function CommandPalette({
@@ -28,7 +34,9 @@ export function CommandPalette({
   onClearMessages,
   onExportImage,
   onSelectConv,
-  conversations
+  conversations,
+  showToast,
+  isAgentThinking,
 }: CommandPaletteProps) {
   const [query, setQuery] = useState('')
   const [showHelp, setShowHelp] = useState(false)
@@ -37,12 +45,16 @@ export function CommandPalette({
   const [isSearching, setIsSearching] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  const { checkForUpdate } = useUpdateCheck(showToast)
+  const dialogRef = useFocusTrap<HTMLDivElement>(isOpen, {
+    initialFocus: () => inputRef.current,
+  })
+  useEscapeLayer(isOpen, onClose)
 
   useEffect(() => {
     if (isOpen) {
       const originalOverflow = document.body.style.overflow
       document.body.style.overflow = 'hidden'
-      setTimeout(() => inputRef.current?.focus(), 50)
       setSelectedIndex(0)
       return () => {
         document.body.style.overflow = originalOverflow
@@ -100,10 +112,22 @@ export function CommandPalette({
 
   // Combine items for keyboard navigation
   const staticActions = [
-    { type: 'new', label: '新建项目', icon: Plus, action: onNewWorkspace, kbd: '⌘ N' },
-    { type: 'theme', label: `切换至${theme === 'dark' ? '明亮' : '暗夜'}主题模式`, icon: theme === 'dark' ? Sun : Moon, action: onToggleTheme },
+    { type: 'new', label: '新建项目', icon: Plus, action: onNewWorkspace, kbd: '⌘ ⇧ J' },
+    ...(isAgentThinking
+      ? [{
+          type: 'interrupt',
+          label: '中断当前任务',
+          icon: Square,
+          action: () => window.dispatchEvent(new CustomEvent(REQUEST_INTERRUPT_EVENT)),
+          kbd: '⌘ .',
+          isDanger: true,
+        }]
+      : []),
+    { type: 'theme', label: `切换至${theme === 'dark' ? '明亮' : '暗夜'}主题`, icon: theme === 'dark' ? Sun : Moon, action: onToggleTheme },
     { type: 'export', label: '导出当前对话为 PNG 图片', icon: Download, action: onExportImage },
-    { type: 'clear', label: '清空当前会话记录', icon: Eraser, action: onClearMessages, isDanger: true },
+    // Previously only reachable from the mobile action sheet.
+    { type: 'update', label: '检查应用更新', icon: RefreshCw, action: () => { void checkForUpdate() } },
+    { type: 'clear', label: '清空当前对话记录', icon: Eraser, action: onClearMessages, isDanger: true },
     { type: 'help', label: '查看键盘快捷键说明', icon: HelpCircle, action: () => setShowHelp(true), kbd: '?' },
   ]
 
@@ -113,7 +137,7 @@ export function CommandPalette({
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Escape') {
-      onClose()
+      // Handled by the Escape layer stack; nothing to do here.
     } else if (e.key === 'ArrowDown') {
       e.preventDefault()
       setSelectedIndex(prev => (itemsCount > 0 ? (prev + 1) % itemsCount : 0))
@@ -148,7 +172,11 @@ export function CommandPalette({
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.96, y: -10 }}
           transition={{ duration: 0.15 }}
+          ref={dialogRef}
           className="cmd-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-label="快捷指令"
           onClick={e => e.stopPropagation()}
         >
           <div className="cmd-header">
@@ -157,7 +185,7 @@ export function CommandPalette({
               ref={inputRef}
               type="text"
               className="cmd-input"
-              placeholder="搜索项目、消息或常用指令…"
+              placeholder="搜索项目、消息或执行指令…"
               value={query}
               onChange={e => setQuery(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -186,12 +214,24 @@ export function CommandPalette({
                     <kbd>Shift + Enter</kbd>
                   </div>
                   <div className="cmd-help-item">
-                    <span>新建工作区</span>
-                    <kbd>⌘ N</kbd>
+                    <span>新建项目</span>
+                    <kbd>⌘ ⇧ J</kbd>
                   </div>
                   <div className="cmd-help-item">
                     <span>切换侧边栏</span>
                     <kbd>⌘ B</kbd>
+                  </div>
+                  <div className="cmd-help-item">
+                    <span>中断当前任务</span>
+                    <kbd>⌘ .</kbd>
+                  </div>
+                  <div className="cmd-help-item">
+                    <span>聚焦输入框</span>
+                    <kbd>⌘ /</kbd>
+                  </div>
+                  <div className="cmd-help-item">
+                    <span>关闭当前浮层</span>
+                    <kbd>Esc</kbd>
                   </div>
                 </div>
                 <button
@@ -228,7 +268,7 @@ export function CommandPalette({
 
                 {!query && filteredConvs.length > 0 && (
                   <div className="cmd-section">
-                    <div className="cmd-section-title">会话工作区 ({filteredConvs.length})</div>
+                    <div className="cmd-section-title">项目 ({filteredConvs.length})</div>
                     {filteredConvs.slice(0, 5).map((c, idx) => {
                       const itemIdx = !query ? staticActions.length + idx : idx
                       const isActive = selectedIndex === itemIdx
@@ -278,7 +318,7 @@ export function CommandPalette({
                 {query && !isSearching && searchResults.length === 0 && (
                   <div className="cmd-empty">
                     <Terminal size={24} style={{ opacity: 0.4, marginBottom: 8 }} />
-                    <span>未找到匹配的会话或指令</span>
+                    <span>未找到匹配的项目、消息或指令</span>
                   </div>
                 )}
               </>

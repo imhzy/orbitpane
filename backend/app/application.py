@@ -31,6 +31,7 @@ from .models import (
     ConversationCreate,
     ConversationUpdate,
     LoginRequest,
+    MessageFeedbackUpdate,
     QueueReorder,
     QueueUpdate,
     SummaryUpdate,
@@ -348,7 +349,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         selected = providers.get(provider_id)
         return {
             "provider": provider_id,
-            "models": list(selected.models),
+            # Ids paired with the provider's own display names, so adding a
+            # model never requires a matching client release.
+            "models": selected.model_catalog(),
             "providers": providers.catalog(),
         }
 
@@ -475,6 +478,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Conversation not found")
         await coordinator.clear_history(conversation_id)
         return {"status": "ok"}
+
+    @app.patch(
+        "/api/conversations/{conversation_id}/messages/{message_id}/feedback",
+        dependencies=[Depends(require_auth)],
+    )
+    async def set_message_feedback(
+        conversation_id: int, message_id: int, request: MessageFeedbackUpdate
+    ):
+        message = database.set_message_feedback(
+            conversation_id, message_id, request.feedback
+        )
+        if message is None:
+            raise HTTPException(status_code=404, detail="Message not found")
+        return asdict(message)
 
     @app.post(
         "/api/conversations/{conversation_id}/summarize",

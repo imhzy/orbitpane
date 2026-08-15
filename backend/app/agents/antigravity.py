@@ -13,14 +13,22 @@ from collections import deque
 from pathlib import Path
 
 from ..config import Settings
-from .base import AgentEvent, AgentProvider, AgentRequest, AgentResult, EmitEvent, ProviderError
+from .base import (
+    AgentEvent,
+    AgentProvider,
+    AgentRequest,
+    AgentResult,
+    EmitEvent,
+    ProviderError,
+    humanize_model_id,
+)
 from .process import terminate_process
 
 logger = logging.getLogger(__name__)
 
 
-def fetch_antigravity_models(command: str = "agy") -> tuple[str, ...]:
-    """Read the model IDs exposed by the Antigravity CLI."""
+def fetch_antigravity_models(command: str = "agy") -> tuple[tuple[str, str], ...]:
+    """Read the (model id, display name) pairs exposed by the Antigravity CLI."""
     try:
         result = subprocess.run(
             [command, "models"],
@@ -34,22 +42,26 @@ def fetch_antigravity_models(command: str = "agy") -> tuple[str, ...]:
     if result.returncode != 0:
         return ()
 
-    models: list[str] = []
+    models: list[tuple[str, str]] = []
+    seen: set[str] = set()
     for line in result.stdout.splitlines():
         # `agy models` prints `<model-id>\t<display name>` on stdout. Status
         # messages go to stderr and any unexpected stdout line is ignored.
         if "\t" not in line:
             continue
-        model, _ = line.split("\t", 1)
+        model, label = line.split("\t", 1)
         model = model.strip()
-        if model and model not in models:
-            models.append(model)
+        label = label.strip()
+        if model and model not in seen:
+            seen.add(model)
+            models.append((model, label or humanize_model_id(model)))
     return tuple(models)
 
 
 class AntigravityProvider(AgentProvider):
     id = "antigravity"
     display_name = "Google Gemini"
+    tone = "gemini"
     _COMPLETION_GRACE_SECONDS = 30
 
     CLI_MODEL_ALIASES = {
@@ -61,6 +73,7 @@ class AntigravityProvider(AgentProvider):
         self._processes: dict[int, asyncio.subprocess.Process] = {}
         self._interrupted: set[int] = set()
         self._cached_models: tuple[str, ...] | None = None
+        self._model_labels: dict[str, str] = {}
 
     @property
     def models(self) -> tuple[str, ...]:
@@ -68,8 +81,18 @@ class AntigravityProvider(AgentProvider):
             return self.settings.antigravity_models
         if self._cached_models is None:
             fetched = fetch_antigravity_models(self.settings.antigravity_command)
-            self._cached_models = fetched or self.settings.antigravity_models
+            if fetched:
+                self._model_labels = {model: label for model, label in fetched}
+                self._cached_models = tuple(model for model, _ in fetched)
+            else:
+                self._cached_models = self.settings.antigravity_models
         return self._cached_models
+
+    def model_display_name(self, model: str) -> str:
+        # Populate the label cache on first access if models were never read.
+        if not self._model_labels:
+            _ = self.models
+        return self._model_labels.get(model) or humanize_model_id(model)
 
     @property
     def available(self) -> bool:

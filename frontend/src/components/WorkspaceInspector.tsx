@@ -8,7 +8,6 @@ import {
   ChevronDown,
   ChevronUp,
   CircleDot,
-  Clock3,
   FileDiff,
   GitBranch,
   ListChecks,
@@ -19,9 +18,17 @@ import {
   ShieldCheck,
   Star,
   X,
-  XCircle,
 } from 'lucide-react'
 import { apiFetch } from '../lib/api'
+import {
+  BACKGROUND_REFRESH_MS,
+  CLOSE_INSPECTOR_EVENT,
+  OPEN_INSPECTOR_EVENT,
+  TASK_CHANGE_EVENT,
+} from '../lib/appEvents'
+import { describeTaskStatus, isTaskActive, taskStatusLabel } from '../lib/taskStatus'
+import { useFocusTrap } from '../hooks/useFocusTrap'
+import { useEscapeLayer } from '../hooks/useEscapeLayer'
 import type {
   ConversationStats,
   TaskRecord,
@@ -30,6 +37,9 @@ import type {
 import { useAppContext } from '../contexts/AppContext'
 
 type InspectorTab = 'mission' | 'tasks'
+
+/** Below this width the inspector is an overlay rather than a docked column. */
+const DOCKED_BREAKPOINT = 1280
 
 const EMPTY_STATS: ConversationStats = {
   message_count: 0,
@@ -54,18 +64,6 @@ function formatCompact(value: number): string {
   return String(value)
 }
 
-function taskLabel(status: TaskRecord['status']): string {
-  return {
-    queued: '等待中',
-    starting: '启动中',
-    running: '执行中',
-    completed: '已完成',
-    failed: '失败',
-    interrupted: '已中断',
-    canceled: '已取消',
-  }[status]
-}
-
 interface WorkspaceInspectorProps {
   onActiveTaskCountChange?: (count: number) => void
 }
@@ -81,7 +79,7 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
   } = useAppContext()
   const initialPanel = new URLSearchParams(window.location.search).get('panel')
   const [tab, setTab] = useState<InspectorTab>(initialPanel === 'tasks' ? 'tasks' : 'mission')
-  const [mobileOpen, setMobileOpen] = useState(initialPanel === 'tasks')
+  const [overlayOpen, setOverlayOpen] = useState(initialPanel === 'tasks')
   const [stats, setStats] = useState<ConversationStats>(EMPTY_STATS)
   const [workspace, setWorkspace] = useState<WorkspaceStatus>(EMPTY_WORKSPACE)
   const [tasks, setTasks] = useState<TaskRecord[]>([])
@@ -135,11 +133,12 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
   }, [activeConversationId, loadInspector])
 
   useEffect(() => {
+    // Driven by task events; the timer is a slow fallback, not the mechanism.
     const refresh = () => void loadInspector(true)
-    window.addEventListener('orbitpane-task-change', refresh)
-    const timer = window.setInterval(refresh, 5_000)
+    window.addEventListener(TASK_CHANGE_EVENT, refresh)
+    const timer = window.setInterval(refresh, BACKGROUND_REFRESH_MS)
     return () => {
-      window.removeEventListener('orbitpane-task-change', refresh)
+      window.removeEventListener(TASK_CHANGE_EVENT, refresh)
       window.clearInterval(timer)
     }
   }, [loadInspector])
@@ -150,16 +149,16 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
       if (requestedTab === 'mission' || requestedTab === 'tasks') {
         setTab(requestedTab)
       }
-      setMobileOpen(true)
+      setOverlayOpen(true)
     }
-    window.addEventListener('orbitpane-open-inspector', openInspector)
+    window.addEventListener(OPEN_INSPECTOR_EVENT, openInspector)
     const closeInspector = () => {
-      setMobileOpen(false)
+      setOverlayOpen(false)
     }
-    window.addEventListener('orbitpane-close-inspector', closeInspector)
+    window.addEventListener(CLOSE_INSPECTOR_EVENT, closeInspector)
     return () => {
-      window.removeEventListener('orbitpane-open-inspector', openInspector)
-      window.removeEventListener('orbitpane-close-inspector', closeInspector)
+      window.removeEventListener(OPEN_INSPECTOR_EVENT, openInspector)
+      window.removeEventListener(CLOSE_INSPECTOR_EVENT, closeInspector)
     }
   }, [])
 
@@ -168,17 +167,17 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
       const requestedPanel = new URLSearchParams(window.location.search).get('panel')
       if (requestedPanel === 'tasks') {
         setTab('tasks')
-        setMobileOpen(true)
-      } else if (window.innerWidth < 1280) {
-        setMobileOpen(false)
+        setOverlayOpen(true)
+      } else if (window.innerWidth < DOCKED_BREAKPOINT) {
+        setOverlayOpen(false)
       }
     }
     window.addEventListener('popstate', syncPanelFromHistory)
     return () => window.removeEventListener('popstate', syncPanelFromHistory)
   }, [])
 
-  const closeMobileInspector = () => {
-    setMobileOpen(false)
+  const closeOverlay = useCallback(() => {
+    setOverlayOpen(false)
     if (window.history.state?.orbitpanePanel === 'tasks') {
       window.history.back()
       return
@@ -186,11 +185,38 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
     const url = new URL(window.location.href)
     url.searchParams.delete('panel')
     window.history.replaceState({}, '', url.toString())
-  }
+  }, [])
 
-  const activeTasks = useMemo(() => tasks.filter(task => (
-    ['queued', 'starting', 'running'].includes(task.status)
-  )), [tasks])
+  /* Docked at wide widths, an overlay below that. Tracking the viewport rather
+     than assuming "mobile" is what closes the 769-1279px gap where the panel
+     was unreachable in either form. */
+  const [isDocked, setIsDocked] = useState(() => window.innerWidth >= DOCKED_BREAKPOINT)
+  useEffect(() => {
+    const query = window.matchMedia(`(min-width: ${DOCKED_BREAKPOINT}px)`)
+    const sync = () => setIsDocked(query.matches)
+    sync()
+    query.addEventListener('change', sync)
+    return () => query.removeEventListener('change', sync)
+  }, [])
+
+  const isOverlay = overlayOpen && !isDocked
+  const panelRef = useFocusTrap<HTMLElement>(isOverlay)
+
+  // Only the topmost overlay reacts to Escape; the stack decides who that is.
+  useEscapeLayer(isOverlay, closeOverlay)
+
+  // The page behind an overlay must not scroll under it.
+  useEffect(() => {
+    if (!isOverlay) return
+    const previous = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = previous }
+  }, [isOverlay])
+
+  const activeTasks = useMemo(
+    () => tasks.filter(task => isTaskActive(task.status)),
+    [tasks],
+  )
 
   useEffect(() => {
     onActiveTaskCountChange?.(activeTasks.length)
@@ -276,7 +302,22 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
   }
 
   return (
-    <aside className={`workspace-inspector ${mobileOpen ? 'mobile-open' : ''}`} aria-label="任务与上下文面板">
+    <>
+      {isOverlay && (
+        <button
+          type="button"
+          className="inspector-scrim open"
+          aria-label="关闭任务面板"
+          onClick={closeOverlay}
+        />
+      )}
+      <aside
+        ref={panelRef}
+        className={`workspace-inspector ${overlayOpen ? 'mobile-open' : ''}`}
+        aria-label="任务与上下文面板"
+        role={isOverlay ? 'dialog' : undefined}
+        aria-modal={isOverlay ? true : undefined}
+      >
       <div className="inspector-header">
         <div>
           <span className="inspector-eyebrow">ORBIT CONTROL</span>
@@ -291,17 +332,27 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
           >
             {notificationsEnabled ? <BellRing size={15} /> : <Bell size={15} />}
           </button>
-          <button className="icon-btn inspector-mobile-close" onClick={closeMobileInspector} aria-label="关闭任务中心">
+          <button className="icon-btn inspector-mobile-close" onClick={closeOverlay} aria-label="关闭任务面板">
             <X size={16} />
           </button>
         </div>
       </div>
 
       <div className="inspector-tabs" role="tablist">
-        <button className={tab === 'mission' ? 'active' : ''} onClick={() => setTab('mission')}>
-          <CircleDot size={13} />任务舱
+        <button
+          role="tab"
+          aria-selected={tab === 'mission'}
+          className={tab === 'mission' ? 'active' : ''}
+          onClick={() => setTab('mission')}
+        >
+          <CircleDot size={13} />概览
         </button>
-        <button className={tab === 'tasks' ? 'active' : ''} onClick={() => setTab('tasks')}>
+        <button
+          role="tab"
+          aria-selected={tab === 'tasks'}
+          className={tab === 'tasks' ? 'active' : ''}
+          onClick={() => setTab('tasks')}
+        >
           <ListChecks size={13} />队列{activeTasks.length > 0 && <b>{activeTasks.length}</b>}
         </button>
       </div>
@@ -313,7 +364,7 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
           <>
             <section className="inspector-card mission-status-card">
               <div className="inspector-card-title">
-                <span><Bot size={14} />当前任务舱</span>
+                <span><Bot size={14} />当前项目</span>
                 <span className={`connection-chip ${connectionState}`}>
                   {connectionState === 'online' ? '已连接' : connectionState === 'connecting' ? '连接中' : connectionState === 'offline' ? '连接断开' : '待连接'}
                 </span>
@@ -356,7 +407,7 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
                     {activeTasks.length > 0 && <small>任务运行或排队时不能修改</small>}
                   </div>
                 </>
-              ) : <p className="inspector-empty">选择项目后显示任务上下文。</p>}
+              ) : <p className="inspector-empty">选择项目后显示上下文。</p>}
             </section>
 
             {activeConv && (
@@ -404,13 +455,13 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
             {!activeConv ? <p className="inspector-empty">选择项目后显示该项目的任务队列。</p> : tasks.length === 0 ? <p className="inspector-empty">当前项目还没有任务记录。</p> : tasks.slice(0, 30).map(task => (
               <article key={task.run_id} className={`task-center-item ${task.status}`}>
                 <div className="task-state-icon">
-                  {['running', 'starting'].includes(task.status) && <Loader2 className="animate-spin" size={14} />}
-                  {task.status === 'queued' && <Clock3 size={14} />}
-                  {task.status === 'completed' && <CheckCircle2 size={14} />}
-                  {['failed', 'interrupted', 'canceled'].includes(task.status) && <XCircle size={14} />}
+                  {(() => {
+                    const { Icon, animated } = describeTaskStatus(task.status)
+                    return <Icon size={14} className={animated ? 'animate-spin' : undefined} />
+                  })()}
                 </div>
                 <div className="task-center-copy">
-                  <div><strong>{task.conversation_name}</strong><span>{taskLabel(task.status)}</span></div>
+                  <div><strong>{task.conversation_name}</strong><span>{taskStatusLabel(task.status)}</span></div>
                   {editingTaskId === task.run_id ? (
                     <textarea
                       className="task-edit-input"
@@ -442,6 +493,7 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
           </section>
         )}
       </div>
-    </aside>
+      </aside>
+    </>
   )
 }

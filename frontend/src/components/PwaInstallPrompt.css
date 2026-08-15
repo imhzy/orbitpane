@@ -23,13 +23,13 @@
   background-color: var(--bg-surface-elevated, var(--bg-surface));
   border: 1px solid var(--border-color);
   border-radius: 16px;
-  padding: 18px 20px;
+  padding: var(--space-5) var(--space-5);
   box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.45), 0 0 1px 1px rgba(255, 255, 255, 0.08);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-4);
   overflow: hidden;
   margin: 0 auto;
 }
@@ -42,7 +42,7 @@
   left: 0;
   right: 0;
   height: 2px;
-  background: linear-gradient(90deg, #3b82f6 0%, #6366f1 50%, #8b5cf6 100%);
+  background: var(--brand-gradient);
 }
 
 .pwa-banner-close-btn {
@@ -51,8 +51,8 @@
   right: 14px;
   background: transparent;
   border: none;
-  color: var(--text-tertiary, #a1a1aa);
-  padding: 6px;
+  color: var(--text-tertiary);
+  padding: var(--space-1-5);
   border-radius: 50%;
   cursor: pointer;
   display: flex;
@@ -63,14 +63,14 @@
 
 .pwa-banner-close-btn:hover {
   background: rgba(255, 255, 255, 0.08);
-  color: var(--text-primary, #ffffff);
+  color: var(--text-primary);
 }
 
 .pwa-banner-content {
   display: flex;
   align-items: flex-start;
-  gap: 16px;
-  padding-right: 24px;
+  gap: var(--space-4);
+  padding-right: var(--space-6);
 }
 
 .pwa-banner-icon-box {
@@ -98,14 +98,14 @@
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: #10b981;
-  box-shadow: 0 0 8px #10b981;
+  background: var(--success-color);
+  box-shadow: 0 0 8px var(--success-color);
 }
 
 .pwa-banner-info {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
   flex: 1;
   min-width: 0;
 }
@@ -113,51 +113,51 @@
 .pwa-banner-header-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   flex-wrap: wrap;
 }
 
 .pwa-banner-title {
   font-family: var(--font-heading, sans-serif);
-  font-size: 15px;
+  font-size: var(--text-md);
   font-weight: 700;
-  color: var(--text-primary, #f4f4f5);
+  color: var(--text-primary);
   letter-spacing: -0.01em;
 }
 
 .pwa-chip {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 600;
-  padding: 2px 8px;
+  padding: var(--space-0-5) var(--space-2);
   border-radius: 20px;
   background: rgba(59, 130, 246, 0.15);
-  color: #60a5fa;
+  color: var(--accent-text);
   border: 1px solid rgba(59, 130, 246, 0.3);
   line-height: 1.2;
 }
 
 .pwa-banner-desc {
-  font-size: 12px;
-  color: var(--text-secondary, #a1a1aa);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
   line-height: 1.45;
-  margin: 2px 0 6px 0;
+  margin: var(--space-0-5) 0 var(--space-1-5) 0;
 }
 
 .pwa-features-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2-5);
   flex-wrap: wrap;
 }
 
 .pwa-feature-tag {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--text-secondary, #d4d4d8);
+  gap: var(--space-1);
+  font-size: var(--text-2xs);
+  color: var(--text-secondary);
   background: rgba(255, 255, 255, 0.05);
-  padding: 2px 8px;
+  padding: var(--space-0-5) var(--space-2);
   border-radius: 6px;
   border: 1px solid var(--border-color);
 }
@@ -165,7 +165,7 @@
 .pwa-banner-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2-5);
 }
 
 .pwa-install-btn-primary {
@@ -173,12 +173,12 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 10px 18px;
+  gap: var(--space-2);
+  padding: var(--space-2-5) var(--space-5);
   border-radius: 10px;
-  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-  color: #ffffff;
-  font-size: 13px;
+  background: var(--brand-gradient);
+  color: var(--on-brand);
+  font-size: var(--text-sm);
   font-weight: 600;
   border: none;
   cursor: pointer;
@@ -187,7 +187,7 @@
 }
 
 .pwa-install-btn-primary:hover {
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  background: var(--brand-gradient);
   box-shadow: 0 6px 18px rgba(37, 99, 235, 0.45);
   transform: translateY(-1px);
 }
@@ -197,11 +197,11 @@
 }
 
 .pwa-install-btn-secondary {
-  padding: 10px 16px;
+  padding: var(--space-2-5) var(--space-4);
   border-radius: 10px;
   background: transparent;
-  color: var(--text-secondary, #a1a1aa);
-  font-size: 13px;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
   font-weight: 500;
   border: 1px solid var(--border-color);
   cursor: pointer;
@@ -210,7 +210,7 @@
 
 .pwa-install-btn-secondary:hover {
   background: rgba(255, 255, 255, 0.06);
-  color: var(--text-primary, #ffffff);
+  color: var(--text-primary);
 }
 
 /* === PWA Guide Overlay & Modal === */
@@ -250,7 +250,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 18px 22px;
+  padding: var(--space-5) var(--space-6);
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
 }
@@ -258,26 +258,26 @@
 .pwa-guide-title-group {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2-5);
 }
 
 .pwa-guide-os-icon {
-  color: #3b82f6;
+  color: var(--accent-color);
 }
 
 .pwa-guide-header h3 {
   margin: 0;
   font-family: var(--font-heading, sans-serif);
-  font-size: 16px;
+  font-size: var(--text-lg);
   font-weight: 700;
-  color: var(--text-primary, #ffffff);
+  color: var(--text-primary);
 }
 
 .pwa-guide-close-btn {
   background: transparent;
   border: none;
-  color: var(--text-secondary, #a1a1aa);
-  padding: 4px;
+  color: var(--text-secondary);
+  padding: var(--space-1);
   border-radius: 50%;
   cursor: pointer;
   display: flex;
@@ -286,15 +286,15 @@
 }
 
 .pwa-guide-close-btn:hover {
-  color: var(--text-primary, #ffffff);
+  color: var(--text-primary);
   background: rgba(255, 255, 255, 0.1);
 }
 
 .pwa-guide-body {
-  padding: 22px;
+  padding: var(--space-6);
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--space-5);
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -304,10 +304,10 @@
 .pwa-guide-app-preview {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: var(--space-3-5);
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border-color);
-  padding: 12px 16px;
+  padding: var(--space-3) var(--space-4);
   border-radius: 14px;
 }
 
@@ -320,25 +320,25 @@
 
 .pwa-preview-name {
   font-weight: 700;
-  font-size: 15px;
-  color: var(--text-primary, #ffffff);
+  font-size: var(--text-md);
+  color: var(--text-primary);
 }
 
 .pwa-preview-sub {
-  font-size: 12px;
-  color: var(--text-secondary, #a1a1aa);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
 }
 
 .pwa-steps-list {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--space-3-5);
 }
 
 .pwa-step-item {
   display: flex;
   align-items: flex-start;
-  gap: 14px;
+  gap: var(--space-3-5);
 }
 
 .pwa-step-number {
@@ -346,19 +346,19 @@
   height: 26px;
   border-radius: 50%;
   background: rgba(59, 130, 246, 0.2);
-  color: #60a5fa;
+  color: var(--accent-text);
   border: 1px solid rgba(59, 130, 246, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 700;
   flex-shrink: 0;
 }
 
 .pwa-step-text {
-  font-size: 13.5px;
-  color: var(--text-primary, #e4e4e7);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
   line-height: 1.5;
   flex: 1;
 }
@@ -369,27 +369,27 @@
   justify-content: center;
   vertical-align: middle;
   background: rgba(255, 255, 255, 0.1);
-  padding: 3px 6px;
+  padding: var(--space-0-5) var(--space-1-5);
   border-radius: 6px;
-  margin: 0 4px;
-  color: #60a5fa;
+  margin: 0 var(--space-1);
+  color: var(--accent-text);
 }
 
 .pwa-guide-tip {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: var(--space-2);
   background: rgba(16, 185, 129, 0.1);
   border: 1px solid rgba(16, 185, 129, 0.2);
   border-radius: 10px;
-  padding: 10px 14px;
-  font-size: 12px;
-  color: #34d399;
+  padding: var(--space-2-5) var(--space-3-5);
+  font-size: var(--text-xs);
+  color: var(--success-color);
   line-height: 1.4;
 }
 
 .pwa-guide-footer {
-  padding: 16px 22px;
+  padding: var(--space-4) var(--space-6);
   border-top: 1px solid var(--border-color);
   display: flex;
   justify-content: flex-end;
@@ -400,13 +400,13 @@
 .pwa-guide-done-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 10px 20px;
+  gap: var(--space-1-5);
+  padding: var(--space-2-5) var(--space-5);
   border-radius: 10px;
   background: var(--border-color);
-  color: var(--text-primary, #ffffff);
+  color: var(--text-primary);
   border: none;
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -424,12 +424,12 @@
     padding-left: calc(10px + var(--sal, 0px));
   }
   .pwa-install-banner {
-    padding: 14px 16px;
-    gap: 12px;
+    padding: var(--space-3-5) var(--space-4);
+    gap: var(--space-3);
   }
   .pwa-banner-actions {
     flex-direction: column;
-    gap: 8px;
+    gap: var(--space-2);
   }
   .pwa-install-btn-primary, .pwa-install-btn-secondary {
     width: 100%;
@@ -449,15 +449,15 @@
   }
 
   .pwa-guide-header {
-    padding: 14px 16px;
+    padding: var(--space-3-5) var(--space-4);
   }
 
   .pwa-guide-body {
-    gap: 14px;
-    padding: 16px;
+    gap: var(--space-3-5);
+    padding: var(--space-4);
   }
 
   .pwa-guide-footer {
-    padding: 12px 16px;
+    padding: var(--space-3) var(--space-4);
   }
 }

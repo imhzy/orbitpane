@@ -1,9 +1,11 @@
 import React, { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { MotionConfig } from 'framer-motion'
 import './index.css'
 import App from './App.tsx'
 import { registerSW } from 'virtual:pwa-register'
 import { activatePwaUpdate, configurePwaUpdate, consumeManualUpdateRequest } from './lib/pwaUpdate'
+import { OFFLINE_READY_EVENT, UPDATE_READY_EVENT } from './lib/appEvents'
 
 const updateServiceWorker = registerSW({
   immediate: true,
@@ -12,12 +14,12 @@ const updateServiceWorker = registerSW({
       void activatePwaUpdate()
       return
     }
-    window.dispatchEvent(new CustomEvent('orbitpane-update-ready', {
+    window.dispatchEvent(new CustomEvent(UPDATE_READY_EVENT, {
       detail: () => void activatePwaUpdate(),
     }))
   },
   onOfflineReady() {
-    window.dispatchEvent(new CustomEvent('orbitpane-offline-ready'))
+    window.dispatchEvent(new CustomEvent(OFFLINE_READY_EVENT))
   },
   onRegisteredSW(_swScriptUrl, registration) {
     configurePwaUpdate({ registration })
@@ -113,7 +115,12 @@ window.addEventListener('vite:preloadError', (event) => {
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
-      <App />
+      {/* The CSS `prefers-reduced-motion` block only silences CSS animations.
+          Drawers, sheets, dialogs and message entry are all framer-motion, so
+          they need this to honour the same preference. */}
+      <MotionConfig reducedMotion="user">
+        <App />
+      </MotionConfig>
     </ErrorBoundary>
   </StrictMode>,
 )

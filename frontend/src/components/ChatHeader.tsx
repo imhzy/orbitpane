@@ -2,8 +2,10 @@ import { useState, useRef, useEffect } from 'react'
 import { Menu, ChevronLeft, Pencil, Sun, Moon, Eraser, Plus, Download, Command, FileText, MoreVertical, Wifi, WifiOff, Loader2, ListChecks, RefreshCw } from 'lucide-react'
 import { LogoIcon } from '../LogoIcon'
 import { ModelSelector } from './ModelSelector'
-import { requestPwaUpdate } from '../lib/pwaUpdate'
 import { haptic } from '../lib/nativeFeedback'
+import { OPEN_INSPECTOR_EVENT } from '../lib/appEvents'
+import { useUpdateCheck } from '../hooks/useUpdateCheck'
+import { useEscapeLayer } from '../hooks/useEscapeLayer'
 
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -18,7 +20,7 @@ export function ChatHeader(_props: ChatHeaderProps) {
     activeConv, editingConvId, editingConvName, setEditingConvName, saveConvName,
     startEditingConv, setEditingConvId, getProviderBadge, providers, isDrawerOpen,
     setIsDrawerOpen, setDrawerMode, selectedModel, setSelectedModel, models,
-    formatModelName, loadModels, theme, toggleTheme, setIsCmdPaletteOpen,
+    loadModels, theme, toggleTheme, setIsCmdPaletteOpen,
     isExporting, exportConversationAsImage, messages, clearMessages, summarizeMessages,
     isConnected, isReconnecting, connectWebSocket, showToast, showProjectHome, activeTaskCount
   } = useAppContext()
@@ -34,9 +36,15 @@ export function ChatHeader(_props: ChatHeaderProps) {
   const onOpenCmdPalette = () => setIsCmdPaletteOpen(true)
 
   const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false)
-  const [isCheckingForUpdate, setIsCheckingForUpdate] = useState(false)
+  const { isChecking: isCheckingForUpdate, checkForUpdate } = useUpdateCheck(showToast)
   const actionsMenuRef = useRef<HTMLDivElement>(null)
   const isCancelingRef = useRef(false)
+
+  useEscapeLayer(isActionsMenuOpen, () => setIsActionsMenuOpen(false))
+  useEscapeLayer(editingConvId !== null, () => {
+    isCancelingRef.current = true
+    setEditingConvId(null)
+  })
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent | TouchEvent) => {
@@ -59,8 +67,8 @@ export function ChatHeader(_props: ChatHeaderProps) {
           className="icon-btn" 
           style={{ visibility: isDrawerOpen ? 'hidden' : 'visible' }}
           onClick={() => activeConv ? showProjectHome() : setIsDrawerOpen(true)}
-          title={activeConv ? '返回项目列表' : '展开工作区菜单 (⌘B)'}
-          aria-label={activeConv ? '返回项目列表' : '展开工作区菜单'}
+          title={activeConv ? '返回项目列表' : '展开项目菜单 (⌘B)'}
+          aria-label={activeConv ? '返回项目列表' : '展开项目菜单'}
         >
           {activeConv ? <ChevronLeft size={20} /> : <Menu size={18} />}
         </button>
@@ -78,11 +86,8 @@ export function ChatHeader(_props: ChatHeaderProps) {
                   autoFocus
                   onChange={e => setEditingConvName(e.target.value)}
                   onKeyDown={e => {
+                    // Escape is handled by the layer stack.
                     if (e.key === 'Enter') saveConvName(activeConv.id)
-                    if (e.key === 'Escape') {
-                      isCancelingRef.current = true
-                      setEditingConvId(null)
-                    }
                   }}
                   onBlur={() => {
                     if (isCancelingRef.current) {
@@ -98,10 +103,18 @@ export function ChatHeader(_props: ChatHeaderProps) {
                   <span className={`conv-provider-tag ${getProviderBadge(activeConv.provider, providers).className}`}>
                     {getProviderBadge(activeConv.provider, providers).text}
                   </span>
+                  {/* Mobile hides the label above; the dot preserves which
+                      agent this project runs on without eating title width. */}
+                  <span
+                    className={`provider-orbit-mark header-provider-dot ${getProviderBadge(activeConv.provider, providers).className}`}
+                    title={getProviderBadge(activeConv.provider, providers).text}
+                    aria-label={getProviderBadge(activeConv.provider, providers).text}
+                    role="img"
+                  />
                   <button
                     className="icon-btn edit-title-btn"
-                    title="修改工作区名称"
-                    aria-label="修改工作区名称"
+                    title="重命名项目"
+                    aria-label="重命名项目"
                     onMouseDown={(e) => {
                       e.preventDefault()
                       startEditingConv(e, activeConv)
@@ -136,7 +149,6 @@ export function ChatHeader(_props: ChatHeaderProps) {
                 selectedModel={selectedModel}
                 setSelectedModel={setSelectedModel}
                 models={models}
-                formatModelName={formatModelName}
                 position="header"
                 onOpen={loadModels}
               />
@@ -198,7 +210,7 @@ export function ChatHeader(_props: ChatHeaderProps) {
               </button>
               <button 
                 className="icon-btn"
-                title="清空会话"
+                title="清空对话记录"
                 onClick={clearMessages}
               >
                 <Eraser size={14} />
@@ -224,15 +236,15 @@ export function ChatHeader(_props: ChatHeaderProps) {
         {activeConv && (
           <button
             type="button"
-            className="mobile-only-action icon-btn contextual-task-btn"
-            aria-label={`打开当前对话任务${activeTaskCount > 0 ? `，${activeTaskCount} 个进行中` : ''}`}
-            title="当前对话任务与上下文"
+            className="icon-btn inspector-trigger"
+            aria-label={`打开任务与上下文面板${activeTaskCount > 0 ? `，${activeTaskCount} 个进行中` : ''}`}
+            title="任务与上下文"
             onClick={() => {
               haptic('selection')
               const url = new URL(window.location.href)
               url.searchParams.set('panel', 'tasks')
               window.history.pushState({ ...window.history.state, orbitpanePanel: 'tasks' }, '', url.toString())
-              window.dispatchEvent(new CustomEvent('orbitpane-open-inspector', { detail: 'tasks' }))
+              window.dispatchEvent(new CustomEvent(OPEN_INSPECTOR_EVENT, { detail: 'tasks' }))
             }}
           >
             <ListChecks size={17} />
@@ -310,22 +322,13 @@ export function ChatHeader(_props: ChatHeaderProps) {
                   disabled={isCheckingForUpdate}
                   onClick={() => {
                     setIsActionsMenuOpen(false)
-                    setIsCheckingForUpdate(true)
-                    showToast('正在拉取最新版本…', 'info')
-                    void requestPwaUpdate()
-                      .then(result => {
-                        if (result === 'current') showToast('当前已是最新版本')
-                        if (result === 'updating') showToast('新版本已获取，正在安装…', 'info')
-                        if (result === 'reloading') showToast('正在切换到最新版本…', 'info')
-                      })
-                      .catch(() => showToast('更新检查失败，请确认网络连接', 'error'))
-                      .finally(() => setIsCheckingForUpdate(false))
+                    void checkForUpdate()
                   }}
                 >
                   <RefreshCw size={14} className={isCheckingForUpdate ? 'animate-spin' : ''} />
-                  <span>{isCheckingForUpdate ? '正在更新…' : '更新应用'}</span>
+                  <span>{isCheckingForUpdate ? '正在更新…' : '检查更新'}</span>
                 </button>
-                
+
                 {activeConv && (
                   <>
                     <button

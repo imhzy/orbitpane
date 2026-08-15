@@ -6,15 +6,16 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
-  CircleDot,
   Clock3,
   FolderGit2,
   Layers3,
   Pin,
   RefreshCw,
-  XCircle,
 } from 'lucide-react'
 import { apiFetch } from '../lib/api'
+import { BACKGROUND_REFRESH_MS, TASK_CHANGE_EVENT } from '../lib/appEvents'
+import { describeTaskStatus, isTaskRunning, taskStatusLabel } from '../lib/taskStatus'
+import { useAppContext } from '../contexts/AppContext'
 import type { Conversation, TaskRecord } from '../lib/types'
 
 interface MissionControlProps {
@@ -25,8 +26,6 @@ interface MissionControlProps {
 type MissionFilter = 'all' | 'running' | 'queued' | 'attention'
 
 const VISIBLE_PROJECT_LIMIT = 6
-
-const isRunning = (status?: TaskRecord['status']) => status === 'running' || status === 'starting'
 
 function taskTimestamp(task?: TaskRecord): string | undefined {
   return task?.completed_at || task?.started_at || task?.queued_at
@@ -49,6 +48,9 @@ function formatRelativeTime(value?: string): string {
 }
 
 export function MissionControl({ conversations, onSelect }: MissionControlProps) {
+  const { providers, getProviderBadge } = useAppContext()
+  /** Provider display name; the raw id ("antigravity") is an internal detail. */
+  const providerName = (id?: string) => getProviderBadge(id, providers).text
   const [tasks, setTasks] = useState<TaskRecord[]>([])
   const [activeFilter, setActiveFilter] = useState<MissionFilter>('all')
   const [isExpanded, setIsExpanded] = useState(false)
@@ -79,17 +81,19 @@ export function MissionControl({ conversations, onSelect }: MissionControlProps)
   useEffect(() => {
     mountedRef.current = true
     void loadTasks()
-    const timer = window.setInterval(() => void loadTasks(), 5000)
+    // Task events drive this; the interval is only a safety net for changes
+    // that happen without a socket event reaching this tab.
+    const timer = window.setInterval(() => void loadTasks(), BACKGROUND_REFRESH_MS)
     const handleTaskChange = () => void loadTasks()
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') void loadTasks()
     }
-    window.addEventListener('orbitpane-task-change', handleTaskChange)
+    window.addEventListener(TASK_CHANGE_EVENT, handleTaskChange)
     document.addEventListener('visibilitychange', handleVisibilityChange)
     return () => {
       mountedRef.current = false
       window.clearInterval(timer)
-      window.removeEventListener('orbitpane-task-change', handleTaskChange)
+      window.removeEventListener(TASK_CHANGE_EVENT, handleTaskChange)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [loadTasks])
@@ -108,7 +112,7 @@ export function MissionControl({ conversations, onSelect }: MissionControlProps)
       const statusPriority = (conversation: Conversation) => {
         const status = recentTasks.get(conversation.id)?.status
         if (status === 'failed') return 0
-        if (isRunning(status)) return 1
+        if (isTaskRunning(status)) return 1
         if (status === 'queued') return 2
         if (status === 'completed') return 3
         if (status === 'interrupted' || status === 'canceled') return 4
@@ -125,14 +129,14 @@ export function MissionControl({ conversations, onSelect }: MissionControlProps)
   if (projects.length === 0) return null
 
   const runningCount = projects.filter(conversation => {
-    return isRunning(recentTasks.get(conversation.id)?.status)
+    return isTaskRunning(recentTasks.get(conversation.id)?.status)
   }).length
   const queuedCount = projects.filter(conversation => recentTasks.get(conversation.id)?.status === 'queued').length
   const attentionCount = projects.filter(conversation => recentTasks.get(conversation.id)?.status === 'failed').length
 
   const filteredProjects = projects.filter(conversation => {
     const status = recentTasks.get(conversation.id)?.status
-    if (activeFilter === 'running') return isRunning(status)
+    if (activeFilter === 'running') return isTaskRunning(status)
     if (activeFilter === 'queued') return status === 'queued'
     if (activeFilter === 'attention') return status === 'failed'
     return true
@@ -148,20 +152,8 @@ export function MissionControl({ conversations, onSelect }: MissionControlProps)
   }
 
   const statusIcon = (status?: TaskRecord['status']) => {
-    if (isRunning(status)) return <Activity size={14} />
-    if (status === 'queued') return <Clock3 size={14} />
-    if (status === 'failed') return <XCircle size={14} />
-    if (status === 'completed') return <CheckCircle2 size={14} />
-    return <CircleDot size={14} />
-  }
-
-  const statusLabel = (status?: TaskRecord['status']) => {
-    if (status === 'running' || status === 'starting') return '执行中'
-    if (status === 'queued') return '等待中'
-    if (status === 'failed') return '需处理'
-    if (status === 'completed') return '最近完成'
-    if (status === 'interrupted' || status === 'canceled') return '已停止'
-    return '尚未运行'
+    const { Icon, animated } = describeTaskStatus(status)
+    return <Icon size={14} className={animated ? 'animate-spin' : undefined} />
   }
 
   return (
@@ -191,19 +183,19 @@ export function MissionControl({ conversations, onSelect }: MissionControlProps)
       <div className="mission-metrics" role="group" aria-label="按任务状态筛选项目">
         <button type="button" aria-pressed={activeFilter === 'all'} className={activeFilter === 'all' ? 'active' : ''} onClick={() => selectFilter('all')}>
           <span className="mission-metric-icon all"><FolderGit2 size={15} /></span>
-          <span><small>全部项目</small><b>{projects.length}</b></span>
+          <span><small>全部</small><b>{projects.length}</b></span>
         </button>
         <button type="button" aria-pressed={activeFilter === 'running'} className={activeFilter === 'running' ? 'active' : ''} onClick={() => selectFilter('running')}>
           <span className="mission-metric-icon running"><Activity size={15} /></span>
-          <span><small>执行中</small><b>{runningCount}</b></span>
+          <span><small>{taskStatusLabel('running')}</small><b>{runningCount}</b></span>
         </button>
         <button type="button" aria-pressed={activeFilter === 'queued'} className={activeFilter === 'queued' ? 'active' : ''} onClick={() => selectFilter('queued')}>
           <span className="mission-metric-icon queued"><Clock3 size={15} /></span>
-          <span><small>等待中</small><b>{queuedCount}</b></span>
+          <span><small>{taskStatusLabel('queued')}</small><b>{queuedCount}</b></span>
         </button>
         <button type="button" aria-pressed={activeFilter === 'attention'} className={`${activeFilter === 'attention' ? 'active ' : ''}${attentionCount > 0 ? 'attention' : ''}`} onClick={() => selectFilter('attention')}>
           <span className="mission-metric-icon attention"><AlertTriangle size={15} /></span>
-          <span><small>需处理</small><b>{attentionCount}</b></span>
+          <span><small>{taskStatusLabel('failed')}</small><b>{attentionCount}</b></span>
         </button>
       </div>
 
@@ -217,7 +209,7 @@ export function MissionControl({ conversations, onSelect }: MissionControlProps)
               key={conversation.id}
               className={`mission-project-row ${status || 'idle'}`}
               onClick={() => onSelect(conversation)}
-              aria-label={`打开项目 ${conversation.name}，${statusLabel(status)}`}
+              aria-label={`打开项目 ${conversation.name}，${taskStatusLabel(status)}`}
             >
               <span className="mission-project-status" aria-hidden="true">{statusIcon(status)}</span>
               <span className="mission-project-main">
@@ -228,8 +220,8 @@ export function MissionControl({ conversations, onSelect }: MissionControlProps)
                 <span className="mission-row-path" title={conversation.path}>{conversation.path}</span>
               </span>
               <span className="mission-project-meta">
-                <span className={`mission-status-label ${status || 'idle'}`}>{statusLabel(status)}</span>
-                <small>{task?.provider || conversation.provider} · {formatRelativeTime(taskTimestamp(task))}</small>
+                <span className={`mission-status-label ${status || 'idle'}`}>{taskStatusLabel(status)}</span>
+                <small>{providerName(task?.provider || conversation.provider)} · {formatRelativeTime(taskTimestamp(task))}</small>
               </span>
               <span className="mission-project-open" aria-hidden="true"><ArrowUpRight size={15} /></span>
             </button>

@@ -46,7 +46,7 @@
 
 .confirm-card h3 {
   font-family: var(--font-heading);
-  font-size: 16px;
+  font-size: var(--text-lg);
   font-weight: 700;
   color: var(--text-primary);
   margin: var(--space-1) 0 var(--space-2) 0;
@@ -54,7 +54,7 @@
 }
 
 .confirm-card p {
-  font-size: 13px;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
   margin: 0 0 var(--space-6) 0;
   line-height: 1.5;
@@ -72,7 +72,7 @@
   border: 1px solid var(--border-color);
   background: var(--bg-surface-hover);
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -87,13 +87,12 @@
   transform: scale(0.97);
 }
 
-.confirm-delete-btn {
+.confirm-delete-btn,
+.confirm-primary-btn {
   padding: var(--space-2) var(--space-4);
-  border-radius: var(--radius-sm, var(--radius-sm));
-  border: none;
-  background: var(--danger-color, var(--danger-color));
-  color: white;
-  font-size: 13px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  font-size: var(--text-sm);
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -101,12 +100,38 @@
   box-shadow: var(--shadow-sm);
 }
 
-.confirm-delete-btn:hover {
+.confirm-delete-btn {
+  border-color: var(--danger-color);
+  background: var(--danger-color);
+  color: var(--on-brand);
+}
+
+.confirm-primary-btn {
+  border-color: var(--accent-border);
+  background: var(--accent-subtle-bg);
+  color: var(--accent-text);
+}
+
+.confirm-delete-btn:hover,
+.confirm-primary-btn:hover {
   opacity: 0.92;
 }
 
-.confirm-delete-btn:active {
+.confirm-delete-btn:active,
+.confirm-primary-btn:active {
   transform: scale(0.97);
+}
+
+.confirm-danger-icon {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-4);
+  color: var(--danger-color);
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-color);
 }
 
 .confirm-sheet-handle {
@@ -137,13 +162,14 @@
     gap: var(--space-3);
   }
   .confirm-cancel-btn,
-  .confirm-delete-btn {
+  .confirm-delete-btn,
+  .confirm-primary-btn {
     width: 100%;
     min-height: 44px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 14px;
+    font-size: var(--text-base);
   }
 }
 

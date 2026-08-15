@@ -20,7 +20,7 @@ class DatabaseTests(unittest.TestCase):
         conversation = self.database.create_conversation(
             "Workspace", self.temp_dir.name, "antigravity"
         )
-        self.assertEqual(conversation.permission_mode, "unrestricted")
+        self.assertEqual(conversation.permission_mode, "workspace")
         message_id = self.database.add_message(
             conversation.id,
             "user",
@@ -38,6 +38,18 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(messages[0].provider, "antigravity")
         self.assertEqual(messages[0].run_id, "run-1")
         self.assertTrue(messages[0].timestamp.endswith("Z"))
+        self.assertEqual(messages[0].feedback, "")
+
+        rated = self.database.set_message_feedback(conversation.id, message_id, "up")
+        self.assertIsNotNone(rated)
+        assert rated is not None
+        self.assertEqual(rated.feedback, "up")
+        cleared = self.database.set_message_feedback(conversation.id, message_id, "")
+        assert cleared is not None
+        self.assertEqual(cleared.feedback, "")
+        self.assertIsNone(
+            self.database.set_message_feedback(conversation.id, message_id + 999, "up")
+        )
 
         updated = self.database.update_conversation(
             conversation.id,
