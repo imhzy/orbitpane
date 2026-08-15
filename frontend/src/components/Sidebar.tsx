@@ -228,11 +228,11 @@ export function Sidebar(_props: SidebarProps) {
           aria-label="项目菜单"
           drag="x"
           dragDirectionLock={true}
-          dragConstraints={{ left: -400, right: 0 }}
+          dragConstraints={{ left: -Math.max(500, typeof window !== 'undefined' ? window.innerWidth : 500), right: 0 }}
           dragElastic={0.1}
           dragMomentum={false}
           onDragEnd={(_e, { offset, velocity }) => {
-            if (offset.x < -100 || velocity.x < -300) {
+            if (offset.x < -60 || velocity.x < -200) {
               setIsDrawerOpen(false)
             }
           }}

@@ -1,0 +1,861 @@
+From bb087049844ca7a8d90ca1f6683731012fce65f2 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 14 Aug 2026 10:04:35 +0000
+Subject: [PATCH] Mobile Organic visual refresh (OrbitPane Mobile design)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Implements the OrbitPane Mobile.dc.html Claude Design handoff (direction
+1a): a mobile-scoped visual reskin onto the Organic design system —
+warm-ink dark ground, terracotta accent, sage success, Caprasimo/Figtree/
+IBM Plex Mono type, 16/24/28/999 radii — layered on top of the existing
+CSS custom-property theme so desktop is untouched (everything is gated
+behind @media (max-width: 768px)).
+
+- index.css: mobile Organic token overrides for dark + light theme;
+  index.html: loads the three fonts.
+- Retint the handful of hardcoded (non-token) colors used on mobile
+  screens: execution timeline step categories, login accent orb, avatar
+  gradients, provider badges/dots, mission-control accent rule.
+- Add TaskCapsule: the persistent "N running / N queued / context %"
+  pill between the header and message list (the collapsed top-pill form
+  of the task pod), opening the existing full-screen WorkspaceInspector.
+- Add PreferencesSheet: a real 主题/选择运行模型/通知与反馈 settings
+  surface as a bottom sheet (consistent with the app's existing sheet
+  idiom), wired to the real theme, model, notification-permission, and a
+  new persisted haptics-enabled flag (nativeFeedback.ts).
+- Convert CommandPalette (⌘K) into a mobile bottom sheet.
+- Fix theme-color meta + Toast icon tint for the mobile palette.
+
+Verified: tsc --noEmit, vite build, oxlint all clean; Login (dark/light)
+and Welcome/Mission Control screens visually spot-checked against the
+design at 390x844.
+
+Not in scope (called out in the handoff as out of scope or unmocked):
+1b (light-paper) and 1c (terracotta cap-header) variants were not
+requested; PwaInstallPrompt colors are untouched (not one of the named
+design screens).
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01BBJB3cpPNmKgpEtajMsg6S
+---
+ frontend/index.html                           |   4 +
+ frontend/src/App.css                          |  63 ++++++++
+ frontend/src/App.tsx                          |  12 +-
+ frontend/src/Workspace.css                    |  81 ++++++++++
+ .../src/components/AgentExecutionTimeline.css |  26 +++
+ frontend/src/components/ChatHeader.tsx        |  16 +-
+ frontend/src/components/Login.css             |  27 +++-
+ frontend/src/components/PreferencesSheet.tsx  | 148 ++++++++++++++++++
+ frontend/src/components/TaskCapsule.tsx       |  97 ++++++++++++
+ frontend/src/index.css                        | 141 +++++++++++++++++
+ frontend/src/lib/nativeFeedback.ts            |  13 ++
+ 11 files changed, 623 insertions(+), 5 deletions(-)
+ create mode 100644 frontend/src/components/PreferencesSheet.tsx
+ create mode 100644 frontend/src/components/TaskCapsule.tsx
+
+diff --git a/frontend/index.html b/frontend/index.html
+index 7fad159..10249b1 100644
+--- a/frontend/index.html
++++ b/frontend/index.html
+@@ -16,6 +16,10 @@
+     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
+     <title>OrbitPane</title>
+     <meta name="description" content="OrbitPane - Secure, self-hosted coding agent workspace" />
++    <!-- Organic mobile theme fonts (only referenced by the sub-768px stylesheet) -->
++    <link rel="preconnect" href="https://fonts.googleapis.com" />
++    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
++    <link href="https://fonts.googleapis.com/css2?family=Caprasimo&family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+   </head>
+   <body>
+     <div id="root"></div>
+diff --git a/frontend/src/App.css b/frontend/src/App.css
+index be8cc69..9875d52 100644
+--- a/frontend/src/App.css
++++ b/frontend/src/App.css
+@@ -2866,6 +2866,33 @@
+   font-size: 13px;
+ }
+ 
++/* ⌘K's mobile substitute: the same command palette, presented as a bottom
++   sheet instead of a centered dialog, matching every other mobile picker
++   in the app (model selector, message/more actions). */
++@media (max-width: 768px) {
++  .cmd-backdrop {
++    align-items: flex-end;
++    padding-top: 0;
++    backdrop-filter: blur(3px);
++    -webkit-backdrop-filter: blur(3px);
++  }
++  .cmd-dialog {
++    width: auto;
++    max-width: none;
++    margin: 0 max(8px, var(--sar)) calc(8px + var(--sab)) max(8px, var(--sal));
++    border-radius: 26px;
++    max-height: min(78dvh, 620px);
++  }
++  .cmd-header {
++    border-radius: var(--radius-full);
++    margin: 8px 10px 6px;
++    border: 1px solid var(--border-color);
++    background: var(--bg-surface-hover);
++  }
++  .cmd-kbd { display: none; }
++  .cmd-item { border-radius: var(--radius-lg); min-height: 50px; }
++}
++
+ /* === Humanized Welcome Grid & Prompts === */
+ .humanized-welcome {
+   display: flex;
+@@ -3668,6 +3695,42 @@
+   color: var(--text-muted);
+ }
+ 
++/* ------------------------------------------------------------------- */
++/* Organic mobile refresh: fold the few hardcoded (non-token) colors    */
++/* left in the desktop stylesheet into the warm terracotta/sage family. */
++/* ------------------------------------------------------------------- */
++@media (max-width: 768px) {
++  .conv-provider-tag.badge-codex,
++  [data-theme='light'] .conv-provider-tag.badge-codex {
++    background: var(--success-bg);
++    color: var(--success-color);
++    border-color: var(--success-border);
++  }
++  .item-icon.codex,
++  [data-theme='light'] .item-icon.codex {
++    background: var(--success-bg);
++    color: var(--success-color);
++  }
++  [data-theme='light'] .conv-provider-tag.badge-gemini {
++    background: var(--accent-subtle-bg);
++    color: var(--accent-color);
++    border-color: var(--accent-border);
++  }
++  [data-theme='light'] .item-icon.gemini { color: var(--accent-color); }
++
++  .agent-avatar {
++    background: var(--accent-subtle-bg);
++    color: var(--accent-text);
++    box-shadow: none;
++  }
++  .summary-avatar {
++    background: var(--success-bg);
++    color: var(--success-color);
++    box-shadow: none;
++  }
++  .human-hero-btn { box-shadow: 0 4px 20px var(--accent-subtle-bg); }
++}
++
+ @keyframes spin {
+   from {
+     transform: rotate(0deg);
+diff --git a/frontend/src/App.tsx b/frontend/src/App.tsx
+index 4a543d5..5c3ac73 100644
+--- a/frontend/src/App.tsx
++++ b/frontend/src/App.tsx
+@@ -17,6 +17,7 @@ import { ChatHeader } from './components/ChatHeader'
+ import { WelcomeScreen } from './components/WelcomeScreen'
+ import { MessageList } from './components/MessageList'
+ import { ChatInput } from './components/ChatInput'
++import { TaskCapsule } from './components/TaskCapsule'
+ import { AppContext } from './contexts/AppContext'
+ import type { AppContextType } from './contexts/AppContext'
+ import { haptic, updateAppBadge } from './lib/nativeFeedback'
+@@ -42,10 +43,14 @@ export default function App() {
+     document.documentElement.setAttribute('data-theme', theme)
+     localStorage.setItem('theme', theme)
+     const metaThemeColors = document.querySelectorAll('meta[name="theme-color"]')
++    // Below 768px the app wears the Organic mobile palette (warm ink / cream
++    // paper) instead of the desktop zinc/slate one — match the PWA status
++    // bar tint to whichever is actually painted behind it.
++    const isMobileViewport = window.innerWidth <= 768
++    const darkThemeColor = isMobileViewport ? '#191612' : '#09090b'
++    const lightThemeColor = isMobileViewport ? '#f5ead8' : '#ffffff'
+     metaThemeColors.forEach(metaThemeColor => {
+-      // Use #ffffff for light mode to seamlessly blend with the white header
+-      // and #09090b for dark mode.
+-      metaThemeColor.setAttribute('content', theme === 'dark' ? '#09090b' : '#ffffff')
++      metaThemeColor.setAttribute('content', theme === 'dark' ? darkThemeColor : lightThemeColor)
+     })
+   }, [theme])
+ 
+@@ -1201,6 +1206,7 @@ export default function App() {
+           </div>
+         )}
+         <ChatHeader />
++        <TaskCapsule activeConv={activeConv} />
+ 
+         <div
+           className="chat-messages"
+diff --git a/frontend/src/Workspace.css b/frontend/src/Workspace.css
+index f3c438c..8d3c237 100644
+--- a/frontend/src/Workspace.css
++++ b/frontend/src/Workspace.css
+@@ -33,6 +33,11 @@
+ .provider-orbit-mark { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+ .provider-orbit-mark.badge-codex { background: #10b981; box-shadow: 0 0 0 3px rgba(16,185,129,.12); }
+ .provider-orbit-mark.badge-gemini { background: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,.12); }
++@media (max-width: 768px) {
++  .provider-orbit-mark.badge-codex { background: var(--success-color); box-shadow: 0 0 0 3px var(--success-bg); }
++  .provider-orbit-mark.badge-gemini { background: var(--accent-color); box-shadow: 0 0 0 3px var(--accent-subtle-bg); }
++  .mission-control::before { background: linear-gradient(90deg, transparent 3%, var(--accent-color) 30%, var(--success-color) 70%, transparent 97%); }
++}
+ .connection-status-btn {
+   min-height: 32px;
+   display: inline-flex;
+@@ -680,6 +685,54 @@
+     line-height: 1;
+   }
+ 
++  /* Persistent "N running / N queued / context %" capsule between the
++     header and the message list — the collapsed top-pill form of the
++     task pod; tapping it opens the same full-screen inspector as the
++     header's task badge. */
++  .task-capsule {
++    flex: none;
++    display: flex;
++    align-items: center;
++    gap: 11px;
++    margin: 0 14px 10px;
++    height: 48px;
++    padding: 0 8px 0 18px;
++    border: 1px solid var(--accent-border);
++    border-radius: var(--radius-full);
++    background: var(--accent-subtle-bg);
++    color: var(--text-primary);
++    cursor: pointer;
++  }
++  .task-capsule:active { background: color-mix(in srgb, var(--accent-color) 20%, transparent); }
++  .task-capsule-dot {
++    width: 8px;
++    height: 8px;
++    flex: none;
++    border-radius: 50%;
++    background: var(--accent-text);
++    animation: pulse 2s ease-in-out infinite;
++  }
++  .task-capsule-label {
++    flex: 1;
++    min-width: 0;
++    overflow: hidden;
++    text-align: left;
++    text-overflow: ellipsis;
++    white-space: nowrap;
++    font-size: 13px;
++    font-weight: 500;
++  }
++  .task-capsule-open {
++    width: 32px;
++    height: 32px;
++    flex: none;
++    display: grid;
++    place-items: center;
++    border-radius: 50%;
++    background: var(--accent-color);
++    color: var(--text-inverse);
++  }
++
+   /* Compact idle composer that expands only while editing. */
+   .input-area { padding: 7px 10px calc(8px + var(--sab)); }
+   .keyboard-open .input-area { padding-bottom: 8px; }
+@@ -803,6 +856,34 @@
+   .mobile-bottom-sheet > button.destructive { color: var(--danger-color); }
+   .mobile-sheet-options .model-dropdown-item.selected { color: var(--accent-text); background: var(--accent-subtle-bg); }
+ 
++  /* Preferences sheet: theme segmented control, model list, notification toggles */
++  .prefs-sheet { max-height: min(84dvh, 720px); gap: 0; padding-bottom: calc(14px + var(--sab)); }
++  .prefs-sheet-title { padding: 2px 10px 14px; text-align: left; font: 400 19px var(--font-heading); color: var(--text-primary); }
++  .prefs-section { padding: 0 6px; margin-bottom: 20px; }
++  .prefs-section-label { margin-bottom: 10px; padding: 0 4px; color: var(--text-secondary); font-size: 11.5px; font-weight: 600; letter-spacing: .03em; }
++
++  .prefs-theme-toggle { display: flex; gap: 6px; padding: 5px; border: 1px solid var(--border-color); border-radius: var(--radius-full); background: var(--bg-surface); }
++  .prefs-theme-toggle button { flex: 1; height: 42px; display: flex; align-items: center; justify-content: center; gap: 7px; border: 0; border-radius: var(--radius-full); background: transparent; color: var(--text-secondary); font-size: 13px; font-weight: 600; cursor: pointer; }
++  .prefs-theme-toggle button.active { background: var(--accent-color); color: var(--text-inverse); }
++
++  .prefs-model-list { display: flex; flex-direction: column; gap: 8px; }
++  .prefs-model-item { width: 100%; display: flex; align-items: center; gap: 12px; padding: 15px 18px; border: 1px solid var(--border-color); border-radius: var(--radius-lg); background: var(--bg-card); color: inherit; text-align: left; cursor: pointer; }
++  .prefs-model-item.selected { border-color: var(--accent-border); background: var(--accent-subtle-bg); }
++  .prefs-model-check { width: 18px; flex: none; display: flex; color: var(--accent-color); }
++  .prefs-model-copy { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
++  .prefs-model-name { overflow: hidden; color: var(--text-primary); font: 600 14px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
++  .prefs-model-provider { color: var(--text-tertiary); font-size: 11px; }
++
++  .prefs-toggle-list { display: flex; flex-direction: column; gap: 8px; }
++  .prefs-toggle-row { width: 100%; display: flex; align-items: center; gap: 14px; padding: 15px 18px; border: 1px solid var(--border-color); border-radius: var(--radius-lg); background: var(--bg-card); cursor: pointer; }
++  .prefs-toggle-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; text-align: left; }
++  .prefs-toggle-label { color: var(--text-primary); font-size: 14px; font-weight: 600; }
++  .prefs-toggle-hint { color: var(--text-tertiary); font-size: 12px; line-height: 1.5; }
++  .prefs-switch { width: 50px; height: 30px; flex: none; display: flex; align-items: center; padding: 3px; border-radius: var(--radius-full); background: var(--bg-surface-hover); color: var(--text-inverse); justify-content: flex-start; transition: background .18s; }
++  .prefs-switch::before { content: ''; width: 24px; height: 24px; border-radius: 50%; background: var(--text-tertiary); transition: transform .18s; }
++  .prefs-switch.on { background: var(--accent-color); justify-content: flex-start; }
++  .prefs-switch.on::before { background: var(--text-inverse); transform: translateX(20px); }
++
+   .pull-refresh-indicator { margin-top: -2px; }
+   .chat-message-list { animation: mobile-screen-enter .22s cubic-bezier(.2,.8,.2,1); }
+   @keyframes mobile-screen-enter {
+diff --git a/frontend/src/components/AgentExecutionTimeline.css b/frontend/src/components/AgentExecutionTimeline.css
+index 488c5ca..ced618a 100644
+--- a/frontend/src/components/AgentExecutionTimeline.css
++++ b/frontend/src/components/AgentExecutionTimeline.css
+@@ -296,4 +296,30 @@
+ .timeline-step[data-type="search"] .step-dot.complete { background: rgba(168, 85, 247, 0.15); color: #a855f7; border-color: rgba(168, 85, 247, 0.3); }
+ .timeline-step[data-type="plan"] .step-dot.complete { background: rgba(16, 185, 129, 0.15); color: #10b981; border-color: rgba(16, 185, 129, 0.3); }
+ 
++/* Organic mobile refresh: fold the neon exec/file/search/plan/thought/tool
++   ramp down into the warm palette's two accents + neutral, keeping the
++   per-kind distinction but dropping the blue/purple/cyan hues. */
++@media (max-width: 768px) {
++  .timeline-step[data-type="exec"] .step-icon,
++  .timeline-step[data-type="tool"] .step-icon { color: var(--accent-text); }
++  .timeline-step[data-type="file"] .step-icon { color: var(--warning-color); }
++  .timeline-step[data-type="search"] .step-icon { color: var(--text-secondary); }
++  .timeline-step[data-type="plan"] .step-icon { color: var(--success-color); }
++  .timeline-step[data-type="thought"] .step-icon { color: var(--text-tertiary); }
++
++  .timeline-step[data-type="exec"] .step-dot.complete,
++  .timeline-step[data-type="tool"] .step-dot.complete {
++    background: var(--accent-subtle-bg); color: var(--accent-text); border-color: var(--accent-border);
++  }
++  .timeline-step[data-type="file"] .step-dot.complete {
++    background: var(--warning-bg); color: var(--warning-color); border-color: var(--warning-border);
++  }
++  .timeline-step[data-type="search"] .step-dot.complete {
++    background: var(--bg-surface-hover); color: var(--text-secondary); border-color: var(--border-color);
++  }
++  .timeline-step[data-type="plan"] .step-dot.complete {
++    background: var(--success-bg); color: var(--success-color); border-color: var(--success-border);
++  }
++}
++
+ 
+diff --git a/frontend/src/components/ChatHeader.tsx b/frontend/src/components/ChatHeader.tsx
+index a08f834..870dfbc 100644
+--- a/frontend/src/components/ChatHeader.tsx
++++ b/frontend/src/components/ChatHeader.tsx
+@@ -1,7 +1,8 @@
+ import { useState, useRef, useEffect } from 'react'
+-import { Menu, ChevronLeft, Pencil, Sun, Moon, Eraser, Plus, Download, Command, FileText, MoreVertical, Wifi, WifiOff, Loader2, ListChecks, RefreshCw } from 'lucide-react'
++import { Menu, ChevronLeft, Pencil, Sun, Moon, Eraser, Plus, Download, Command, FileText, MoreVertical, Wifi, WifiOff, Loader2, ListChecks, RefreshCw, SlidersHorizontal } from 'lucide-react'
+ import { LogoIcon } from '../LogoIcon'
+ import { ModelSelector } from './ModelSelector'
++import { PreferencesSheet } from './PreferencesSheet'
+ import { requestPwaUpdate } from '../lib/pwaUpdate'
+ import { haptic } from '../lib/nativeFeedback'
+ 
+@@ -34,6 +35,7 @@ export function ChatHeader(_props: ChatHeaderProps) {
+   const onOpenCmdPalette = () => setIsCmdPaletteOpen(true)
+ 
+   const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false)
++  const [isPrefsOpen, setIsPrefsOpen] = useState(false)
+   const [isCheckingForUpdate, setIsCheckingForUpdate] = useState(false)
+   const actionsMenuRef = useRef<HTMLDivElement>(null)
+   const isCancelingRef = useRef(false)
+@@ -305,6 +307,16 @@ export function ChatHeader(_props: ChatHeaderProps) {
+                   {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+                   <span>切换主题</span>
+                 </button>
++                <button
++                  className="actions-dropdown-item"
++                  onClick={() => {
++                    setIsActionsMenuOpen(false);
++                    setIsPrefsOpen(true);
++                  }}
++                >
++                  <SlidersHorizontal size={14} />
++                  <span>偏好设置</span>
++                </button>
+                 <button
+                   className="actions-dropdown-item"
+                   disabled={isCheckingForUpdate}
+@@ -369,6 +381,8 @@ export function ChatHeader(_props: ChatHeaderProps) {
+           </AnimatePresence>
+         </div>
+       </div>
++
++      <PreferencesSheet isOpen={isPrefsOpen} onClose={() => setIsPrefsOpen(false)} />
+     </div>
+   )
+ }
+diff --git a/frontend/src/components/Login.css b/frontend/src/components/Login.css
+index 329f7f4..56b46d3 100644
+--- a/frontend/src/components/Login.css
++++ b/frontend/src/components/Login.css
+@@ -59,7 +59,7 @@
+ .login-orb-2 {
+   width: 300px;
+   height: 300px;
+-  background: #7c3aed; /* purple */
++  background: var(--success-color);
+   bottom: -50px;
+   left: -100px;
+   animation-delay: -5s;
+@@ -348,3 +348,28 @@
+     display: none;
+   }
+ }
++
++/* Organic mobile refresh */
++@media (max-width: 768px) {
++  .login-orb { filter: blur(70px); }
++
++  .login-brand-title { font-weight: 400; font-size: 28px; }
++
++  .login-input,
++  .login-submit-btn { border-radius: var(--radius-full); }
++
++  .login-input { height: 56px; padding: 0 52px 0 24px; }
++  .login-input-icon { right: 22px; left: auto; }
++
++  .login-submit-btn {
++    height: 56px;
++    box-shadow: none;
++    background: var(--accent-color);
++    color: var(--text-inverse);
++  }
++  .login-submit-btn:hover:not(:disabled) {
++    background: var(--accent-text);
++    box-shadow: none;
++    transform: none;
++  }
++}
+diff --git a/frontend/src/components/PreferencesSheet.tsx b/frontend/src/components/PreferencesSheet.tsx
+new file mode 100644
+index 0000000..55ac4a5
+--- /dev/null
++++ b/frontend/src/components/PreferencesSheet.tsx
+@@ -0,0 +1,148 @@
++import { useEffect, useState } from 'react'
++import { motion, AnimatePresence } from 'framer-motion'
++import { Moon, Sun, Check } from 'lucide-react'
++import { isHapticsEnabled, setHapticsEnabled, haptic } from '../lib/nativeFeedback'
++import { useAppContext } from '../contexts/AppContext'
++
++interface PreferencesSheetProps {
++  isOpen: boolean
++  onClose: () => void
++}
++
++/**
++ * Mobile "偏好" surface: theme, model, and notification/feedback settings in
++ * one place, following the same bottom-sheet idiom the app already uses for
++ * the command palette and model/message action pickers.
++ */
++export function PreferencesSheet({ isOpen, onClose }: PreferencesSheetProps) {
++  const { theme, toggleTheme, models, selectedModel, setSelectedModel, formatModelName, providers, defaultProvider } = useAppContext()
++  const [notificationsEnabled, setNotificationsEnabled] = useState(() => (
++    typeof Notification !== 'undefined' && Notification.permission === 'granted'
++  ))
++  const [hapticsEnabled, setHapticsOn] = useState(() => isHapticsEnabled())
++
++  useEffect(() => {
++    if (isOpen) document.body.style.overflow = 'hidden'
++    return () => { document.body.style.overflow = '' }
++  }, [isOpen])
++
++  const requestNotifications = async () => {
++    if (typeof Notification === 'undefined') return
++    if (Notification.permission === 'granted') return
++    const permission = await Notification.requestPermission()
++    setNotificationsEnabled(permission === 'granted')
++  }
++
++  const providerLabel = (modelId: string) => {
++    const provider = providers.find(p => p.models?.includes(modelId))
++    const name = provider?.name || defaultProvider || '默认服务商'
++    return modelId === selectedModel ? `${name} · 默认` : name
++  }
++
++  if (!isOpen) return null
++
++  return (
++    <AnimatePresence>
++      <motion.button
++        type="button"
++        className="mobile-sheet-backdrop prefs-sheet-backdrop"
++        aria-label="关闭偏好设置"
++        initial={{ opacity: 0 }}
++        animate={{ opacity: 1 }}
++        exit={{ opacity: 0 }}
++        onClick={onClose}
++      />
++      <motion.div
++        className="mobile-bottom-sheet prefs-sheet"
++        role="dialog"
++        aria-label="偏好设置"
++        drag="y"
++        dragDirectionLock={true}
++        dragConstraints={{ top: 0, bottom: 800 }}
++        dragElastic={0.08}
++        dragMomentum={false}
++        onDragEnd={(_event, info) => {
++          if (info.offset.y > 90 || info.velocity.y > 500) onClose()
++        }}
++        initial={{ y: 800 }}
++        animate={{ y: 0 }}
++        exit={{ y: 800 }}
++        transition={{ type: 'spring', damping: 28, stiffness: 320 }}
++      >
++        <div className="mobile-sheet-grabber" aria-hidden="true" />
++        <div className="mobile-sheet-title prefs-sheet-title">偏好</div>
++
++        <div className="prefs-section">
++          <div className="prefs-section-label">主题</div>
++          <div className="prefs-theme-toggle">
++            <button
++              type="button"
++              className={theme === 'dark' ? 'active' : ''}
++              onClick={() => { if (theme !== 'dark') { toggleTheme(); haptic('selection') } }}
++            ><Moon size={15} />暗夜</button>
++            <button
++              type="button"
++              className={theme === 'light' ? 'active' : ''}
++              onClick={() => { if (theme !== 'light') { toggleTheme(); haptic('selection') } }}
++            ><Sun size={15} />明亮</button>
++          </div>
++        </div>
++
++        {models.length > 0 && (
++          <div className="prefs-section">
++            <div className="prefs-section-label">选择运行模型</div>
++            <div className="prefs-model-list">
++              {models.map(m => (
++                <button
++                  type="button"
++                  key={m}
++                  className={`prefs-model-item ${selectedModel === m ? 'selected' : ''}`}
++                  onClick={() => { setSelectedModel(m); haptic('selection') }}
++                >
++                  <span className="prefs-model-check">{selectedModel === m && <Check size={16} />}</span>
++                  <span className="prefs-model-copy">
++                    <span className="prefs-model-name">{formatModelName(m)}</span>
++                    <span className="prefs-model-provider">{providerLabel(m)}</span>
++                  </span>
++                </button>
++              ))}
++            </div>
++          </div>
++        )}
++
++        <div className="prefs-section">
++          <div className="prefs-section-label">通知与反馈</div>
++          <div className="prefs-toggle-list">
++            <button
++              type="button"
++              className="prefs-toggle-row"
++              onClick={() => void requestNotifications()}
++            >
++              <span className="prefs-toggle-copy">
++                <span className="prefs-toggle-label">任务完成通知</span>
++                <span className="prefs-toggle-hint">任务结束或需要你拍板时推送系统通知</span>
++              </span>
++              <span className={`prefs-switch ${notificationsEnabled ? 'on' : ''}`} />
++            </button>
++            <button
++              type="button"
++              className="prefs-toggle-row"
++              onClick={() => {
++                const next = !hapticsEnabled
++                setHapticsOn(next)
++                setHapticsEnabled(next)
++                if (next) haptic('success')
++              }}
++            >
++              <span className="prefs-toggle-copy">
++                <span className="prefs-toggle-label">触感与音效反馈</span>
++                <span className="prefs-toggle-hint">发送、长按、中断时的震动与提示音</span>
++              </span>
++              <span className={`prefs-switch ${hapticsEnabled ? 'on' : ''}`} />
++            </button>
++          </div>
++        </div>
++      </motion.div>
++    </AnimatePresence>
++  )
++}
+diff --git a/frontend/src/components/TaskCapsule.tsx b/frontend/src/components/TaskCapsule.tsx
+new file mode 100644
+index 0000000..d912fb7
+--- /dev/null
++++ b/frontend/src/components/TaskCapsule.tsx
+@@ -0,0 +1,97 @@
++import { useCallback, useEffect, useMemo, useState } from 'react'
++import { ChevronUp } from 'lucide-react'
++import { apiFetch } from '../lib/api'
++import { haptic } from '../lib/nativeFeedback'
++import type { Conversation, ConversationStats, TaskRecord } from '../lib/types'
++
++const EMPTY_STATS: ConversationStats = {
++  message_count: 0,
++  duration: 0,
++  input_chars: 0,
++  output_chars: 0,
++  context_chars: 0,
++  summary_count: 0,
++  context_limit: 120_000,
++}
++
++/**
++ * Compact mobile-only capsule shown between the header and the message list:
++ * "N 个执行中 · N 个排队 · 上下文 N%". Tapping it opens the same full-screen
++ * WorkspaceInspector the header's task badge opens. Desktop keeps the
++ * always-visible inspector side panel, so this renders nothing there.
++ */
++export function TaskCapsule({ activeConv }: { activeConv: Conversation | null }) {
++  const [tasks, setTasks] = useState<TaskRecord[]>([])
++  const [stats, setStats] = useState<ConversationStats>(EMPTY_STATS)
++  const conversationId = activeConv?.id ?? null
++
++  const load = useCallback(async () => {
++    if (!conversationId) {
++      setTasks([])
++      return
++    }
++    try {
++      const [taskResponse, nextStats] = await Promise.all([
++        apiFetch<{ items: TaskRecord[] }>(`/api/conversations/${conversationId}/tasks`),
++        apiFetch<ConversationStats>(`/api/conversations/${conversationId}/stats`),
++      ])
++      setTasks(taskResponse.items)
++      setStats(nextStats)
++    } catch {
++      // Silent: this is a glanceable summary, the inspector panel is the source of truth.
++    }
++  }, [conversationId])
++
++  useEffect(() => {
++    setTasks([])
++    setStats(EMPTY_STATS)
++    void load()
++  }, [conversationId, load])
++
++  useEffect(() => {
++    const refresh = () => void load()
++    window.addEventListener('orbitpane-task-change', refresh)
++    const timer = window.setInterval(refresh, 5_000)
++    return () => {
++      window.removeEventListener('orbitpane-task-change', refresh)
++      window.clearInterval(timer)
++    }
++  }, [load])
++
++  const runningCount = useMemo(
++    () => tasks.filter(t => t.status === 'running' || t.status === 'starting').length,
++    [tasks],
++  )
++  const queuedCount = useMemo(() => tasks.filter(t => t.status === 'queued').length, [tasks])
++  const contextPercent = Math.min(
++    100,
++    Math.round((stats.context_chars / Math.max(1, stats.context_limit || 120_000)) * 100),
++  )
++
++  if (!activeConv || (runningCount === 0 && queuedCount === 0)) return null
++
++  const parts = [
++    runningCount > 0 ? `${runningCount} 个执行中` : null,
++    queuedCount > 0 ? `${queuedCount} 个排队` : null,
++    `上下文 ${contextPercent}%`,
++  ].filter(Boolean)
++
++  return (
++    <button
++      type="button"
++      className="mobile-only-action task-capsule"
++      onClick={() => {
++        haptic('selection')
++        const url = new URL(window.location.href)
++        url.searchParams.set('panel', 'tasks')
++        window.history.pushState({ ...window.history.state, orbitpanePanel: 'tasks' }, '', url.toString())
++        window.dispatchEvent(new CustomEvent('orbitpane-open-inspector', { detail: 'tasks' }))
++      }}
++      aria-label="打开任务与上下文"
++    >
++      <span className="task-capsule-dot" aria-hidden="true" />
++      <span className="task-capsule-label">{parts.join(' · ')}</span>
++      <span className="task-capsule-open" aria-hidden="true"><ChevronUp size={15} /></span>
++    </button>
++  )
++}
+diff --git a/frontend/src/index.css b/frontend/src/index.css
+index fd84556..3446dcb 100644
+--- a/frontend/src/index.css
++++ b/frontend/src/index.css
+@@ -163,6 +163,147 @@
+   --scrollbar-thumb-hover: rgba(15, 23, 42, 0.25);
+ }
+ 
++/* ---------------------------------------------------------------------- */
++/* Organic mobile visual refresh                                          */
++/* Scope: narrow viewports only (phones). Desktop keeps the zinc/blue      */
++/* look untouched; everything below re-points the same token names to     */
++/* the warm terracotta-on-ink palette from the mobile design pass, so     */
++/* every component that already reads var(--...) picks it up for free.   */
++/* ---------------------------------------------------------------------- */
++@media (max-width: 768px) {
++  :root {
++    /* Typography */
++    --font-sans: "Figtree", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
++    --font-heading: "Caprasimo", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", -apple-system, BlinkMacSystemFont, sans-serif;
++    --font-mono: "IBM Plex Mono", Consolas, "Liberation Mono", "Noto Sans Mono CJK SC", ui-monospace, monospace;
++
++    /* Radii - over-round, 16 / 24 / 28 / pill */
++    --radius-sm: 12px;
++    --radius-md: 16px;
++    --radius-lg: 24px;
++    --radius-xl: 28px;
++    --radius-full: 999px;
++
++    /* Dark (default) - warm ink ground + terracotta accent */
++    --bg-primary: #191612;
++    --bg-secondary: #1d1914;
++    --bg-surface: #221d18;
++    --bg-surface-hover: #2b241d;
++    --bg-card: #221d18;
++    --bg-card-hover: #2b241d;
++
++    --bg-glass: rgba(34, 29, 24, 0.9);
++    --bg-input: #221d18;
++    --bg-header: rgba(25, 22, 18, 0.92);
++    --bg-scrim: rgba(15, 12, 10, 0.62);
++    --bg-thinking: #1d1914;
++    --bg-code: #1d1914;
++    --bg-code-header: #221d18;
++
++    --border-color: rgba(244, 236, 224, 0.14);
++    --border-subtle: rgba(244, 236, 224, 0.08);
++    --border-focus: rgba(214, 127, 72, 0.5);
++    --border-glow: transparent;
++
++    --text-primary: #f4ece0;
++    --text-secondary: #a19786;
++    --text-tertiary: #82796a;
++    --text-inverse: #2e1c0e;
++
++    --brand-primary: #d67f48;
++    --accent-color: #d67f48;
++    --accent-text: #f6a06b;
++    --accent-subtle-bg: rgba(214, 127, 72, 0.12);
++    --accent-border: rgba(214, 127, 72, 0.4);
++
++    --brand-gradient: linear-gradient(135deg, #d67f48 0%, #c67139 100%);
++    --text-gradient: linear-gradient(135deg, #f4ece0 0%, #e4d9c9 100%);
++
++    --danger-color: #e08a7a;
++    --danger-bg: rgba(217, 112, 95, 0.1);
++    --success-color: #8fa073;
++    --success-bg: rgba(143, 160, 115, 0.14);
++    --success-border: rgba(143, 160, 115, 0.35);
++    --warning-color: #e8b45c;
++    --warning-bg: rgba(232, 180, 92, 0.12);
++    --warning-border: rgba(232, 180, 92, 0.3);
++    --info-color: #8fa073;
++    --info-bg: rgba(143, 160, 115, 0.12);
++    --info-border: rgba(143, 160, 115, 0.3);
++
++    --shadow-sm: 0 1px 2px rgba(46, 43, 37, 0.3);
++    --shadow-md: 0 4px 12px rgba(46, 43, 37, 0.35);
++    --shadow-float: 0 8px 24px rgba(46, 43, 37, 0.4);
++    --shadow-lg: 0 24px 60px -18px rgba(46, 43, 37, 0.45);
++    --shadow-glow: none;
++
++    --scrollbar-thumb: rgba(244, 236, 224, 0.14);
++    --scrollbar-thumb-hover: rgba(244, 236, 224, 0.26);
++  }
++
++  /* Light - cream paper ground, same terracotta family a shade deeper for contrast */
++  [data-theme="light"] {
++    --bg-primary: #f5ead8;
++    --bg-secondary: #efe4d0;
++    --bg-surface: #ffffff;
++    --bg-surface-hover: #ebddc5;
++    --bg-card: #ffffff;
++    --bg-card-hover: #ebddc5;
++
++    --bg-glass: rgba(255, 255, 255, 0.92);
++    --bg-input: #ffffff;
++    --bg-header: rgba(245, 234, 216, 0.95);
++    --bg-scrim: rgba(32, 30, 29, 0.4);
++    --bg-thinking: #ebddc5;
++    --bg-code: #efe4d0;
++    --bg-code-header: #ebddc5;
++
++    --border-color: rgba(32, 30, 29, 0.14);
++    --border-subtle: rgba(32, 30, 29, 0.08);
++    --border-focus: rgba(198, 113, 57, 0.4);
++    --border-glow: transparent;
++
++    --text-primary: #201e1d;
++    --text-secondary: #645c50;
++    --text-tertiary: #82796a;
++    --text-inverse: #ffffff;
++
++    --accent-color: #c67139;
++    --accent-text: #8c491a;
++    --accent-subtle-bg: rgba(198, 113, 57, 0.08);
++    --accent-border: rgba(198, 113, 57, 0.3);
++
++    --brand-gradient: linear-gradient(135deg, #c67139 0%, #d67f48 100%);
++    --text-gradient: linear-gradient(135deg, #201e1d 0%, #474238 100%);
++
++    --danger-color: #b5533f;
++    --danger-bg: rgba(181, 83, 63, 0.08);
++    --success-color: #56633f;
++    --success-bg: rgba(122, 138, 94, 0.1);
++    --success-border: rgba(122, 138, 94, 0.25);
++    --warning-color: #a3690f;
++    --warning-bg: rgba(232, 180, 92, 0.14);
++    --warning-border: rgba(232, 180, 92, 0.3);
++    --info-color: #56633f;
++    --info-bg: rgba(122, 138, 94, 0.08);
++    --info-border: rgba(122, 138, 94, 0.2);
++
++    --shadow-sm: 0 1px 2px rgba(32, 30, 29, 0.08);
++    --shadow-md: 0 4px 12px rgba(32, 30, 29, 0.08);
++    --shadow-float: 0 8px 24px rgba(32, 30, 29, 0.1);
++    --shadow-lg: 0 12px 32px rgba(32, 30, 29, 0.12);
++    --shadow-glow: none;
++
++    --scrollbar-thumb: rgba(32, 30, 29, 0.14);
++    --scrollbar-thumb-hover: rgba(32, 30, 29, 0.28);
++  }
++
++  body { font-size: 15px; }
++
++  /* Lucide icons unify on a rounder, heavier 2.75 stroke on mobile */
++  svg.lucide { stroke-width: 2.75; }
++}
++
+ * {
+   box-sizing: border-box;
+   -webkit-tap-highlight-color: transparent;
+diff --git a/frontend/src/lib/nativeFeedback.ts b/frontend/src/lib/nativeFeedback.ts
+index 118fedc..868128c 100644
+--- a/frontend/src/lib/nativeFeedback.ts
++++ b/frontend/src/lib/nativeFeedback.ts
+@@ -7,9 +7,22 @@ const PATTERNS: Record<HapticKind, number | number[]> = {
+   warning: [30, 45, 30],
+ }
+ 
++const HAPTICS_STORAGE_KEY = 'orbitpane_haptics_enabled'
++
++export function isHapticsEnabled(): boolean {
++  if (typeof localStorage === 'undefined') return true
++  return localStorage.getItem(HAPTICS_STORAGE_KEY) !== 'off'
++}
++
++export function setHapticsEnabled(enabled: boolean) {
++  if (typeof localStorage === 'undefined') return
++  localStorage.setItem(HAPTICS_STORAGE_KEY, enabled ? 'on' : 'off')
++}
++
+ export function haptic(kind: HapticKind = 'selection') {
+   if (typeof navigator === 'undefined' || !navigator.vibrate) return
+   if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
++  if (!isHapticsEnabled()) return
+   navigator.vibrate(PATTERNS[kind])
+ }
+ 
+-- 
+2.43.0
+

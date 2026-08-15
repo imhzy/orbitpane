@@ -19,6 +19,7 @@
   z-index: 40;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  touch-action: pan-y pan-x;
 }
 
 .drawer {
@@ -37,7 +38,7 @@
   padding-top: var(--sat);
   padding-bottom: var(--sab);
   transition: background-color var(--transition-normal), border-color var(--transition-normal);
-  touch-action: pan-y;
+  touch-action: pan-y pan-x;
   will-change: transform;
 }
 

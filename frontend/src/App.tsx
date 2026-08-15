@@ -1248,11 +1248,64 @@ export default function App() {
     window.history.replaceState({}, '', url.toString())
   }
 
+<<<<<<< Updated upstream
   /* A project awaiting its undo window still exists server-side, so hide it
      locally instead of letting the next list refresh bring it back. */
   const visibleConversations = pendingDeletionIds.length === 0
     ? conversations
     : conversations.filter(conversation => !pendingDeletionIds.includes(conversation.id))
+=======
+  const handleCloseDrawerWithConfirm = useCallback(() => {
+    if (drawerMode === 'create' && (newConvName.trim() || currentPath !== defaultWorkspaceRoot)) {
+      setConfirmState({
+        isOpen: true,
+        title: '放弃修改',
+        description: '有未保存的信息，确定要关闭吗？',
+        onConfirm: () => {
+          setConfirmState(prev => ({ ...prev, isOpen: false }))
+          setIsDrawerOpen(false)
+        }
+      })
+    } else {
+      setIsDrawerOpen(false)
+    }
+  }, [drawerMode, newConvName, currentPath, defaultWorkspaceRoot])
+
+  const scrimTouchRef = useRef<{ startX: number; startY: number; isDragging: boolean } | null>(null)
+
+  const handleScrimPointerDown = useCallback((e: React.PointerEvent) => {
+    if (e.pointerType !== 'touch') return
+    scrimTouchRef.current = { startX: e.clientX, startY: e.clientY, isDragging: false }
+  }, [])
+
+  const handleScrimPointerMove = useCallback((e: React.PointerEvent) => {
+    const start = scrimTouchRef.current
+    if (!start) return
+    const deltaX = e.clientX - start.startX
+    const deltaY = Math.abs(e.clientY - start.startY)
+
+    if (deltaX < -25 && deltaY < Math.abs(deltaX)) {
+      start.isDragging = true
+    }
+  }, [])
+
+  const handleScrimPointerUp = useCallback((e: React.PointerEvent) => {
+    const start = scrimTouchRef.current
+    scrimTouchRef.current = null
+    if (!start) return
+
+    const deltaX = e.clientX - start.startX
+    const deltaY = Math.abs(e.clientY - start.startY)
+
+    if (start.isDragging || (deltaX < -35 && deltaY < Math.abs(deltaX))) {
+      handleCloseDrawerWithConfirm()
+    }
+  }, [handleCloseDrawerWithConfirm])
+
+  const handleScrimPointerCancel = useCallback(() => {
+    scrimTouchRef.current = null
+  }, [])
+>>>>>>> Stashed changes
 
   if (isLoggedIn === null) {
     return <div className="app-container" aria-label="正在验证登录状态" />
@@ -1294,8 +1347,20 @@ export default function App() {
         {isDrawerOpen && (
           <motion.div 
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+<<<<<<< Updated upstream
             className="drawer-scrim"
             onClick={requestCloseDrawer}
+=======
+            className="drawer-scrim" 
+            onClick={() => {
+              if (scrimTouchRef.current?.isDragging) return
+              handleCloseDrawerWithConfirm()
+            }}
+            onPointerDown={handleScrimPointerDown}
+            onPointerMove={handleScrimPointerMove}
+            onPointerUp={handleScrimPointerUp}
+            onPointerCancel={handleScrimPointerCancel}
+>>>>>>> Stashed changes
           />
         )}
       </AnimatePresence>
