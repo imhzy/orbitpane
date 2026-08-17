@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { apiFetch } from '../lib/api'
 import { AUTH_EXPIRED_EVENT } from '../lib/auth'
 import { bindRunLocalId, ensureLocalId, ensureLocalIds } from '../lib/messageIdentity'
+import { asOptionalText, asText, normalizeMessages } from '../lib/normalize'
 import { cacheHistory, readCachedHistory, remove } from '../lib/storage'
 import { broadcast, emitTaskChange } from '../lib/appEvents'
 import type { Conversation, Message, TaskRecord } from '../lib/types'
@@ -167,8 +168,8 @@ export function applyRealtimeEvent(messages: Message[], event: RealtimeEvent): M
     next[ensured.agentIndex] = {
       ...current,
       ...common,
-      content: event.content ?? '',
-      thought: event.thought ?? '',
+      content: asText(event.content),
+      thought: asText(event.thought),
       isThinking: true,
       isQueued: false,
       streamSequence: incomingSequence,
@@ -185,14 +186,14 @@ export function applyRealtimeEvent(messages: Message[], event: RealtimeEvent): M
       next[ensured.agentIndex] = { ...current, ...common }
       return next
     }
-    const content = event.content ?? ''
+    const content = asText(event.content)
     next[ensured.agentIndex] = {
       ...current,
       ...common,
-      content: event.full_content ?? (
+      content: asOptionalText(event.full_content) ?? (
         event.type === 'thought' ? current.content : current.content + content
       ),
-      thought: event.full_thought ?? (
+      thought: asOptionalText(event.full_thought) ?? (
         event.type === 'thought' ? (current.thought ?? '') + content : current.thought
       ),
       isThinking: true,
@@ -206,8 +207,12 @@ export function applyRealtimeEvent(messages: Message[], event: RealtimeEvent): M
     next[ensured.agentIndex] = {
       ...current,
       ...common,
-      content: hasCurrentNewerContent ? current.content : (event.content ?? current.content),
-      thought: hasCurrentNewerContent ? current.thought : (event.thought ?? current.thought),
+      content: hasCurrentNewerContent
+        ? current.content
+        : (asOptionalText(event.content) ?? current.content),
+      thought: hasCurrentNewerContent
+        ? current.thought
+        : (asOptionalText(event.thought) ?? current.thought),
       isThinking: false,
       isQueued: false,
       streamFinished: true,
@@ -347,7 +352,9 @@ export function useWebSocket(
           || activeConvRef.current?.id !== convId
         ) return null
         if (!silent) setIsHistoryLoading(false)
-        const history = Array.isArray(data) ? data : []
+        // Normalized before it is cached, so a bad row cannot be replayed from
+        // localStorage on every later load either.
+        const history = normalizeMessages(data)
         cacheHistory(convId, history)
         let finalMerged: Message[] = []
         setMessages(current => {
@@ -368,7 +375,7 @@ export function useWebSocket(
           && activeConvRef.current?.id === convId
         ) {
           if (!silent) setIsHistoryLoading(false)
-          const cached = readCachedHistory<Message[]>(convId, [])
+          const cached = normalizeMessages(readCachedHistory<unknown>(convId, []))
           setMessages(current => {
             const merged = mergeHistoryWithTransientMessages(cached, current)
             isAgentThinkingRef.current = merged.some(message => (
@@ -610,7 +617,7 @@ export function useWebSocket(
               : [...previous]
             next.push({
               role: 'system',
-              content: `处理异常: ${data.content ?? '未知错误'}`,
+              content: `处理异常: ${asText(data.content) || '未知错误'}`,
               isError: true,
             })
             if (requestRejected) {

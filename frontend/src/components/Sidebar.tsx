@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import {
   X, MessageSquare, Plus, Trash2, Folder,
   ChevronRight, Compass, FolderPlus,
@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { LogoIcon } from '../LogoIcon'
 import type { Conversation, Provider } from '../lib/types'
+import { hasProviderChoice } from '../lib/providers'
 import { apiFetch } from '../lib/api'
 import { AUTH_EXPIRED_EVENT } from '../lib/auth'
 import { haptic } from '../lib/nativeFeedback'
@@ -22,6 +23,10 @@ interface SidebarProps {
 }
 
 const springConfig = { type: 'spring' as const, damping: 25, stiffness: 250, mass: 1 }
+/* Damped hard enough not to overshoot: this slide carries a list the user is
+   reading, and a bounce at the end reads as a glitch rather than as polish. */
+const PANE_SLIDE = { type: 'spring' as const, stiffness: 380, damping: 40, mass: 0.9 }
+const PANE_SLIDE_REDUCED = { duration: 0 }
 
 function ProviderDropdown({ providers, selectedProvider, defaultProvider, setSelectedProvider }: {
   providers: Provider[],
@@ -126,6 +131,11 @@ export function Sidebar(_props: SidebarProps) {
   const canCreateProject = canLeaveFirstStep
     && isSelectedProviderAvailable
     && (selectedPermissionMode !== 'unrestricted' || unrestrictedAcknowledged)
+  const showProviderTags = hasProviderChoice(providers)
+  /* The global reduced-motion rule only reaches CSS transitions; a spring
+     driven in JS keeps running unless it is asked not to. */
+  const prefersReducedMotion = useReducedMotion()
+  const paneSlide = prefersReducedMotion ? PANE_SLIDE_REDUCED : PANE_SLIDE
   const [contextConv, setContextConv] = useState<Conversation | null>(null)
   /* Only an overlay drawer is modal; the docked desktop column must keep Tab
      flowing into the conversation next to it. */
@@ -148,6 +158,37 @@ export function Sidebar(_props: SidebarProps) {
   useEscapeLayer(contextConv !== null, () => setContextConv(null))
   const longPressRef = React.useRef<{ timer: number; x: number; y: number } | null>(null)
   const suppressClickRef = React.useRef(false)
+
+  /* Swipe-to-close over form fields.
+   *
+   * Framer Motion's drag deliberately never engages when the gesture starts on
+   * an input or textarea — it hands the pointer to the field so typing and
+   * caret placement keep working. Traced on a phone viewport, a swipe starting
+   * in the search box delivered every pointermove to the drawer and still left
+   * its transform untouched, which is why that strip was a dead zone in 0 of 5
+   * attempts while the rest of the drawer closed fine.
+   *
+   * These listeners sit on the drawer and only arm when the gesture began on a
+   * field, so everywhere else the real drag still owns the interaction. The
+   * thresholds mirror onDragEnd below so the two feel identical. */
+  const fieldSwipeRef = React.useRef<{ x: number; y: number; t: number } | null>(null)
+  const onFieldPointerDown = (event: React.PointerEvent) => {
+    fieldSwipeRef.current = null
+    if (event.pointerType !== 'touch') return
+    const target = event.target as Element | null
+    if (!target?.closest('input, textarea')) return
+    fieldSwipeRef.current = { x: event.clientX, y: event.clientY, t: event.timeStamp }
+  }
+  const onFieldPointerUp = (event: React.PointerEvent) => {
+    const start = fieldSwipeRef.current
+    fieldSwipeRef.current = null
+    if (!start) return
+    const dx = event.clientX - start.x
+    const dy = event.clientY - start.y
+    if (Math.abs(dx) <= Math.abs(dy)) return          // a vertical scroll, not a dismiss
+    const velocity = (dx / Math.max(event.timeStamp - start.t, 1)) * 1000
+    if (dx < -60 || velocity < -200) setIsDrawerOpen(false)
+  }
 
   const cancelLongPress = () => {
     if (longPressRef.current) window.clearTimeout(longPressRef.current.timer)
@@ -226,6 +267,9 @@ export function Sidebar(_props: SidebarProps) {
           role={isOverlayDrawer ? 'dialog' : undefined}
           aria-modal={isOverlayDrawer ? true : undefined}
           aria-label="项目菜单"
+          onPointerDown={onFieldPointerDown}
+          onPointerUp={onFieldPointerUp}
+          onPointerCancel={() => { fieldSwipeRef.current = null }}
           drag="x"
           dragDirectionLock={true}
           dragConstraints={{ left: -Math.max(500, typeof window !== 'undefined' ? window.innerWidth : 500), right: 0 }}
@@ -241,8 +285,7 @@ export function Sidebar(_props: SidebarProps) {
             <div className="drawer-brand">
               <LogoIcon size={24} />
               <div className="brand-title-group">
-                <span className="brand-main-name">ORBIT</span>
-                <span className="brand-badge-sm">PANE</span>
+                <span className="brand-wordmark">OrbitPane</span>
               </div>
             </div>
             <div className="header-actions">
@@ -269,26 +312,49 @@ export function Sidebar(_props: SidebarProps) {
           </div>
 
           {/* Navigation Tabs */}
-          <div className="drawer-tabs">
-            <button 
-              className={`drawer-tab-btn ${drawerMode === 'sessions' ? 'active' : ''}`}
-              onClick={() => setDrawerMode('sessions')}
-            >
-              <MessageSquare size={14} />
-              <span>项目列表</span>
-            </button>
-            <button 
-              className={`drawer-tab-btn ${drawerMode === 'create' ? 'active' : ''}`}
-              onClick={() => setDrawerMode('create')}
-            >
-              <Plus size={14} />
-              <span>新建项目</span>
-            </button>
+          {/* The selected pill is one element that travels between the tabs
+              (shared layoutId) instead of one background switching off while
+              another switches on — so the indicator and the panes below it
+              move together. */}
+          <div className="drawer-tabs" role="tablist">
+            {([
+              { mode: 'sessions' as const, Icon: MessageSquare, label: '项目列表' },
+              { mode: 'create' as const, Icon: Plus, label: '新建项目' },
+            ]).map(({ mode, Icon, label }) => (
+              <button
+                key={mode}
+                role="tab"
+                aria-selected={drawerMode === mode}
+                className={`drawer-tab-btn ${drawerMode === mode ? 'active' : ''}`}
+                onClick={() => setDrawerMode(mode)}
+              >
+                {drawerMode === mode && (
+                  <motion.span
+                    layoutId="drawer-tab-pill"
+                    className="drawer-tab-pill"
+                    transition={paneSlide}
+                  />
+                )}
+                <Icon size={14} />
+                <span>{label}</span>
+              </button>
+            ))}
           </div>
 
-          {/* Sessions Mode */}
-          {drawerMode === 'sessions' && (
-            <div className="drawer-content">
+          {/* The two modes ride on one track and slide, rather than swapping
+              instantly. Both panes stay mounted so the browser keeps each one's
+              scroll position — an unmount/remount resets it, which is what made
+              the old switch feel like a page load. The inactive pane is `inert`
+              so it takes no focus and is invisible to assistive tech. */}
+          <div className="drawer-panes">
+            <motion.div
+              className="drawer-pane-track"
+              animate={{ x: drawerMode === 'create' ? '-50%' : '0%' }}
+              transition={paneSlide}
+              initial={false}
+            >
+              <div className="drawer-pane" inert={drawerMode !== 'sessions'}>
+                <div className="drawer-content">
               {/* Search input for conversations */}
               {conversations.length > 0 && (
                 <div className="sidebar-search-box">
@@ -383,7 +449,11 @@ export function Sidebar(_props: SidebarProps) {
                           haptic('light')
                         }}
                       >
-                        <div className={`item-icon ${badge.type}`}>
+                        {/* Tinting by agent is only a distinction when the rows
+                            can differ. Otherwise the tile is neutral and the
+                            accent is left to mean "selected", which is the one
+                            thing the eye should find in this list. */}
+                        <div className={`item-icon ${showProviderTags ? badge.type : ''}`}>
                           <ProviderIcon size={16} />
                         </div>
                         <div className="item-content">
@@ -413,12 +483,24 @@ export function Sidebar(_props: SidebarProps) {
                                 <span className="item-title" title={conv.name}>{conv.name}</span>
                                 {isPinned && <Star size={11} className="pin-star-icon" fill="currentColor" />}
                               </div>
-                              <div className="item-badge-row">
-                                <span className={`conv-provider-tag ${badge.className}`}>
-                                  {badge.text}
-                                </span>
-                              </div>
-                              <span className="item-subtitle" title={conv.path}>{conv.path}</span>
+                              {/* One metadata line, not three stacked blocks.
+                                  The agent used to be a bordered accent pill on
+                                  its own row — a label reading identically on
+                                  every row, drawn as emphatically as the only
+                                  thing on the row that differs. It is a colour
+                                  dot now, and the path gets the width it needs
+                                  to stay identifiable. */}
+                              <span className="item-meta-row">
+                                {showProviderTags && (
+                                  <span
+                                    className={`provider-orbit-mark ${badge.className}`}
+                                    title={badge.text}
+                                    aria-label={badge.text}
+                                    role="img"
+                                  />
+                                )}
+                                <span className="item-meta-path" title={conv.path}>{conv.path}</span>
+                              </span>
                             </>
                           )}
                         </div>
@@ -477,7 +559,7 @@ export function Sidebar(_props: SidebarProps) {
                       {pinnedConvs.length > 0 && (
                         <div className="sidebar-section-group">
                           <div className="sidebar-section-title">
-                            <Star size={12} className="text-warning fill-warning" />
+                            <Star size={12} className="icon-warning" />
                             <span>星标置顶 ({pinnedConvs.length})</span>
                           </div>
                           {pinnedConvs.map(renderConvItem)}
@@ -498,12 +580,12 @@ export function Sidebar(_props: SidebarProps) {
                   )
                 })()
               )}
-            </div>
-          )}
+                </div>
+              </div>
 
-          {/* Create Project Mode */}
-          {drawerMode === 'create' && (
-            <div className="drawer-content cw-content">
+              {/* Create Project Mode */}
+              <div className="drawer-pane" inert={drawerMode !== 'create'}>
+                <div className="drawer-content cw-content">
               <div className="cw-header">
                 <h3 className="cw-title">配置新项目</h3>
               </div>
@@ -785,9 +867,11 @@ export function Sidebar(_props: SidebarProps) {
                     <span>创建项目</span>
                   </button>
                 )}
+                  </div>
+                </div>
               </div>
-            </div>
-          )}
+            </motion.div>
+          </div>
 
           {/* Sidebar Global Footer */}
           <div className="sidebar-footer">

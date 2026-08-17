@@ -74,7 +74,7 @@ export function CodeBlock({ children, className, ...props }: CodeBlockProps) {
           <button className={showLineNumbers ? 'active' : ''} onClick={() => setShowLineNumbers(value => !value)} title="切换行号"><ListOrdered size={13} /></button>
           <button onClick={handleDownload} title="下载代码片段"><Download size={13} /></button>
           <button onClick={handleCopy} title="复制代码内容">
-            {copied ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
+            {copied ? <Check size={13} className="icon-success" /> : <Copy size={13} />}
             <span>{copied ? '已复制' : '复制'}</span>
           </button>
         </div>
@@ -96,7 +96,13 @@ export function CodeBlock({ children, className, ...props }: CodeBlockProps) {
       </Suspense>
     </div>
   ) : (
-    <code className="px-1.5 py-0.5 rounded-md bg-[var(--bg-surface-hover)] text-[var(--accent-color)] font-mono text-[0.88em] border border-[var(--border-subtle)]" {...props}>
+    /* Inline code marks a token as literal; it is not a chip. Padded, filled
+       and bordered, a paragraph with six file names in it renders as a row of
+       grey blocks with prose in the gaps — the emphasis lands on the
+       punctuation between words rather than on the words. The tint carries it
+       on its own, with just enough side padding to keep the glyphs off the
+       surrounding text and no vertical padding to disturb the line rhythm. */
+    <code className="orbit-inline-code" {...props}>
       {children}
     </code>
   )

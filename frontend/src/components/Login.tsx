@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { LogoIcon } from '../LogoIcon'
 import { apiFetch } from '../lib/api'
-import { Lock, AlertCircle, ArrowRight } from 'lucide-react'
+import { Lock, AlertCircle } from 'lucide-react'
 import './Login.css'
 
 export function Login({ onLogin }: { onLogin: () => void }) {
@@ -36,32 +36,15 @@ export function Login({ onLogin }: { onLogin: () => void }) {
 
   return (
     <div className="login-screen">
-      <div className="login-bg-mesh">
-        <div className="login-orb login-orb-1" />
-        <div className="login-orb login-orb-2" />
-      </div>
-
-      <motion.div 
-        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-        className="login-card-enhanced"
-      >
+      <div className="login-card">
         <div className="login-header">
-          <motion.div 
-            className="login-logo-wrapper"
-            whileHover={{ scale: 1.05, rotate: 5 }}
-            transition={{ type: "spring", stiffness: 400, damping: 10 }}
-          >
-            <LogoIcon size={32} />
-          </motion.div>
-          
-          <div className="login-header-text">
-            <h1 className="login-brand-title">
-              <span>OrbitPane</span>
-            </h1>
-            <div className="login-brand-tagline">自托管智能体工作台</div>
+          <div className="login-brand-row">
+            <LogoIcon size={44} />
+            <h1 className="login-brand-title">OrbitPane</h1>
           </div>
+          {/* One line of orientation. The card previously showed a name and a
+              field with nothing to say what this machine is. */}
+          <p className="login-brand-sub">自托管的编码 Agent 工作台</p>
         </div>
 
         <form onSubmit={handleSubmit} className="login-form-area">
@@ -96,28 +79,20 @@ export function Login({ onLogin }: { onLogin: () => void }) {
             </AnimatePresence>
           </div>
 
-          <motion.button 
-            type="submit" 
-            disabled={loading || !pin.trim()} 
+          <button
+            type="submit"
+            disabled={loading || !pin.trim()}
             className="login-submit-btn"
             aria-label={loading ? '正在验证' : '提交 PIN'}
-            whileTap={(!loading && pin.trim()) ? { scale: 0.98 } : undefined}
           >
-            {loading ? (
-              <div className="login-spinner" />
-            ) : (
-              <>
-                进入 OrbitPane
-                <ArrowRight size={18} />
-              </>
-            )}
-          </motion.button>
+            {loading ? <div className="login-spinner" /> : '登录'}
+          </button>
         </form>
 
-        <div className="login-footer">
-          OrbitPane Workspace v2.1
-        </div>
-      </motion.div>
+      </div>
+      {/* Fine print belongs to the screen, not inside the card: a build number
+          centred under the primary action read as part of the form. */}
+      <div className="login-footer">OrbitPane v2.1</div>
     </div>
   )
 }

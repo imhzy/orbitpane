@@ -1,16 +1,28 @@
+/* The run's trace, collapsed above the answer.
+   A finished, collapsed trace is a footnote — "it thought for 37 seconds and
+   ran 10 steps" — and it used to be drawn as a full-width bordered panel
+   sitting directly above the answer it annotates, so the loudest object in
+   every reply was the part the reader had already decided to skip. It gets
+   its panel back the moment it is open or still running, because then it is
+   the thing being read. */
 .agent-execution-block {
-  margin-top: var(--space-2);
+  margin-top: var(--space-1);
   margin-bottom: var(--space-3);
   border-radius: var(--radius-md);
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-surface);
+  border: 1px solid transparent;
+  background: transparent;
   overflow: hidden;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition: border-color var(--transition-fast), background-color var(--transition-fast);
+}
+
+.agent-execution-block[data-active="true"],
+.agent-execution-block:has(.agent-execution-header.open) {
+  border-color: var(--border-subtle);
+  background: var(--bg-surface);
 }
 
 .agent-execution-block[data-active="true"] {
   border-color: var(--accent-border);
-  box-shadow: none;
 }
 
 .agent-execution-header {
@@ -18,14 +30,17 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-2) var(--space-3);
+  gap: var(--space-3);
+  min-height: 34px;
+  padding: var(--space-1) var(--space-2);
   background: transparent;
   border: none;
+  border-radius: var(--radius-md);
   cursor: pointer;
   user-select: none;
   font-family: var(--font-sans);
   text-align: left;
-  transition: background 0.15s ease;
+  transition: background-color var(--transition-fast);
 }
 
 .agent-execution-header:hover {
@@ -33,6 +48,7 @@
 }
 
 .agent-execution-header.open {
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
   border-bottom: 1px solid var(--border-subtle);
 }
 
@@ -75,29 +91,42 @@
 }
 
 .execution-title {
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
   font-weight: 500;
-  color: var(--text-primary);
+  color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+.agent-execution-block[data-active="true"] .execution-title,
+.agent-execution-header.open .execution-title {
+  color: var(--text-primary);
+}
+
+/* Fixed track. Without it the chip was the item that gave way on a phone: the
+   label broke across two lines and pushed the row to double height while the
+   title beside it still had ellipsis room to spare. */
 .execution-duration {
-  font-size: var(--text-xs);
+  font-size: var(--text-2xs);
   font-family: var(--font-mono);
-  padding: var(--space-0-5) var(--space-2);
-  border-radius: var(--radius-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex: none;
 }
 
 .execution-duration.active {
   color: var(--accent-text);
+  padding: var(--space-0-5) var(--space-2);
+  border-radius: var(--radius-full);
   background: var(--accent-subtle-bg);
 }
 
+/* A finished duration is a number, not a chip. Two tinted capsules on the
+   same 34px row — one for the time and one for the step count — turned a
+   one-line footnote into a strip of badges. */
 .execution-duration.done {
   color: var(--text-tertiary);
-  background: rgba(255, 255, 255, 0.04);
 }
 
 .header-right {
@@ -110,10 +139,7 @@
 .step-count-badge {
   font-size: var(--text-2xs);
   color: var(--text-tertiary);
-  background: rgba(255, 255, 255, 0.05);
-  padding: var(--space-0-5) var(--space-2);
-  border-radius: var(--radius-full);
-  border: 1px solid var(--border-subtle);
+  white-space: nowrap;
 }
 
 .chevron-icon {
@@ -193,10 +219,13 @@
   height: 6px;
   border-radius: 50%;
   background: currentColor;
-  animation: pulse 2s infinite ease-in-out;
+  animation: stepDotPulse 2s infinite ease-in-out;
 }
 
-@keyframes pulse {
+/* Scoped name on purpose: a plain `pulse` here collided with the opacity-only
+   `pulse` in App.css, and whichever stylesheet loaded last silently replaced
+   the other one's animation. */
+@keyframes stepDotPulse {
   0% { transform: scale(0.8); opacity: 0.5; }
   50% { transform: scale(1.2); opacity: 1; }
   100% { transform: scale(0.8); opacity: 0.5; }

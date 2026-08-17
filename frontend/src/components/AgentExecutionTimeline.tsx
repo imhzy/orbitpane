@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, ChevronRight, Play, Terminal, FileEdit, Search, ListTodo, Brain, Check, Activity } from 'lucide-react'
 import MarkdownContent from './MarkdownContent'
+import { asText } from '../lib/normalize'
 import './AgentExecutionTimeline.css'
 
 interface AgentExecutionTimelineProps {
@@ -53,10 +54,12 @@ export function AgentExecutionTimeline({
   }
 
   const steps = useMemo(() => {
-    if (!thought) return []
+    // Streamed straight off the socket, so it is only a string by convention.
+    const transcript = asText(thought)
+    if (!transcript) return []
     const parsedSteps: ParsedStep[] = []
-    
-    const blocks = thought.split(/(?=\n\n● \*\*|\n● \*\*|\n▸ \*Thought\*)/).filter(Boolean)
+
+    const blocks = transcript.split(/(?=\n\n● \*\*|\n● \*\*|\n▸ \*Thought\*)/).filter(Boolean)
     
     blocks.forEach((block, idx) => {
       const b = block.trim()
@@ -101,7 +104,7 @@ export function AgentExecutionTimeline({
       }
 
       if (title.length > 50) {
-         title = title.substring(0, 50) + '...'
+         title = title.substring(0, 50) + '…'
       }
 
       parsedSteps.push({
@@ -155,7 +158,7 @@ export function AgentExecutionTimeline({
           
           <span className="execution-title">
             {isThinking 
-              ? '思考与工具调用中...' 
+              ? '思考与工具调用中…' 
               : steps.length > 0 
                 ? `已完成思考与工具调用` 
                 : '思考过程'

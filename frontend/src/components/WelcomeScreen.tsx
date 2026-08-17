@@ -1,6 +1,4 @@
-import { motion } from 'framer-motion'
-import { Plus, FolderGit2, Folder, ArrowRight, AtSign, GitBranch, ListChecks, Sparkles } from 'lucide-react'
-import { LogoIcon } from '../LogoIcon'
+import { Plus, FolderGit2, Folder, AtSign, GitBranch, ListChecks } from 'lucide-react'
 import type { Conversation, Message } from '../lib/types'
 import { MissionControl } from './MissionControl'
 
@@ -54,62 +52,40 @@ export function WelcomeScreen({
   selectConversation,
   onUseStarter,
 }: WelcomeScreenProps) {
+  const openCreateDrawer = () => {
+    setIsDrawerOpen(true)
+    if (setDrawerMode) setDrawerMode('create')
+  }
+
   return (
     <>
+      {/* No project open. This is the app's landing view: it goes straight to
+          the project list rather than to a title card, because a self-hosted
+          tool never has to introduce itself to its only user. */}
       {!activeConv && (
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3 }}
-          className="welcome-container"
-        >
-          <div className="welcome-hero-wrapper">
-            <div className="welcome-hero-icon compact"><LogoIcon size={34} /></div>
-
-            <h1 className="welcome-hero-title">
-              ORBIT <span className="title-highlight">PANE</span>
-            </h1>
-
-            <p className="welcome-subtitle">
-              自主 Agent 代码与工程协同工作台
-            </p>
-
-            <div className="welcome-hero-actions">
-              <button
-                className="cw-create-btn"
-                onClick={() => {
-                  setIsDrawerOpen(true)
-                  if (setDrawerMode) setDrawerMode('create')
-                }}
-                aria-label="新建项目"
-              >
+        <div className="welcome-container">
+          {conversations.length > 0 && selectConversation ? (
+            <MissionControl
+              conversations={conversations}
+              onSelect={selectConversation}
+              onCreate={openCreateDrawer}
+            />
+          ) : (
+            <div className="welcome-empty">
+              <p>还没有项目。选一个服务器上的目录，就能在里面运行 agent。</p>
+              <button className="cw-create-btn" onClick={openCreateDrawer} aria-label="新建项目">
                 <Plus size={15} strokeWidth={2} className="btn-icon" />
                 <span>新建项目</span>
-                <ArrowRight size={14} className="welcome-arrow-icon" />
               </button>
             </div>
-
-            {conversations.length > 0 && selectConversation && (
-              <MissionControl conversations={conversations} onSelect={selectConversation} />
-            )}
-          </div>
-        </motion.div>
+          )}
+        </div>
       )}
 
       {activeConv && messages.filter(m => m.role !== 'system').length === 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3 }}
-          className="welcome-container session-empty-container"
-        >
+        <div className="welcome-container session-empty-container">
           <div className="session-hero-wrapper">
-            <div className="session-hero-icon">
-              <FolderGit2 size={32} />
-            </div>
-            <h2 className="session-hero-title">
-              {activeConv.name}
-            </h2>
+            <h2 className="session-hero-title">{activeConv.name}</h2>
             <div className="session-path-badge">
               <Folder size={13} style={{ flexShrink: 0 }} />
               <span className="font-mono truncate" style={{ minWidth: 0 }}>{activeConv.path}</span>
@@ -117,10 +93,10 @@ export function WelcomeScreen({
 
             {onUseStarter && (
               <div className="session-starter-block">
-                <span className="session-starter-title">
-                  <Sparkles size={13} />
-                  从这些开始
-                </span>
+                {/* A label, not a sentence. "点击后填入输入框，可以先改再发"
+                    described an interaction the first click teaches anyway,
+                    and it was set at the same size as the prompts it labelled. */}
+                <span className="session-starter-title">常用开场</span>
                 <div className="session-starter-grid">
                   {STARTER_PROMPTS.map(({ Icon, label, prompt }) => (
                     <button
@@ -137,11 +113,10 @@ export function WelcomeScreen({
                     </button>
                   ))}
                 </div>
-                <p className="session-starter-hint">点击后会填入输入框，可以先修改再发送。</p>
               </div>
             )}
           </div>
-        </motion.div>
+        </div>
       )}
     </>
   )

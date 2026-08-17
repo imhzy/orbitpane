@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
-import { Menu, ChevronLeft, Pencil, Sun, Moon, Eraser, Plus, Download, Command, FileText, MoreVertical, Wifi, WifiOff, Loader2, ListChecks, RefreshCw } from 'lucide-react'
+import { Menu, ChevronLeft, Pencil, Sun, Moon, Eraser, Download, Command, FileText, MoreVertical, WifiOff, Loader2, ListChecks, RefreshCw } from 'lucide-react'
 import { LogoIcon } from '../LogoIcon'
 import { ModelSelector } from './ModelSelector'
+import { hasProviderChoice } from '../lib/providers'
 import { haptic } from '../lib/nativeFeedback'
 import { OPEN_INSPECTOR_EVENT } from '../lib/appEvents'
 import { useUpdateCheck } from '../hooks/useUpdateCheck'
@@ -19,7 +20,7 @@ export function ChatHeader(_props: ChatHeaderProps) {
   const {
     activeConv, editingConvId, editingConvName, setEditingConvName, saveConvName,
     startEditingConv, setEditingConvId, getProviderBadge, providers, isDrawerOpen,
-    setIsDrawerOpen, setDrawerMode, selectedModel, setSelectedModel, models,
+    setIsDrawerOpen, selectedModel, setSelectedModel, models,
     loadModels, theme, toggleTheme, setIsCmdPaletteOpen,
     isExporting, exportConversationAsImage, messages, clearMessages, summarizeMessages,
     isConnected, isReconnecting, connectWebSocket, showToast, showProjectHome, activeTaskCount
@@ -35,10 +36,44 @@ export function ChatHeader(_props: ChatHeaderProps) {
   
   const onOpenCmdPalette = () => setIsCmdPaletteOpen(true)
 
+  const showProviderTags = hasProviderChoice(providers)
+
   const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false)
   const { isChecking: isCheckingForUpdate, checkForUpdate } = useUpdateCheck(showToast)
   const actionsMenuRef = useRef<HTMLDivElement>(null)
   const isCancelingRef = useRef(false)
+
+  /* The same menu is a bottom sheet you can drag on a phone and an anchored
+     popover under the trigger on a pointer device. It used to exist only on
+     the phone, which is why the desktop header carried three loose buttons for
+     actions that are used once a session. */
+  const [isCoarsePointer, setIsCoarsePointer] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches,
+  )
+  useEffect(() => {
+    const query = window.matchMedia('(pointer: coarse)')
+    const sync = () => setIsCoarsePointer(query.matches)
+    query.addEventListener('change', sync)
+    return () => query.removeEventListener('change', sync)
+  }, [])
+  const sheetMotion = isCoarsePointer
+    ? {
+        drag: 'y' as const,
+        dragDirectionLock: true,
+        dragConstraints: { top: 0, bottom: 800 },
+        dragElastic: 0.08,
+        dragMomentum: false,
+        initial: { y: 800 },
+        animate: { y: 0 },
+        exit: { y: 800 },
+        transition: { type: 'spring' as const, damping: 28, stiffness: 320 },
+      }
+    : {
+        initial: { opacity: 0, y: -6, scale: 0.98 },
+        animate: { opacity: 1, y: 0, scale: 1 },
+        exit: { opacity: 0, y: -4, scale: 0.98 },
+        transition: { duration: 0.14, ease: [0.22, 1, 0.36, 1] as const },
+      }
 
   useEscapeLayer(isActionsMenuOpen, () => setIsActionsMenuOpen(false))
   useEscapeLayer(editingConvId !== null, () => {
@@ -73,7 +108,11 @@ export function ChatHeader(_props: ChatHeaderProps) {
           {activeConv ? <ChevronLeft size={20} /> : <Menu size={18} />}
         </button>
 
-        <LogoIcon size={24} />
+        {/* App identity only when nothing else can carry it. The docked sidebar
+            owns the wordmark at >=1024px, and once a project is open the header
+            identifies the project — a second logo 500px from the first was the
+            most visible thing wrong with this screen. */}
+        {!activeConv && <LogoIcon size={22} className="header-app-mark" />}
 
         <div className="header-title-wrapper">
           <div className="header-title">
@@ -100,17 +139,11 @@ export function ChatHeader(_props: ChatHeaderProps) {
               ) : (
                 <>
                   <span className="active-conv-title-text">{activeConv.name}</span>
-                  <span className={`conv-provider-tag ${getProviderBadge(activeConv.provider, providers).className}`}>
-                    {getProviderBadge(activeConv.provider, providers).text}
-                  </span>
-                  {/* Mobile hides the label above; the dot preserves which
-                      agent this project runs on without eating title width. */}
-                  <span
-                    className={`provider-orbit-mark header-provider-dot ${getProviderBadge(activeConv.provider, providers).className}`}
-                    title={getProviderBadge(activeConv.provider, providers).text}
-                    aria-label={getProviderBadge(activeConv.provider, providers).text}
-                    role="img"
-                  />
+                  {/* The agent is named once on this screen, by the run
+                      control on the right. It used to also be a bordered
+                      accent pill wedged between the project name and its
+                      rename button, so the widest, loudest element in the
+                      title row was the one word that never changes. */}
                   <button
                     className="icon-btn edit-title-btn"
                     title="重命名项目"
@@ -120,14 +153,13 @@ export function ChatHeader(_props: ChatHeaderProps) {
                       startEditingConv(e, activeConv)
                     }}
                   >
-                    <Pencil size={14} />
+                    <Pencil size={13} />
                   </button>
                 </>
               )
             ) : (
-              <div className="brand-title-group compact">
-                <span className="brand-main-name">ORBIT</span>
-                <span className="brand-badge-sm">PANE</span>
+              <div className="brand-title-group header-app-mark">
+                <span className="brand-wordmark">OrbitPane</span>
               </div>
             )}
           </div>
@@ -139,12 +171,36 @@ export function ChatHeader(_props: ChatHeaderProps) {
         </div>
       </div>
 
+      {/* Three clusters, left to right: what this run is configured to use,
+          app-level chrome, this project's panel. They used to be one
+          undifferentiated run of six icons and two pills; the count is the
+          same only because the run configuration absorbed the connection
+          pill and three one-a-session actions moved into the overflow. */}
       <div className="header-actions">
-        {/* Global Desktop Actions */}
-        <div className="desktop-only-action" style={{ display: 'flex', gap: '8px' }}>
-          {activeConv && (
+        {activeConv && (
+          <div className="desktop-only-action">
+            {/* Model, agent and link state are one fact — "what is about to
+                run, and can it" — so they are one control. The connection
+                used to be a separate pill that said 已连接 in green at all
+                times, which spent the most prominent colour on the screen on
+                the least surprising thing on it. */}
             <div className="run-config-control">
-              <span className={`provider-orbit-mark ${getProviderBadge(activeConv.provider, providers).className}`} />
+              <button
+                type="button"
+                className={`run-config-link ${connectionState}`}
+                onClick={() => {
+                  if (!isConnected && activeConv) connectWebSocket(activeConv, true)
+                }}
+                disabled={isConnected}
+                aria-label={isConnected ? 'Agent 实时连接正常' : isReconnecting ? '正在连接 Agent' : '连接已断开，点击重新连接'}
+                title={isConnected ? 'Agent 实时连接正常' : isReconnecting ? '正在连接 Agent' : '点击重新连接'}
+              >
+                {connectionState === 'connecting'
+                  ? <Loader2 size={12} className="animate-spin" />
+                  : connectionState === 'offline'
+                    ? <WifiOff size={12} />
+                    : <span className={`provider-orbit-mark ${showProviderTags ? getProviderBadge(activeConv.provider, providers).className : 'badge-default'}`} />}
+              </button>
               <ModelSelector
                 selectedModel={selectedModel}
                 setSelectedModel={setSelectedModel}
@@ -153,20 +209,10 @@ export function ChatHeader(_props: ChatHeaderProps) {
                 onOpen={loadModels}
               />
             </div>
-          )}
+          </div>
+        )}
 
-          <button
-            className={`connection-status-btn ${connectionState}`}
-            onClick={() => {
-              if (!isConnected && activeConv) connectWebSocket(activeConv, true)
-            }}
-            disabled={isConnected || !activeConv}
-            title={!activeConv ? '选择项目后自动连接 Agent' : isConnected ? 'Agent 实时连接正常' : isReconnecting ? '正在连接 Agent' : '点击重新连接'}
-          >
-            {connectionState === 'online' ? <Wifi size={13} /> : connectionState === 'connecting' ? <Loader2 size={13} className="animate-spin" /> : connectionState === 'offline' ? <WifiOff size={13} /> : <Wifi size={13} />}
-            <span>{connectionState === 'online' ? '已连接' : connectionState === 'connecting' ? '连接中' : connectionState === 'offline' ? '连接断开' : '待连接'}</span>
-          </button>
-
+        <div className="header-tool-group desktop-only-action">
           <button
             className="icon-btn cmd-trigger-btn"
             onClick={onOpenCmdPalette}
@@ -176,62 +222,15 @@ export function ChatHeader(_props: ChatHeaderProps) {
             <span className="cmd-btn-label hide-on-mobile">⌘K</span>
           </button>
 
-          <button 
+          <button
             className="icon-btn theme-toggle-btn"
             onClick={toggleTheme}
             title={theme === 'dark' ? '切换至明亮模式' : '切换至暗夜模式'}
+            aria-label={theme === 'dark' ? '切换至明亮模式' : '切换至暗夜模式'}
           >
-            {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+            {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
           </button>
         </div>
-
-        {activeConv ? (
-          <div className="header-actions-group">
-            {/* Desktop Actions for Conversation */}
-            <div className="desktop-only-action">
-              <button
-                className="icon-btn"
-                disabled={isExporting || !messages.some(message => message.role !== 'system')}
-                title={isExporting ? '正在导出对话图片' : '导出当前对话为 PNG 图片'}
-                aria-label={isExporting ? '正在导出对话图片' : '导出当前对话为 PNG 图片'}
-                onClick={exportConversationAsImage}
-              >
-                <Download size={14} className={isExporting ? 'animate-pulse' : ''} />
-                <span className="action-btn-text">导出</span>
-              </button>
-              <button 
-                className="icon-btn"
-                title="生成对话总结"
-                onClick={summarizeMessages}
-                disabled={!messages.some(message => message.role !== 'system')}
-              >
-                <FileText size={14} />
-                <span className="action-btn-text">总结</span>
-              </button>
-              <button 
-                className="icon-btn"
-                title="清空对话记录"
-                onClick={clearMessages}
-              >
-                <Eraser size={14} />
-                <span className="action-btn-text">清空</span>
-              </button>
-            </div>
-            
-
-          </div>
-        ) : (
-          <button 
-            className="icon-btn new-ws-header-btn" 
-            onClick={() => {
-              setIsDrawerOpen(true);
-              setDrawerMode('create');
-            }}
-          >
-            <Plus size={14} className="btn-icon" />
-            <span className="hide-on-mobile new-ws-text">新建项目</span>
-          </button>
-        )}
 
         {activeConv && (
           <button
@@ -247,13 +246,15 @@ export function ChatHeader(_props: ChatHeaderProps) {
               window.dispatchEvent(new CustomEvent(OPEN_INSPECTOR_EVENT, { detail: 'tasks' }))
             }}
           >
-            <ListChecks size={17} />
+            <ListChecks size={16} />
             {activeTaskCount > 0 && <span className="contextual-task-badge">{Math.min(activeTaskCount, 99)}</span>}
           </button>
         )}
 
-        {/* Mobile Actions Dropdown (Global + Conversation) */}
-        <div className="mobile-only-action actions-dropdown-wrapper" ref={actionsMenuRef}>
+        {/* Overflow: everything used once a session. On a phone it is the
+            bottom sheet it always was; on a pointer device it is an anchored
+            popover rather than three permanent buttons in the bar. */}
+        <div className="actions-dropdown-wrapper" ref={actionsMenuRef}>
           <button 
             className="icon-btn"
             title="更多选项"
@@ -282,18 +283,10 @@ export function ChatHeader(_props: ChatHeaderProps) {
                 <motion.div
                   className="actions-dropdown-menu mobile-actions-sheet"
                   role="menu"
-                  drag="y"
-                  dragDirectionLock={true}
-                  dragConstraints={{ top: 0, bottom: 800 }}
-                  dragElastic={0.08}
-                  dragMomentum={false}
                   onDragEnd={(_event, info) => {
                     if (info.offset.y > 90 || info.velocity.y > 500) setIsActionsMenuOpen(false)
                   }}
-                  initial={{ y: 800 }}
-                  animate={{ y: 0 }}
-                  exit={{ y: 800 }}
-                  transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+                  {...sheetMotion}
                 >
                 <div className="mobile-sheet-grabber" aria-hidden="true" />
                 <div className="mobile-sheet-title">更多操作</div>

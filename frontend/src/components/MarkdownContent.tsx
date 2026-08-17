@@ -6,6 +6,7 @@ import remarkMath from 'remark-math'
 import 'katex/dist/katex.min.css'
 
 import { CodeBlock } from './CodeBlock'
+import { asText } from '../lib/normalize'
 import { Maximize2, X } from 'lucide-react'
 
 interface MarkdownContentProps {
@@ -13,7 +14,13 @@ interface MarkdownContentProps {
   enableCodeBlocks?: boolean
 }
 
-function fixMarkdownTables(text: string): string {
+/**
+ * Callers are typed `string`, but the text they pass originates on the wire.
+ * A non-string reaching `.split` here crashed the entire message list, so this
+ * degrades to an empty block instead of taking the conversation down.
+ */
+function fixMarkdownTables(value: unknown): string {
+  const text = asText(value)
   const lines = text.split('\n')
   for (let i = 1; i < lines.length; i++) {
     const current = lines[i].trim()

@@ -532,7 +532,7 @@ export default function App() {
         onConfirm: () => applyUpdate(),
       })
     }
-    const handleOfflineReady = () => showToast('离线应用外壳已就绪', 'info')
+    const handleOfflineReady = () => showToast('已缓存完毕，断网也能打开', 'info')
     window.addEventListener(UPDATE_READY_EVENT, handleUpdate)
     window.addEventListener(OFFLINE_READY_EVENT, handleOfflineReady)
     return () => {
@@ -1167,14 +1167,14 @@ export default function App() {
     if (!lastUserMsg) return
 
     if (!isConnected && activeConvRef.current) {
-      showToast('AI 后台未连接，正在发起重连...')
+      showToast('后台未连接，正在重连…')
       connectWebSocket(activeConvRef.current, true)
       return
     }
 
     if (lastUserMsg && isConnected) {
       sendMessage(lastUserMsg.content)
-      showToast('正在重新生成回复...')
+      showToast('正在重新生成回复…')
     } else {
       showToast('无法重新生成，请检查连接状态', 'error')
     }
@@ -1248,28 +1248,11 @@ export default function App() {
     window.history.replaceState({}, '', url.toString())
   }
 
-<<<<<<< Updated upstream
   /* A project awaiting its undo window still exists server-side, so hide it
      locally instead of letting the next list refresh bring it back. */
   const visibleConversations = pendingDeletionIds.length === 0
     ? conversations
     : conversations.filter(conversation => !pendingDeletionIds.includes(conversation.id))
-=======
-  const handleCloseDrawerWithConfirm = useCallback(() => {
-    if (drawerMode === 'create' && (newConvName.trim() || currentPath !== defaultWorkspaceRoot)) {
-      setConfirmState({
-        isOpen: true,
-        title: '放弃修改',
-        description: '有未保存的信息，确定要关闭吗？',
-        onConfirm: () => {
-          setConfirmState(prev => ({ ...prev, isOpen: false }))
-          setIsDrawerOpen(false)
-        }
-      })
-    } else {
-      setIsDrawerOpen(false)
-    }
-  }, [drawerMode, newConvName, currentPath, defaultWorkspaceRoot])
 
   const scrimTouchRef = useRef<{ startX: number; startY: number; isDragging: boolean } | null>(null)
 
@@ -1298,14 +1281,13 @@ export default function App() {
     const deltaY = Math.abs(e.clientY - start.startY)
 
     if (start.isDragging || (deltaX < -35 && deltaY < Math.abs(deltaX))) {
-      handleCloseDrawerWithConfirm()
+      requestCloseDrawer()
     }
-  }, [handleCloseDrawerWithConfirm])
+  }, [requestCloseDrawer])
 
   const handleScrimPointerCancel = useCallback(() => {
     scrimTouchRef.current = null
   }, [])
->>>>>>> Stashed changes
 
   if (isLoggedIn === null) {
     return <div className="app-container" aria-label="正在验证登录状态" />
@@ -1347,20 +1329,15 @@ export default function App() {
         {isDrawerOpen && (
           <motion.div 
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-<<<<<<< Updated upstream
-            className="drawer-scrim"
-            onClick={requestCloseDrawer}
-=======
             className="drawer-scrim" 
             onClick={() => {
               if (scrimTouchRef.current?.isDragging) return
-              handleCloseDrawerWithConfirm()
+              requestCloseDrawer()
             }}
             onPointerDown={handleScrimPointerDown}
             onPointerMove={handleScrimPointerMove}
             onPointerUp={handleScrimPointerUp}
             onPointerCancel={handleScrimPointerCancel}
->>>>>>> Stashed changes
           />
         )}
       </AnimatePresence>
@@ -1453,6 +1430,10 @@ export default function App() {
             )}
           </AnimatePresence>
 
+          {/* The landing view has nothing to send a message to. A disabled
+              composer with placeholder text and capability hints under an empty
+              project list was 200px of chrome explaining why it did nothing. */}
+          {activeConv && (
           <ChatInput
             activeConv={activeConv}
             input={input}
@@ -1474,6 +1455,7 @@ export default function App() {
             showToast={showToast}
             setIsDrawerOpen={setIsDrawerOpen}
           />
+          )}
         </div>
       </div>
 

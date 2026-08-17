@@ -28,18 +28,18 @@ export function LogoIcon({ size = 24, className = '' }: { size?: number; classNa
         strokeWidth="1.75" 
       />
       {/* Internal active node indicator */}
-      <circle 
-        cx="12" 
-        cy="12" 
-        r="2" 
-        fill="var(--accent-color, #3b82f6)" 
+      <circle
+        cx="12"
+        cy="12"
+        r="2"
+        fill="var(--accent-color, #3f9ba2)"
       />
       {/* Orbit node dot */}
-      <circle 
-        cx="18.5" 
-        cy="7" 
-        r="1.75" 
-        fill="var(--accent-color, #3b82f6)" 
+      <circle
+        cx="18.5"
+        cy="7"
+        r="1.75"
+        fill="var(--accent-color, #3f9ba2)"
       />
     </svg>
   )

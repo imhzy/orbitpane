@@ -44,6 +44,19 @@ export function formatModelName(modelId: string): string {
   return modelLabels.get(modelId) || modelId
 }
 
+/**
+ * Whether naming the agent on every project row carries information.
+ *
+ * The catalog always lists every adapter the build knows about, including ones
+ * the deployment has turned off, so its raw length is not the question. What
+ * matters is whether two projects could actually be running on different
+ * agents — until then the label reads identically on every row and is pure
+ * chrome.
+ */
+export function hasProviderChoice(providers: Provider[] = []): boolean {
+  return providers.filter(provider => provider.available).length > 1
+}
+
 /** Badge metadata driven by the provider catalog rather than id string-matching. */
 export function getProviderBadge(
   providerId?: string,

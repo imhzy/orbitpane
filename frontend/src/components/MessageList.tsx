@@ -1,6 +1,6 @@
 import React, { Suspense, lazy } from 'react'
 import { motion } from 'framer-motion'
-import { AlertCircle, Info, FileText, User, Check, Copy, ThumbsUp, ThumbsDown, RotateCcw, Clock, ListTodo, Gauge, ChevronDown, ChevronUp, History, Sparkles } from 'lucide-react'
+import { AlertCircle, Info, FileText, Check, Copy, ThumbsUp, ThumbsDown, RotateCcw, Clock, ListTodo, Gauge, ChevronDown, ChevronUp, History, Sparkles } from 'lucide-react'
 import { LogoIcon } from '../LogoIcon'
 import { AgentExecutionTimeline } from './AgentExecutionTimeline'
 import type { Message } from '../lib/types'
@@ -72,29 +72,31 @@ const MessageRow = React.memo(function MessageRow({
       onPointerCancel={onLongPressCancel}
       onContextMenu={event => onContextMenu(event, rowKey)}
     >
-      <div className="message-header">
-        <div className="message-author">
-          {message.role === 'agent' ? (
-            <div className="avatar agent-avatar">
-              <LogoIcon size={16} />
-            </div>
-          ) : message.role === 'summary' ? (
-            <div className="avatar summary-avatar">
-              <FileText size={15} />
-            </div>
-          ) : (
-            <div className="avatar user-avatar">
-              <User size={14} />
-            </div>
-          )}
-          <span className="author-name">
-            {message.role === 'agent' ? 'OrbitPane' : (message.role === 'summary' ? '对话总结' : '你')}
-          </span>
-          {isAgentLike && message.model && (
-            <span className="model-pill">{formatModelName(message.model)}</span>
-          )}
+      {/* Only the agent is introduced. A right-aligned bubble is already the
+          universal sign for "you said this"; labelling it 你 with an avatar —
+          and left-aligning that label above a right-aligned bubble — put a
+          second, contradictory alignment on every turn the user takes. */}
+      {isAgentLike && (
+        <div className="message-header">
+          <div className="message-author">
+            {message.role === 'agent' ? (
+              <div className="avatar agent-avatar">
+                <LogoIcon size={16} />
+              </div>
+            ) : (
+              <div className="avatar summary-avatar">
+                <FileText size={15} />
+              </div>
+            )}
+            <span className="author-name">
+              {message.role === 'agent' ? 'OrbitPane' : '对话总结'}
+            </span>
+            {message.model && (
+              <span className="model-pill">{formatModelName(message.model)}</span>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="message-bubble">
         {isAgentLike ? (
@@ -137,7 +139,7 @@ const MessageRow = React.memo(function MessageRow({
                   title={isCopied ? '已复制' : '复制全文'}
                   onClick={() => copyMessageText(message.content, rowKey)}
                 >
-                  {isCopied ? <Check size={14} className="text-success" /> : <Copy size={14} />}
+                  {isCopied ? <Check size={14} className="icon-success" /> : <Copy size={14} />}
                   <span className="toolbar-btn-text">{isCopied ? '已复制' : '复制'}</span>
                 </button>
 
@@ -188,7 +190,6 @@ const MessageRow = React.memo(function MessageRow({
       </div>
       {message.timestamp && (
         <span className="message-time message-time-footer">
-          <Clock size={11} />
           {formatTimestamp(message.timestamp)}
         </span>
       )}

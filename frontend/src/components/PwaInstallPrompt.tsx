@@ -108,7 +108,7 @@ export function PwaInstallPrompt({ showToast }: PwaInstallPromptProps) {
         await deferredPrompt.prompt()
         const choiceResult = await deferredPrompt.userChoice
         if (choiceResult?.outcome === 'accepted') {
-          if (showToast) showToast('正在为您安装 OrbitPane 应用...', 'info')
+          if (showToast) showToast('正在安装…', 'info')
           setPromptBannerOpen(false)
         } else {
           handleDismiss()

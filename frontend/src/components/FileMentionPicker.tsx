@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { File, FileCode2, FileText, Loader2, Search } from 'lucide-react'
+import { asText } from '../lib/normalize'
 import type { FileSearchItem } from '../lib/types'
 
 interface FileMentionPickerProps {
@@ -19,7 +20,9 @@ const CODE_EXTENSIONS = new Set([
 const TEXT_EXTENSIONS = new Set(['md', 'mdx', 'txt', 'toml', 'yaml', 'yml'])
 
 function FileTypeIcon({ name }: { name: string }) {
-  const extension = name.includes('.') ? name.split('.').pop()?.toLowerCase() ?? '' : ''
+  // The recent-file list is restored from localStorage without validation.
+  const fileName = asText(name)
+  const extension = fileName.includes('.') ? fileName.split('.').pop()?.toLowerCase() ?? '' : ''
   if (CODE_EXTENSIONS.has(extension)) {
     return <FileCode2 size={17} className="file-mention-icon code" aria-hidden="true" />
   }

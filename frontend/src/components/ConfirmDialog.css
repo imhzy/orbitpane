@@ -7,8 +7,8 @@
   align-items: center;
   justify-content: center;
   z-index: 9999;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: var(--scrim-blur);
+  -webkit-backdrop-filter: var(--scrim-blur);
   padding: var(--space-5);
   animation: confirmOverlayIn 0.2s ease-out;
 }
@@ -66,55 +66,60 @@
   gap: var(--space-2);
 }
 
-.confirm-cancel-btn {
-  padding: var(--space-2) var(--space-4);
-  border-radius: var(--radius-sm, var(--radius-sm));
-  border: 1px solid var(--border-color);
-  background: var(--bg-surface-hover);
-  color: var(--text-primary);
+/* 36px, matching the app's control height plus the extra weight a dialog
+   action earns. All three shared a `padding`-derived height that landed near
+   46px, so the last control a user touches before a destructive action was
+   also the only one in the app at that size. */
+.confirm-cancel-btn,
+.confirm-delete-btn,
+.confirm-primary-btn {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
   font-size: var(--text-sm);
   font-weight: 600;
+  line-height: 1;
   cursor: pointer;
-  transition: all 0.15s ease;
   font-family: var(--font-sans);
+  transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast), transform var(--transition-fast);
+}
+
+.confirm-cancel-btn {
+  border-color: var(--border-color);
+  background: transparent;
+  color: var(--text-secondary);
 }
 
 .confirm-cancel-btn:hover {
-  background: var(--border-color);
+  color: var(--text-primary);
+  background: var(--bg-surface-hover);
+  border-color: var(--border-strong);
 }
 
 .confirm-cancel-btn:active {
   transform: scale(0.97);
 }
 
-.confirm-delete-btn,
-.confirm-primary-btn {
-  padding: var(--space-2) var(--space-4);
-  border-radius: var(--radius-sm);
-  border: 1px solid transparent;
-  font-size: var(--text-sm);
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  font-family: var(--font-sans);
-  box-shadow: var(--shadow-sm);
-}
-
 .confirm-delete-btn {
-  border-color: var(--danger-color);
   background: var(--danger-color);
   color: var(--on-brand);
 }
 
 .confirm-primary-btn {
-  border-color: var(--accent-border);
-  background: var(--accent-subtle-bg);
-  color: var(--accent-text);
+  background: var(--brand-primary);
+  color: var(--on-brand);
 }
 
-.confirm-delete-btn:hover,
+.confirm-delete-btn:hover {
+  background: var(--danger-text);
+}
+
 .confirm-primary-btn:hover {
-  opacity: 0.92;
+  background: var(--accent-color);
 }
 
 .confirm-delete-btn:active,

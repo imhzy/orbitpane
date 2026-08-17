@@ -311,16 +311,18 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
           onClick={closeOverlay}
         />
       )}
+      {/* The docked column has nothing to show before a project is open, and a
+          460px panel whose only content is "选择项目后显示上下文。" made the
+          landing view read as a layout waiting for data rather than a screen. */}
       <aside
         ref={panelRef}
-        className={`workspace-inspector ${overlayOpen ? 'mobile-open' : ''}`}
+        className={`workspace-inspector ${overlayOpen ? 'mobile-open' : ''} ${activeConv ? '' : 'inspector-idle'}`}
         aria-label="任务与上下文面板"
         role={isOverlay ? 'dialog' : undefined}
         aria-modal={isOverlay ? true : undefined}
       >
       <div className="inspector-header">
         <div>
-          <span className="inspector-eyebrow">ORBIT CONTROL</span>
           <h2>任务与上下文</h2>
         </div>
         <div className="inspector-header-actions">
@@ -411,9 +413,26 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
             </section>
 
             {activeConv && (
-              <section className="inspector-card context-halo-card">
-                <div className="context-halo" style={{ background: `conic-gradient(var(--accent-color) ${contextPercent}%, var(--bg-surface-hover) 0)` }}>
-                  <div><strong>{contextPercent}%</strong><span>上下文</span></div>
+              <section className="inspector-card context-card">
+                {/* An 80px conic-gradient dial was the largest thing in this
+                    panel and spent all of it on one percentage that normally
+                    reads in single digits. A meter states the same value in a
+                    tenth of the space and lines up with the figures below. */}
+                <div className="context-meter">
+                  <div className="context-meter-label">
+                    <span>上下文用量</span>
+                    <strong>{contextPercent}%</strong>
+                  </div>
+                  <div
+                    className="context-meter-track"
+                    role="progressbar"
+                    aria-valuenow={contextPercent}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-label="上下文用量"
+                  >
+                    <i style={{ width: `${Math.max(contextPercent, 1)}%` }} />
+                  </div>
                 </div>
                 <div className="context-metrics">
                   <div><span>当前上下文</span><strong>{formatCompact(stats.context_chars)} 字</strong></div>
@@ -427,7 +446,7 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
             {activeConv && (
               <section className="inspector-card change-radar-card">
                 <div className="inspector-card-title">
-                  <span><FileDiff size={14} />变更雷达</span>
+                  <span><FileDiff size={14} />未提交改动</span>
                   {workspace.is_git && <span className="branch-chip"><GitBranch size={11} />{workspace.branch || 'detached'}</span>}
                 </div>
                 {!workspace.is_git ? (

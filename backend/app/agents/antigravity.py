@@ -77,14 +77,13 @@ class AntigravityProvider(AgentProvider):
 
     @property
     def models(self) -> tuple[str, ...]:
-        if os.getenv("ORBITPANE_ANTIGRAVITY_MODELS"):
-            return self.settings.antigravity_models
         if self._cached_models is None:
             fetched = fetch_antigravity_models(self.settings.antigravity_command)
             if fetched:
                 self._model_labels = {model: label for model, label in fetched}
                 self._cached_models = tuple(model for model, _ in fetched)
             else:
+                # Fallback to environment variable if agy models fetch fails
                 self._cached_models = self.settings.antigravity_models
         return self._cached_models
 

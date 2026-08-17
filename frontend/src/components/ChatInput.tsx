@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Square, Send, CornerDownLeft, AtSign, ListPlus, Plus } from 'lucide-react'
+import { Square, Send, AtSign, ListPlus, Plus } from 'lucide-react'
 import { ModelSelector } from './ModelSelector'
 import { FileMentionPicker } from './FileMentionPicker'
 import { apiFetch } from '../lib/api'
@@ -301,11 +301,6 @@ export function ChatInput({
           className="input-textarea"
         />
 
-        <div className="input-capability-row" aria-label="输入能力提示">
-          <span><AtSign size={11} />引用项目文件</span>
-          <span><ListPlus size={11} />执行中发送将排队</span>
-        </div>
-        
         <div className="input-bottom-bar">
           <div className="input-bottom-left">
             <button
@@ -328,16 +323,25 @@ export function ChatInput({
               position="input"
               onOpen={loadModels}
             />
+            {/* Affordance hints, not chrome: they teach an empty composer and
+                get out of the way the moment there is a message to look at.
+                They used to occupy a row of their own above the toolbar, which
+                made an empty composer ~190px tall — a quarter of a laptop's
+                conversation area spent on a field with nothing in it. */}
+            {!input && (
+              <span className="input-capability-row" aria-label="输入能力提示">
+                <span><AtSign size={11} />引用项目文件</span>
+                <span><ListPlus size={11} />执行中发送将排队</span>
+              </span>
+            )}
             {input.trim().length > 0 && (
               <span className="input-char-count">{input.length} 字</span>
             )}
           </div>
 
           <div className="input-bottom-right">
-            <div className="input-hint-badge hide-on-mobile">
-              <CornerDownLeft size={11} />
-              <span>发送</span>
-            </div>
+            {/* The send button next to this said "发送" too. One control, one
+                label; the Enter shortcut lives on that button's tooltip. */}
             {isAgentThinking && (
               <button
                 className="interrupt-task-btn"

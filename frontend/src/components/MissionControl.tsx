@@ -1,31 +1,38 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Activity,
-  AlertTriangle,
   ArrowUpRight,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
-  Clock3,
-  FolderGit2,
-  Layers3,
   Pin,
+  Plus,
   RefreshCw,
 } from 'lucide-react'
 import { apiFetch } from '../lib/api'
 import { BACKGROUND_REFRESH_MS, TASK_CHANGE_EVENT } from '../lib/appEvents'
 import { describeTaskStatus, isTaskRunning, taskStatusLabel } from '../lib/taskStatus'
+import { hasProviderChoice } from '../lib/providers'
 import { useAppContext } from '../contexts/AppContext'
 import type { Conversation, TaskRecord } from '../lib/types'
 
 interface MissionControlProps {
   conversations: Conversation[]
   onSelect: (conversation: Conversation) => void
+  /** Opens the create-project drawer. This panel is the app's landing view, so
+   *  the primary action lives in its header rather than in a separate hero. */
+  onCreate?: () => void
 }
 
 type MissionFilter = 'all' | 'running' | 'queued' | 'attention'
 
 const VISIBLE_PROJECT_LIMIT = 6
+
+const MISSION_FILTERS: ReadonlyArray<{ id: MissionFilter; label: string }> = [
+  { id: 'all', label: '全部' },
+  { id: 'running', label: taskStatusLabel('running') },
+  { id: 'queued', label: taskStatusLabel('queued') },
+  { id: 'attention', label: taskStatusLabel('failed') },
+]
 
 function taskTimestamp(task?: TaskRecord): string | undefined {
   return task?.completed_at || task?.started_at || task?.queued_at
@@ -47,10 +54,11 @@ function formatRelativeTime(value?: string): string {
   return new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(timestamp)
 }
 
-export function MissionControl({ conversations, onSelect }: MissionControlProps) {
+export function MissionControl({ conversations, onSelect, onCreate }: MissionControlProps) {
   const { providers, getProviderBadge } = useAppContext()
   /** Provider display name; the raw id ("antigravity") is an internal detail. */
   const providerName = (id?: string) => getProviderBadge(id, providers).text
+  const showProvider = hasProviderChoice(providers)
   const [tasks, setTasks] = useState<TaskRecord[]>([])
   const [activeFilter, setActiveFilter] = useState<MissionFilter>('all')
   const [isExpanded, setIsExpanded] = useState(false)
@@ -133,6 +141,12 @@ export function MissionControl({ conversations, onSelect }: MissionControlProps)
   }).length
   const queuedCount = projects.filter(conversation => recentTasks.get(conversation.id)?.status === 'queued').length
   const attentionCount = projects.filter(conversation => recentTasks.get(conversation.id)?.status === 'failed').length
+  const filterCounts: Record<MissionFilter, number> = {
+    all: projects.length,
+    running: runningCount,
+    queued: queuedCount,
+    attention: attentionCount,
+  }
 
   const filteredProjects = projects.filter(conversation => {
     const status = recentTasks.get(conversation.id)?.status
@@ -158,47 +172,65 @@ export function MissionControl({ conversations, onSelect }: MissionControlProps)
 
   return (
     <section className="mission-control" aria-label="项目任务总览">
-      <div className="mission-control-heading">
-        <div className="mission-heading-copy">
-          <span className="mission-heading-icon" aria-hidden="true"><Layers3 size={16} /></span>
-          <span>
-            <small>MISSION CONTROL</small>
-            <strong>项目运行台</strong>
-          </span>
+      {/* A screen with no top of its hierarchy reads as a fragment. The
+          masthead is the one place on this view that gets display type, and
+          the one filled button on it is the action the view exists for. */}
+      <header className="mission-masthead">
+        <div className="mission-masthead-copy">
+          <h1 className="mission-masthead-title">项目</h1>
+          <p className="mission-masthead-sub">
+            <span>{projects.length} 个工作区</span>
+            <span className="mission-sub-sep" aria-hidden="true" />
+            <span className={`mission-sync-state ${syncFailed ? 'failed' : ''}`}>
+              <i />{syncFailed ? '同步失败' : isRefreshing ? '同步中' : '实时同步'}
+            </span>
+          </p>
         </div>
-        <div className={`mission-sync-state ${syncFailed ? 'failed' : ''}`}>
-          <span><i />{syncFailed ? '同步失败' : isRefreshing ? '同步中' : '实时同步'}</span>
+        <div className="mission-masthead-actions">
           <button
             type="button"
+            className="ui-btn ghost icon-only"
             onClick={() => void loadTasks()}
             disabled={isRefreshing}
             aria-label="刷新项目任务状态"
             title="刷新状态"
           >
-            <RefreshCw size={13} className={isRefreshing ? 'animate-spin' : ''} />
+            <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />
           </button>
+          {onCreate && (
+            <button type="button" className="ui-btn primary" onClick={onCreate}>
+              <Plus size={14} />新建项目
+            </button>
+          )}
         </div>
+      </header>
+
+      {/* These are filters, and they were dressed as a four-tile KPI strip:
+          three of the four normally read zero, each in its own tinted colour,
+          on a landing screen whose real content is the project list below. As
+          chips they say the same thing in one line and stop competing with it. */}
+      <div className="mission-filters" role="group" aria-label="按任务状态筛选项目">
+        {MISSION_FILTERS.map(({ id, label }) => {
+          const count = filterCounts[id]
+          return (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={activeFilter === id}
+              className={`${activeFilter === id ? 'active ' : ''}${id === 'attention' && count > 0 ? 'attention' : ''}`}
+              onClick={() => selectFilter(id)}
+            >
+              {label}
+              <b>{count}</b>
+            </button>
+          )
+        })}
       </div>
 
-      <div className="mission-metrics" role="group" aria-label="按任务状态筛选项目">
-        <button type="button" aria-pressed={activeFilter === 'all'} className={activeFilter === 'all' ? 'active' : ''} onClick={() => selectFilter('all')}>
-          <span className="mission-metric-icon all"><FolderGit2 size={15} /></span>
-          <span><small>全部</small><b>{projects.length}</b></span>
-        </button>
-        <button type="button" aria-pressed={activeFilter === 'running'} className={activeFilter === 'running' ? 'active' : ''} onClick={() => selectFilter('running')}>
-          <span className="mission-metric-icon running"><Activity size={15} /></span>
-          <span><small>{taskStatusLabel('running')}</small><b>{runningCount}</b></span>
-        </button>
-        <button type="button" aria-pressed={activeFilter === 'queued'} className={activeFilter === 'queued' ? 'active' : ''} onClick={() => selectFilter('queued')}>
-          <span className="mission-metric-icon queued"><Clock3 size={15} /></span>
-          <span><small>{taskStatusLabel('queued')}</small><b>{queuedCount}</b></span>
-        </button>
-        <button type="button" aria-pressed={activeFilter === 'attention'} className={`${activeFilter === 'attention' ? 'active ' : ''}${attentionCount > 0 ? 'attention' : ''}`} onClick={() => selectFilter('attention')}>
-          <span className="mission-metric-icon attention"><AlertTriangle size={15} /></span>
-          <span><small>{taskStatusLabel('failed')}</small><b>{attentionCount}</b></span>
-        </button>
-      </div>
-
+      {/* One row per project, one row height, one alignment grid. The previous
+          two-column card deck gave every project a box of its own, so four
+          projects produced eight vertical edges the eye had to resolve before
+          it could read a single name. */}
       <div className="mission-project-list">
         {visibleProjects.map(conversation => {
           const task = recentTasks.get(conversation.id)
@@ -211,19 +243,22 @@ export function MissionControl({ conversations, onSelect }: MissionControlProps)
               onClick={() => onSelect(conversation)}
               aria-label={`打开项目 ${conversation.name}，${taskStatusLabel(status)}`}
             >
-              <span className="mission-project-status" aria-hidden="true">{statusIcon(status)}</span>
-              <span className="mission-project-main">
-                <span className="mission-project-title">
+              <span className="mission-row-status" aria-hidden="true">{statusIcon(status)}</span>
+              <span className="mission-row-identity">
+                <span className="mission-row-name">
                   <strong>{conversation.name}</strong>
                   {conversation.is_pinned && <Pin size={11} aria-label="已置顶" />}
                 </span>
                 <span className="mission-row-path" title={conversation.path}>{conversation.path}</span>
               </span>
-              <span className="mission-project-meta">
+              <span className="mission-row-meta">
                 <span className={`mission-status-label ${status || 'idle'}`}>{taskStatusLabel(status)}</span>
-                <small>{providerName(task?.provider || conversation.provider)} · {formatRelativeTime(taskTimestamp(task))}</small>
+                <small>
+                  {showProvider && `${providerName(task?.provider || conversation.provider)} · `}
+                  {formatRelativeTime(taskTimestamp(task))}
+                </small>
               </span>
-              <span className="mission-project-open" aria-hidden="true"><ArrowUpRight size={15} /></span>
+              <span className="mission-row-open" aria-hidden="true"><ArrowUpRight size={15} /></span>
             </button>
           )
         })}
@@ -232,7 +267,7 @@ export function MissionControl({ conversations, onSelect }: MissionControlProps)
           <div className="mission-empty-state">
             <CheckCircle2 size={18} />
             <span><strong>这个队列目前是空的</strong><small>没有项目处于该状态</small></span>
-            <button type="button" onClick={() => selectFilter('all')}>查看全部</button>
+            <button type="button" className="ui-btn ghost" onClick={() => selectFilter('all')}>查看全部</button>
           </div>
         )}
       </div>

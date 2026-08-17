@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect x="26" y="26" width="460" height="460" rx="108" fill="#1e1b18"/>
+  <g>
+    <circle cx="256" cy="256" r="146" fill="none" stroke="#f4f2f0" stroke-width="24" stroke-opacity="0.22"/>
+    <rect x="186" y="186" width="140" height="140" rx="32" fill="none" stroke="#f4f2f0" stroke-width="30"/>
+    <circle cx="256" cy="256" r="31" fill="#5cc4cc"/>
+    <!-- The orbiting node sits on the ring and knocks a gap in it, so the two
+         read as one object instead of a dot floating over a circle. -->
+    <circle cx="359" cy="153" r="29" fill="#5cc4cc" stroke="#1e1b18" stroke-width="12"/>
+  </g>
+</svg>

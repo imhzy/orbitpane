@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
-/* Default Theme Tokens (Dark Mode - Professional Zinc / Developer Blue) */
+/* Design tokens. Dark is the default theme; [data-theme="light"] below only
+   redefines the values that change, never the structure. */
 :root {
   /* Safe area & viewport */
   --sat: env(safe-area-inset-top, 0px);
@@ -25,70 +26,113 @@
   --text-md: 15px;   /* body */
   --text-lg: 18px;   /* dialog and section titles */
   --text-xl: 24px;
-  --text-2xl: 32px;
+  /* Page-level title. One step above --text-xl and used exactly once per
+     screen, so a view has a visible top of its hierarchy. Without it every
+     screen opened at 15-18px and read as a fragment of some larger page. */
+  --text-display: 28px;
+
+  /* Optical tracking. Large type set at the same tracking as body copy looks
+     loose; small caps labels set at body tracking look cramped. Two constants
+     rather than a per-rule literal. */
+  --tracking-display: -0.021em;
+  --tracking-tight: -0.011em;
+  --tracking-caps: 0.06em;
   /* Functional, not a visual step: iOS Safari zooms the page when a focused
      input renders below 16px, so form fields opt out of the ramp. */
   --text-input: 16px;
 
-  /* Radii - Precise, modern software corners */
+  /* Radii */
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
   --radius-xl: 18px;
   --radius-full: 9999px;
 
-  /* Theme Tokens - Dark Mode Defaults (Clean Obsidian/Zinc) */
-  --bg-primary: #09090b; /* Deep Obsidian */
-  --bg-secondary: #121215;
-  --bg-surface: #18181b; /* Zinc 900 */
-  --bg-surface-hover: #27272a; /* Zinc 800 */
-  --bg-card: #121215;
-  --bg-card-hover: #18181b;
-  
-  --bg-glass: rgba(18, 18, 21, 0.85);
-  --bg-input: #121215;
-  --bg-header: rgba(9, 9, 11, 0.9);
+  /* ── Palette ────────────────────────────────────────────────────────────
+     Two rules generate every colour below, and both are worth stating because
+     the previous palette broke them and that is what made it look generic.
+
+     1. ONE neutral hue, shared by both themes. Everything unsaturated is
+        hue 32 — a warm graphite. The old build used zinc (h240) in dark and
+        slate (h210, s32-40) in light, so the "greys" were four to eight times
+        more saturated in one theme than the other and switching themes read
+        as switching products.
+
+     2. A SATURATION LADDER, not a flat deck. Neutrals stay at 6-8%, semantic
+        colours sit near 45-60%, and nothing goes above that. The old palette
+        was the stock Tailwind ramp untouched: twelve colours between s83 and
+        s96, so nothing could recede and therefore nothing could stand out.
+
+     The accent is hue 184, a celadon, deliberately cool against a warm ground
+     — that opposition is what lets it read as intentional at s44 instead of
+     needing s91 to be noticed. Every value here was checked against both
+     --bg-primary and --bg-surface-hover; body text clears 4.5:1 and filled
+     buttons clear 4.5:1 against --on-brand. */
+
+  /* Surfaces, darkest to lightest. */
+  --bg-primary: #0c0c0b;
+  --bg-secondary: #141312;
+  --bg-surface: #1d1b19;
+  --bg-surface-hover: #2e2c29;
+  --bg-card: #141312;
+  --bg-card-hover: #1d1b19;
+
+  --bg-glass: rgba(20, 19, 18, 0.85);
+  --bg-input: #141312;
+  --bg-header: rgba(12, 12, 11, 0.9);
   --bg-scrim: rgba(0, 0, 0, 0.7);
-  --bg-thinking: rgba(24, 24, 27, 0.6);
-  --bg-code: #0a0a0c;
-  --bg-code-header: #141417;
-  
+  --bg-thinking: rgba(29, 27, 25, 0.6);
+  --bg-code: #0a0908;
+  --bg-code-header: #131210;
+  /* Inline code. It used to render in --accent-color, which made every
+     `README.md` and `git init` in an answer look like a link the user could
+     click. Inline code is *emphasis*, not navigation: it gets a surface and
+     the body text colour, and the accent stays reserved for real links. */
+  --bg-code-inline: rgba(255, 255, 255, 0.07);
+  --text-code-inline: #f0eeec;
+
   --border-color: rgba(255, 255, 255, 0.1);
   --border-subtle: rgba(255, 255, 255, 0.05);
-  --border-focus: rgba(59, 130, 246, 0.5);
+  --border-focus: rgba(63, 155, 162, 0.55);
+  /* For the one edge per screen that has to survive against a busy surface —
+     a docked panel's seam, a sticky bar's underline. Everything else uses
+     --border-color and is meant to be barely there. */
+  --border-strong: rgba(255, 255, 255, 0.16);
 
   /* Typography colors. Three genuinely distinct steps; contrast measured
      against --bg-primary. Keep the gaps wide enough that the hierarchy still
      reads after the browser applies its own antialiasing. */
-  --text-primary: #fafafa;   /* 19.1:1 */
-  --text-secondary: #c4c4cc; /* 11.5:1 */
-  --text-tertiary: #94949e;  /*  6.6:1 */
+  --text-primary: #f6f5f4;   /* 17.9:1 */
+  --text-secondary: #c2bdb7; /* 10.5:1 */
+  --text-tertiary: #9a948d;  /*  6.5:1 on bg-primary, 4.6:1 on bg-surface-hover */
 
   /* Agent execution step semantics. Referenced by AgentExecutionTimeline so
-     the step colors follow the theme instead of being frozen for dark mode. */
-  --step-exec: #60a5fa;
-  --step-file: #fbbf24;
-  --step-search: #c084fc;
-  --step-plan: #34d399;
-  --step-thought: #a1a1aa;
-  --step-tool: #22d3ee;
+     the step colors follow the theme instead of being frozen for dark mode.
 
-  /* Accent - Developer Blue */
-  --brand-primary: #2563eb; /* Blue 600 */
-  --accent-color: #3b82f6; /* Blue 500 */
-  --accent-text: #60a5fa; /* Blue 400 */
-  --accent-subtle-bg: rgba(37, 99, 235, 0.12);
-  --accent-border: rgba(37, 99, 235, 0.25);
-  
-  /* Solid professional brand tone */
-  --brand-secondary: #7c3aed; /* Violet 600 - second stop of the brand ramp */
+     Four hues plus a neutral, all held near s40. These were six fully
+     saturated hues spread across the wheel (s86-s96) — a rainbow legend on a
+     panel that is otherwise monochrome. Categories still separate; they just
+     no longer shout over the answer they annotate. */
+  --step-exec: #69b9bf;
+  --step-file: #c8a26a;
+  --step-search: #aa8bc6;
+  --step-plan: #56b391;
+  --step-thought: #9a948d;
+  --step-tool: #8bb6c6;
+
+  /* Accent. --brand-primary is the fill that carries --on-brand text, so it is
+     darker than --accent-color; --accent-text is the same hue re-lit for text
+     on the page ground. */
+  --brand-primary: #2a797e;
+  --accent-color: #3f9ba2;
+  --accent-text: #6ccad0;
+  --accent-subtle-bg: rgba(63, 155, 162, 0.14);
+  --accent-border: rgba(63, 155, 162, 0.3);
+
   /* Foreground for filled brand/danger surfaces. Distinct from --text-inverse,
-     which follows the theme and would go near-black on a blue button in dark
+     which follows the theme and would go near-black on a teal button in dark
      mode. Stays white in both themes because both ramps are dark enough. */
   --on-brand: #ffffff;
-  --brand-gradient: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-secondary) 100%);
-  --success-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  --text-gradient: linear-gradient(135deg, #fafafa 0%, #d4d4d8 100%);
 
   /* Semantic Colors.
      `--*-color` fills shapes (dots, bars, solid buttons). `--*-text` is the
@@ -96,22 +140,21 @@
      labels usually sit on their own tinted background rather than on the page
      background. Using the fill colour for small text is what pushed several
      11px chips under 4.5:1 in light mode. */
-  --danger-color: #ef4444; /* Red 500 */
-  --danger-text: #f87171;
-  --danger-bg: rgba(239, 68, 68, 0.1);
-  --success-color: #10b981; /* Emerald 500 */
-  --success-text: #34d399;
-  --success-bg: rgba(16, 185, 129, 0.1);
-  --success-border: rgba(16, 185, 129, 0.2);
-  --warning-color: #f59e0b;
-  --warning-text: #fbbf24;
-  --warning-bg: rgba(245, 158, 11, 0.1);
-  --warning-border: rgba(245, 158, 11, 0.2);
-  --info-color: #3b82f6;
-  --info-bg: rgba(59, 130, 246, 0.1);
-  --info-border: rgba(59, 130, 246, 0.2);
+  --danger-color: #cc423e;
+  --danger-text: #df7e77;
+  --danger-bg: rgba(204, 66, 62, 0.12);
+  --danger-border: rgba(204, 66, 62, 0.24);
+  --success-color: #368c6f;
+  --success-text: #65c3a0;
+  --success-bg: rgba(54, 140, 111, 0.12);
+  --success-border: rgba(54, 140, 111, 0.24);
+  --warning-color: #bb8135;
+  --warning-text: #d9b068;
+  --warning-bg: rgba(187, 129, 53, 0.12);
+  --warning-border: rgba(187, 129, 53, 0.24);
+  --info-color: #3f9ba2;
 
-  /* Shadows - Flat, subtle, non-glowing */
+  /* Shadows */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
   --shadow-float: 0 8px 24px rgba(0, 0, 0, 0.5);
@@ -137,85 +180,109 @@
   --space-10: 40px;
   --space-12: 48px;
 
-  /* Transitions - Fast, precise, professional */
-  --transition-fast: 0.12s ease;
-  --transition-normal: 0.2s ease;
-  --transition-slow: 0.3s ease;
-  --transition-spring: 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  /* Motion.
+     Three curves, and every animated property in the app uses one of them.
+     `ease` was previously applied to hovers, panel slides and list entrances
+     alike, which is why nothing in the UI felt like it belonged to the same
+     hand: a symmetric curve makes a 120ms hover feel sluggish at the start and
+     a 300ms panel feel like it stops dead.
 
-  /* Backdrop */
+     --ease-out      decelerate-only. Anything appearing or responding to a
+                     pointer: hovers, fades, colour changes.
+     --ease-emphasis a longer tail. Anything that travels a distance the eye
+                     tracks: drawers, sheets, expanding rows.
+     --ease-exit     accelerate-only. Anything leaving; exits should get out of
+                     the way faster than entrances arrive. */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-emphasis: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+
+  /* Transitions */
+  --transition-fast: 0.12s var(--ease-out);
+  --transition-normal: 0.2s var(--ease-out);
+  --transition-spring: 0.24s var(--ease-emphasis);
+
+  /* Backdrop. Only two: --glass-blur for a translucent surface that scrolling
+     content passes under (header, composer), --scrim-blur for modal dimmers.
+     Opaque surfaces must not declare backdrop-filter — the blur is invisible
+     and still costs a GPU pass on every paint. */
   --glass-blur: blur(16px);
-  --glass-blur-strong: blur(24px);
+  --scrim-blur: blur(8px);
 }
 
-/* Light Theme Overrides (Slate base) */
+/* Light Theme Overrides.
+   Same warm-graphite hue and same saturation ladder as the dark ramp — only
+   the lightness inverts. The previous light theme was built on slate (h210,
+   s32-40), which is why the two themes never felt like one product: its
+   "neutrals" were more saturated than the dark theme's accent surfaces. */
 [data-theme="light"] {
-  --bg-primary: #f8fafc;
-  --bg-secondary: #f1f5f9;
-  --bg-surface: #ffffff;
-  --bg-surface-hover: #f1f5f9;
-  --bg-card: #ffffff;
-  --bg-card-hover: #f8fafc;
-  
-  --bg-glass: rgba(255, 255, 255, 0.9);
-  --bg-input: #ffffff;
-  --bg-header: rgba(255, 255, 255, 0.95);
-  --bg-scrim: rgba(15, 23, 42, 0.4);
-  --bg-thinking: #f1f5f9;
-  --bg-code: #f8fafc;
-  --bg-code-header: #e2e8f0;
+  /* The page ground is held a full step below the card surface. At the first
+     pass both sat within two lightness points of each other and every card
+     depended entirely on its 1px border to exist. */
+  --bg-primary: #f6f5f3;
+  --bg-secondary: #f1efec;
+  --bg-surface: #fefefd;
+  --bg-surface-hover: #edeae6;
+  --bg-card: #fefefd;
+  --bg-card-hover: #f6f5f3;
 
-  --border-color: #e2e8f0;
-  --border-subtle: #f1f5f9;
-  --border-focus: rgba(37, 99, 235, 0.4);
+  --bg-glass: rgba(254, 254, 253, 0.9);
+  --bg-input: #fefefd;
+  --bg-header: rgba(254, 254, 253, 0.95);
+  --bg-scrim: rgba(37, 31, 24, 0.4);
+  --bg-thinking: #f1efec;
+  --bg-code: #f6f5f3;
+  --bg-code-header: #e7e3df;
+  --bg-code-inline: #efece9;
+  --text-code-inline: #3d352c;
 
-  /* Contrast measured against --bg-primary (#f8fafc); every step clears 4.5:1
-     so tertiary text stays legible instead of collapsing into secondary. */
-  --text-primary: #0f172a;   /* 17.1:1 */
-  --text-secondary: #475569; /*  7.2:1 */
-  /* Darker than slate-500 so it still clears 4.5:1 on --bg-surface-hover,
-     not only on the lightest page background. */
-  --text-tertiary: #5b6879;  /*  5.4:1 on bg-primary, 5.2:1 on bg-surface-hover */
+  --border-color: #ded9d3;
+  --border-subtle: #eceae6;
+  --border-focus: rgba(34, 109, 114, 0.45);
+  --border-strong: #cbc4bb;
 
-  --step-exec: #1d4ed8;
-  --step-file: #b45309;
-  --step-search: #7e22ce;
-  --step-plan: #047857;
-  --step-thought: #52525b;
-  --step-tool: #0e7490;
+  /* Contrast measured against --bg-primary and against --bg-surface-hover,
+     which is the tighter of the two; every step clears 4.5:1 on both. */
+  --text-primary: #251f18;   /* 15.1:1 */
+  --text-secondary: #645a4f; /*  6.2:1 */
+  --text-tertiary: #70655a;  /*  5.2:1 on bg-primary, 4.7:1 on bg-surface-hover */
 
-  --accent-color: #2563eb;
-  --accent-text: #1e40af;
-  --accent-subtle-bg: rgba(37, 99, 235, 0.08);
-  --accent-border: rgba(37, 99, 235, 0.2);
-  
-  --brand-secondary: #6d28d9;
-  --brand-gradient: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-secondary) 100%);
-  --success-gradient: linear-gradient(135deg, #059669 0%, #047857 100%);
-  --text-gradient: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  --step-exec: #1e666b;
+  --step-file: #804f1e;
+  --step-search: #693b91;
+  --step-plan: #1f6149;
+  --step-thought: #70655a;
+  --step-tool: #255f74;
 
-  --danger-color: #dc2626;
-  --danger-text: #b91c1c;
-  --danger-bg: rgba(220, 38, 38, 0.08);
-  --success-color: #059669;
-  --success-text: #047857;
-  --success-bg: rgba(5, 150, 105, 0.08);
-  --success-border: rgba(5, 150, 105, 0.15);
-  --warning-color: #d97706;
-  --warning-text: #b45309;
-  --warning-bg: rgba(217, 119, 6, 0.08);
-  --warning-border: rgba(217, 119, 6, 0.15);
-  --info-color: #2563eb;
-  --info-bg: rgba(37, 99, 235, 0.08);
-  --info-border: rgba(37, 99, 235, 0.15);
+  --brand-primary: #226d72;
+  --accent-color: #226d72;
+  --accent-text: #1b6065;
+  --accent-subtle-bg: rgba(34, 109, 114, 0.09);
+  --accent-border: rgba(34, 109, 114, 0.22);
 
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
-  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.06);
-  --shadow-float: 0 8px 24px rgba(15, 23, 42, 0.08);
-  --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.1);
+  --danger-color: #b4312d;
+  --danger-text: #9f2723;
+  --danger-bg: rgba(180, 49, 45, 0.08);
+  --danger-border: rgba(180, 49, 45, 0.16);
+  --success-color: #237057;
+  --success-text: #1c634c;
+  --success-bg: rgba(35, 112, 87, 0.08);
+  --success-border: rgba(35, 112, 87, 0.16);
+  --warning-color: #885820;
+  --warning-text: #7b4a19;
+  --warning-bg: rgba(136, 88, 32, 0.08);
+  --warning-border: rgba(136, 88, 32, 0.16);
+  --info-color: #226d72;
 
-  --scrollbar-thumb: rgba(15, 23, 42, 0.12);
-  --scrollbar-thumb-hover: rgba(15, 23, 42, 0.25);
+  /* Warm-tinted rather than slate, so shadows belong to the same ground as
+     the surfaces casting them. */
+  --shadow-sm: 0 1px 2px rgba(37, 31, 24, 0.05);
+  --shadow-md: 0 4px 12px rgba(37, 31, 24, 0.07);
+  --shadow-float: 0 8px 24px rgba(37, 31, 24, 0.09);
+  --shadow-lg: 0 12px 32px rgba(37, 31, 24, 0.11);
+
+  --scrollbar-thumb: rgba(37, 31, 24, 0.14);
+  --scrollbar-thumb-hover: rgba(37, 31, 24, 0.28);
 }
 
 * {
@@ -273,7 +340,7 @@ body {
   transition: background-color 0.3s ease, color 0.3s ease;
 }
 
-/* Scrollbar Styling - Modern & Performant */
+/* Scrollbar */
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) transparent;
@@ -299,7 +366,7 @@ body {
 /* Selection Color */
 ::selection {
   background: var(--brand-primary);
-  color: #FFFFFF;
+  color: var(--on-brand);
 }
 
 /* Focus Ring Utility */
@@ -312,10 +379,22 @@ button:focus:not(:focus-visible) {
   outline: none;
 }
 
-/* Smooth Image Rendering */
+/* Images */
 img, svg {
   display: block;
   max-width: 100%;
+}
+
+/* Semantic colours for inline icons. These exist because `text-success` and
+   `text-warning` were being used as if Tailwind defined them — it does not, so
+   those icons silently rendered in the inherited colour. */
+.icon-success {
+  color: var(--success-color);
+}
+
+.icon-warning {
+  color: var(--warning-color);
+  fill: var(--warning-color);
 }
 
 /* Available to assistive tech, invisible on screen. */
@@ -329,6 +408,97 @@ img, svg {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* ── Primitives ───────────────────────────────────────────────────────────
+   Three shapes that were previously re-declared, slightly differently, in
+   every panel that needed them: a section label, a filled action, a quiet
+   action. Divergence between those copies is most of what made the app read
+   as assembled rather than designed — the same button was 28px tall in the
+   header, 30px in the inspector and 34px in the drawer. */
+
+/* Small caps label that opens a section. Never a heading element's only
+   styling — it is the label, the heading below it carries the meaning. */
+.ui-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  color: var(--text-tertiary);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+
+.ui-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1-5);
+  height: 32px;
+  padding: 0 var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast),
+    opacity var(--transition-fast);
+}
+
+.ui-btn > svg {
+  flex: none;
+}
+
+.ui-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* The one filled control on a screen. Reserved for the action the screen
+   exists to perform, which is why it carries the only saturated fill. */
+.ui-btn.primary {
+  color: var(--on-brand);
+  background: var(--brand-primary);
+}
+
+.ui-btn.primary:hover:not(:disabled) {
+  background: var(--accent-color);
+}
+
+.ui-btn.secondary {
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border-color: var(--border-color);
+}
+
+.ui-btn.secondary:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-surface-hover);
+  border-color: var(--border-strong);
+}
+
+.ui-btn.ghost {
+  color: var(--text-secondary);
+  background: transparent;
+}
+
+.ui-btn.ghost:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-surface-hover);
+}
+
+/* Square variant for icon-only actions, so an icon button and a text button
+   on the same row share a baseline and a height. */
+.ui-btn.icon-only {
+  width: 32px;
+  padding: 0;
 }
 
 /* Reduced Motion */

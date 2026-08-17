@@ -59,7 +59,7 @@ export function ThinkingBlock({
             </span>
           )}
           <span className="thinking-label">
-            {isThinking ? '思考中...' : '思考过程'}
+            {isThinking ? '思考中…' : '思考过程'}
           </span>
           <span className="thinking-duration">
             {formatElapsed(elapsed)}
