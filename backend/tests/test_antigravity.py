@@ -4,7 +4,7 @@ import asyncio
 import json
 import tempfile
 from pathlib import Path
-from subprocess import CompletedProcess
+from subprocess import DEVNULL, CompletedProcess
 from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase, TestCase
 from unittest.mock import patch
@@ -54,6 +54,7 @@ class AntigravityModelCatalogTests(TestCase):
         )
         run_mock.assert_called_once_with(
             ["agy", "models"],
+            stdin=DEVNULL,
             capture_output=True,
             text=True,
             timeout=10,

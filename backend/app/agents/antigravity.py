@@ -32,6 +32,7 @@ def fetch_antigravity_models(command: str = "agy") -> tuple[tuple[str, str], ...
     try:
         result = subprocess.run(
             [command, "models"],
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
             timeout=10,
