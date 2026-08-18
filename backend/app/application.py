@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import subprocess
+from collections.abc import Sequence
 from contextlib import asynccontextmanager
 from dataclasses import asdict
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import (
@@ -28,24 +31,48 @@ from .config import Settings
 from .database import Database
 from .models import (
     ChatMessage,
+    Conversation,
     ConversationCreate,
     ConversationUpdate,
     LoginRequest,
+    Message,
     MessageFeedbackUpdate,
     QueueReorder,
     QueueUpdate,
+    ShareCreate,
     SummaryUpdate,
 )
 from .realtime import AgentCoordinator, ConnectionHub
 from .security import (
     LoginRateLimiter,
     SESSION_COOKIE_NAME,
+    SHARE_TOKEN_PATTERN,
     TokenService,
     authenticate_websocket,
+    hash_share_token,
+    new_share_token,
     require_auth,
 )
 
 logger = logging.getLogger(__name__)
+
+#: Public, unauthenticated read path. Everything under it is addressed by a
+#: capability token rather than a session.
+SHARE_API_PREFIX = "/api/shared/"
+#: Client-side route that renders a snapshot. Returned as a path so the link is
+#: built from the origin the browser is already on, never from a Host header.
+SHARE_URL_PREFIX = "/s/"
+SHARE_SNAPSHOT_VERSION = 1
+SHARE_SNAPSHOT_MAX_CHARS = 4_000_000
+#: Every snapshot is a full second copy of the conversation, and every live one
+#: is a separate URL the owner would have to remember to revoke. Bounded so a
+#: stuck client cannot quietly turn one project into hundreds of public copies.
+SHARE_MAX_PER_CONVERSATION = 20
+#: Expiry is a promise about wall-clock time, so it cannot depend on someone
+#: opening the link or the share panel again.
+SHARE_SWEEP_INTERVAL_SECONDS = 3600
+#: `system` rows are transport notices, not conversation.
+SHAREABLE_ROLES = frozenset({"user", "agent", "summary"})
 
 FILE_SEARCH_IGNORED_DIRECTORIES = {
     ".git",
@@ -153,6 +180,90 @@ def _search_workspace_files(
     return items, (scanned > FILE_SEARCH_SCAN_LIMIT or len(matches) > len(items))
 
 
+def _redact_share_token(value: str) -> str:
+    """Replace a capability token in a request path with a placeholder."""
+    for prefix in (SHARE_API_PREFIX, SHARE_URL_PREFIX):
+        if value.startswith(prefix):
+            return f"{prefix}<redacted>"
+    return value
+
+
+class ShareTokenLogFilter(logging.Filter):
+    """Keep share tokens out of the access log.
+
+    `GET /api/shared/<token>` *is* the credential, and a log file is copied,
+    tailed, shipped and pasted into issues far more casually than a database
+    ever is. Redacting at the logger means a token never reaches disk in the
+    first place, rather than being scrubbed afterwards.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple):
+            record.args = tuple(
+                _redact_share_token(arg) if isinstance(arg, str) else arg
+                for arg in record.args
+            )
+        return True
+
+
+def _share_expiry(days: int | None) -> str | None:
+    if days is None:
+        return None
+    deadline = datetime.now(timezone.utc) + timedelta(days=days)
+    return deadline.isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
+def _is_expired(expires_at: str | None) -> bool:
+    if not expires_at:
+        return False
+    try:
+        deadline = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+    except ValueError:
+        # An unparseable deadline is treated as reached: a link nobody can date
+        # must not be a link that never ends.
+        return True
+    if deadline.tzinfo is None:
+        deadline = deadline.replace(tzinfo=timezone.utc)
+    return deadline <= datetime.now(timezone.utc)
+
+
+def _build_share_snapshot(
+    conversation: Conversation,
+    messages: Sequence[Message],
+    *,
+    include_thoughts: bool,
+) -> dict[str, object]:
+    """Freeze what the chat shows into a self-contained public document.
+
+    Deliberately narrower than the stored history. The workspace path, run ids,
+    per-run character accounting and thumb ratings describe the machine and its
+    operator rather than the conversation, and a snapshot handed to a stranger
+    is the wrong place for any of them.
+    """
+    return {
+        "version": SHARE_SNAPSHOT_VERSION,
+        "title": conversation.name,
+        "include_thoughts": include_thoughts,
+        "messages": [
+            {
+                "id": message.id,
+                "role": message.role,
+                "content": message.content,
+                "timestamp": message.timestamp,
+                "model": message.model,
+                "duration": round(message.duration, 1),
+                **(
+                    {"thought": message.thought}
+                    if include_thoughts and message.thought
+                    else {}
+                ),
+            }
+            for message in messages
+            if message.role in SHAREABLE_ROLES and message.content.strip()
+        ],
+    }
+
+
 def _workspace_git_status(workspace: Path) -> dict[str, object]:
     """Return a bounded, read-only Git change summary for the UI radar."""
     try:
@@ -235,10 +346,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     hub = ConnectionHub()
     coordinator = AgentCoordinator(database, providers, hub)
 
+    async def sweep_dead_shares() -> None:
+        """Delete expired and orphaned snapshots on a timer.
+
+        `migrate()` sweeps at startup and `list_shares` sweeps when the owner
+        looks, but a link nobody touches again is exactly the one whose stored
+        copy matters most — this process can stay up for weeks.
+        """
+        while True:
+            await asyncio.sleep(SHARE_SWEEP_INTERVAL_SECONDS)
+            try:
+                removed = await asyncio.to_thread(database.purge_dead_shares)
+                if removed:
+                    logger.info("Purged %d dead share snapshot(s)", removed)
+            except Exception:
+                # A failed sweep is a retry next hour, never a dead process.
+                logger.exception("Share snapshot sweep failed")
+
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         database.migrate()
+        sweeper = asyncio.create_task(sweep_dead_shares())
         yield
+        sweeper.cancel()
         await coordinator.shutdown()
 
     app = FastAPI(
@@ -258,7 +388,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         resolved_settings.auth_secret,
         resolved_settings.auth_ttl_seconds,
     )
+    logging.getLogger("uvicorn.access").addFilter(ShareTokenLogFilter())
     app.state.login_limiter = LoginRateLimiter()
+    # Share tokens are far too large to guess, but the public lookup is the one
+    # route a stranger can reach, so it gets the same bucketed backpressure the
+    # PIN does rather than an unbounded read loop.
+    app.state.share_limiter = LoginRateLimiter(max_attempts=60, window_seconds=60)
     cookie_same_site = (
         "none"
         if resolved_settings.environment == "production"
@@ -284,6 +419,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response.headers["Cache-Control"] = (
             "no-store" if request.url.path.startswith("/api/") else "no-cache"
         )
+        if request.url.path.startswith(SHARE_API_PREFIX):
+            # A shared snapshot is addressed by the token in its own URL. Keep
+            # that URL out of search indexes, and out of the Referer header of
+            # anything a reader clicks through to.
+            response.headers["Referrer-Policy"] = "no-referrer"
+            response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
         return response
 
     @app.exception_handler(ProviderError)
@@ -547,6 +688,107 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if summary is None:
             raise HTTPException(status_code=404, detail="Summary checkpoint not found")
         return summary
+
+    @app.post(
+        "/api/conversations/{conversation_id}/shares",
+        status_code=status.HTTP_201_CREATED,
+        dependencies=[Depends(require_auth)],
+    )
+    async def create_share(conversation_id: int, request: ShareCreate):
+        conversation = database.get_conversation(conversation_id)
+        if conversation is None:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        if database.count_shares(conversation_id) >= SHARE_MAX_PER_CONVERSATION:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "This conversation already has the maximum number of share "
+                    "links; revoke one before creating another"
+                ),
+            )
+        snapshot = _build_share_snapshot(
+            conversation,
+            database.list_messages(conversation_id),
+            include_thoughts=request.include_thoughts,
+        )
+        messages = snapshot["messages"]
+        if not isinstance(messages, list) or not messages:
+            raise HTTPException(status_code=422, detail="Conversation has nothing to share")
+        payload = json.dumps(snapshot, ensure_ascii=False, separators=(",", ":"))
+        if len(payload) > SHARE_SNAPSHOT_MAX_CHARS:
+            raise HTTPException(
+                status_code=413, detail="Conversation is too large to share"
+            )
+        token = new_share_token()
+        share = database.create_share(
+            conversation_id,
+            token_hash=hash_share_token(token),
+            title=conversation.name,
+            snapshot=payload,
+            message_count=len(messages),
+            include_thoughts=request.include_thoughts,
+            expires_at=_share_expiry(request.expires_in_days),
+        )
+        # The only time the raw token exists outside the reader's URL bar. The
+        # database keeps its digest, so this response cannot be reconstructed.
+        return {**share, "token": token, "url_path": f"{SHARE_URL_PREFIX}{token}"}
+
+    @app.get(
+        "/api/conversations/{conversation_id}/shares",
+        dependencies=[Depends(require_auth)],
+    )
+    async def list_shares(conversation_id: int):
+        if database.get_conversation(conversation_id) is None:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        shares = [
+            share
+            for share in database.list_shares(conversation_id)
+            if not _is_expired(share["expires_at"])
+        ]
+        return {"items": shares}
+
+    @app.delete(
+        "/api/conversations/{conversation_id}/shares/{share_id}",
+        dependencies=[Depends(require_auth)],
+    )
+    async def revoke_share(conversation_id: int, share_id: int):
+        if not database.delete_share(conversation_id, share_id):
+            raise HTTPException(status_code=404, detail="Share link not found")
+        return {"status": "revoked"}
+
+    @app.get(SHARE_API_PREFIX + "{token}")
+    async def read_shared_conversation(token: str, request: Request):
+        """The one unauthenticated read in the application.
+
+        The token is the entire credential, so this route stays a dead end for
+        anyone who does not already hold one: no session, no enumeration, and
+        the same answer for a token that never existed as for one that was
+        revoked.
+        """
+        client_id = request.client.host if request.client else "unknown"
+        if not app.state.share_limiter.check(client_id):
+            raise HTTPException(
+                status_code=429, detail="Too many share lookups; try again later"
+            )
+        share = (
+            database.find_share_by_token_hash(hash_share_token(token))
+            if SHARE_TOKEN_PATTERN.match(token)
+            else None
+        )
+        if share is None:
+            app.state.share_limiter.record_failure(client_id)
+            raise HTTPException(status_code=404, detail="Share link not found")
+        if _is_expired(share["expires_at"]):
+            # Expiry deletes rather than hides: past its deadline a snapshot
+            # should stop existing, not merely stop resolving.
+            database.delete_share_by_id(int(share["id"]))
+            raise HTTPException(status_code=410, detail="Share link has expired")
+        database.record_share_view(int(share["id"]))
+        return {
+            **json.loads(share["snapshot"]),
+            "shared_at": share["created_at"],
+            "expires_at": share["expires_at"],
+        }
 
     @app.get("/api/search", dependencies=[Depends(require_auth)])
     async def search(

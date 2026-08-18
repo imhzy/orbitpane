@@ -94,6 +94,21 @@ class Database:
                     FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
                 );
 
+                CREATE TABLE IF NOT EXISTS shares (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    conversation_id INTEGER NOT NULL,
+                    token_hash TEXT NOT NULL UNIQUE,
+                    title TEXT NOT NULL,
+                    snapshot TEXT NOT NULL,
+                    message_count INTEGER NOT NULL DEFAULT 0,
+                    include_thoughts INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                    expires_at TEXT,
+                    view_count INTEGER NOT NULL DEFAULT 0,
+                    last_viewed_at TEXT,
+                    FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+                );
+
                 CREATE TABLE IF NOT EXISTS runs (
                     run_id TEXT PRIMARY KEY,
                     conversation_id INTEGER NOT NULL,
@@ -140,8 +155,22 @@ class Database:
                     ON runs(conversation_id, status, queued_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_summaries_conversation
                     ON summary_checkpoints(conversation_id, id DESC);
+                CREATE INDEX IF NOT EXISTS idx_shares_conversation
+                    ON shares(conversation_id, id DESC);
                 """
             )
+            # SQLite enforces foreign keys *per connection*, and `shares`
+            # leans on ON DELETE CASCADE so that deleting a project also
+            # unpublishes it. If that pragma ever stops applying, the cascade
+            # silently stops running and deleted conversations keep serving
+            # public snapshots. Fail at startup rather than discover it from a
+            # live link.
+            if not connection.execute("PRAGMA foreign_keys").fetchone()[0]:
+                raise RuntimeError(
+                    "SQLite foreign key enforcement is off; share snapshots "
+                    "would outlive the conversations they copy"
+                )
+            self._purge_dead_shares(connection)
 
     @staticmethod
     def _add_column(
@@ -307,6 +336,14 @@ class Database:
 
     def delete_conversation(self, conversation_id: int) -> bool:
         with self.connect() as connection:
+            # The FK cascade already covers this. It is written out anyway,
+            # inside the same transaction, because "a public copy outlived the
+            # conversation it copied" is the one failure this code must not
+            # have, and it should not depend on a pragma being set correctly on
+            # whichever connection happens to run the delete.
+            connection.execute(
+                "DELETE FROM shares WHERE conversation_id = ?", (conversation_id,)
+            )
             cursor = connection.execute(
                 "DELETE FROM conversations WHERE id = ?", (conversation_id,)
             )
@@ -392,12 +429,17 @@ class Database:
         return self.get_message(conversation_id, message_id)
 
     def clear_history(self, conversation_id: int) -> None:
-        """Drop every trace of previous turns: messages, summaries and runs.
+        """Drop every trace of previous turns: messages, summaries, runs, shares.
 
         Run records carry the prompts of queued/finished tasks, so leaving them
         behind would keep the task center showing content the user just cleared.
+        Share snapshots are a published copy of exactly that content, so a link
+        outliving the clear would keep serving what the user just erased.
         """
         with self.connect() as connection:
+            connection.execute(
+                "DELETE FROM shares WHERE conversation_id = ?", (conversation_id,)
+            )
             connection.execute(
                 "DELETE FROM summary_checkpoints WHERE conversation_id = ?",
                 (conversation_id,),
@@ -646,3 +688,154 @@ class Database:
             "context_chars": int(message_row["context_chars"]),
             "summary_count": int(summary_count["value"]),
         }
+
+    # ── Share snapshots ─────────────────────────────────────────────────────
+    #
+    # A share is a frozen copy of the conversation, not a view onto it: the
+    # rendered payload is stored once at creation and never re-read from
+    # `messages`, so later turns, edits and deletions cannot change or leak
+    # into a link that is already public.
+
+    @staticmethod
+    def _share_dict(row: sqlite3.Row) -> dict[str, Any]:
+        """Owner-facing metadata. The token hash and payload never come along."""
+        return {
+            "id": int(row["id"]),
+            "conversation_id": int(row["conversation_id"]),
+            "title": str(row["title"]),
+            "message_count": int(row["message_count"]),
+            "include_thoughts": bool(row["include_thoughts"]),
+            "created_at": _utc_iso(row["created_at"]),
+            "expires_at": _utc_iso(row["expires_at"]) if row["expires_at"] else None,
+            "view_count": int(row["view_count"]),
+            "last_viewed_at": (
+                _utc_iso(row["last_viewed_at"]) if row["last_viewed_at"] else None
+            ),
+        }
+
+    def purge_dead_shares(self) -> int:
+        """Run the sweep on its own connection. Returns the number of rows gone."""
+        with self.connect() as connection:
+            return self._purge_dead_shares(connection)
+
+    @staticmethod
+    def _purge_dead_shares(connection: sqlite3.Connection) -> int:
+        """Delete every snapshot that must no longer exist.
+
+        Two classes of row. Expired: past its deadline a link should stop being
+        a stored copy of the conversation, not merely stop resolving. Orphaned:
+        rows whose conversation is gone, which the cascade normally removes —
+        swept anyway so that a database written by an older build, or restored
+        from a backup taken mid-delete, cannot carry a public copy of content
+        that no longer exists.
+        """
+        cursor = connection.execute(
+            "DELETE FROM shares "
+            "WHERE (expires_at IS NOT NULL AND expires_at <= ?) "
+            "OR conversation_id NOT IN (SELECT id FROM conversations)",
+            (_utc_iso(),),
+        )
+        return int(cursor.rowcount)
+
+    def create_share(
+        self,
+        conversation_id: int,
+        *,
+        token_hash: str,
+        title: str,
+        snapshot: str,
+        message_count: int,
+        include_thoughts: bool,
+        expires_at: str | None,
+    ) -> dict[str, Any]:
+        with self.connect() as connection:
+            cursor = connection.execute(
+                "INSERT INTO shares(conversation_id, token_hash, title, snapshot, "
+                "message_count, include_thoughts, expires_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    conversation_id,
+                    token_hash,
+                    title,
+                    snapshot,
+                    message_count,
+                    int(include_thoughts),
+                    expires_at,
+                ),
+            )
+            share_id = int(cursor.lastrowid)
+        share = self.get_share(conversation_id, share_id)
+        if share is None:
+            raise RuntimeError("Share was not created")
+        return share
+
+    def get_share(self, conversation_id: int, share_id: int) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM shares WHERE conversation_id = ? AND id = ?",
+                (conversation_id, share_id),
+            ).fetchone()
+        return self._share_dict(row) if row else None
+
+    def list_shares(self, conversation_id: int) -> list[dict[str, Any]]:
+        """Owner-facing link list, and the sweep that keeps the table honest.
+
+        Opening the share panel is the moment the owner reasons about what is
+        public, so it is also the moment expired and orphaned snapshots get
+        deleted for real rather than merely filtered out of the response.
+        """
+        with self.connect() as connection:
+            self._purge_dead_shares(connection)
+            rows = connection.execute(
+                "SELECT * FROM shares WHERE conversation_id = ? ORDER BY id DESC",
+                (conversation_id,),
+            ).fetchall()
+        return [self._share_dict(row) for row in rows]
+
+    def count_shares(self, conversation_id: int) -> int:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) AS total FROM shares WHERE conversation_id = ?",
+                (conversation_id,),
+            ).fetchone()
+        return int(row["total"])
+
+    def find_share_by_token_hash(self, token_hash: str) -> dict[str, Any] | None:
+        """Resolve a public link. Lookup is by hash: the raw token is never stored.
+
+        The join is the actual guarantee that deleted content stops being
+        served. Cleanup on the write side can be missed — a cascade that did not
+        fire, a future code path that forgets — but a snapshot whose
+        conversation is gone cannot match this query at all, so a stale row is
+        an unreachable row rather than a live leak.
+        """
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT shares.* FROM shares "
+                "JOIN conversations ON conversations.id = shares.conversation_id "
+                "WHERE shares.token_hash = ?",
+                (token_hash,),
+            ).fetchone()
+        if row is None:
+            return None
+        return {**self._share_dict(row), "snapshot": str(row["snapshot"])}
+
+    def record_share_view(self, share_id: int) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                "UPDATE shares SET view_count = view_count + 1, last_viewed_at = ? "
+                "WHERE id = ?",
+                (_utc_iso(), share_id),
+            )
+
+    def delete_share(self, conversation_id: int, share_id: int) -> bool:
+        with self.connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM shares WHERE conversation_id = ? AND id = ?",
+                (conversation_id, share_id),
+            )
+        return cursor.rowcount > 0
+
+    def delete_share_by_id(self, share_id: int) -> None:
+        with self.connect() as connection:
+            connection.execute("DELETE FROM shares WHERE id = ?", (share_id,))

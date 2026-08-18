@@ -84,6 +84,17 @@ class SummaryUpdate(BaseModel):
     active: bool | None = None
 
 
+class ShareCreate(BaseModel):
+    """Options chosen when a conversation snapshot is published."""
+
+    # The agent's internal reasoning quotes file paths, command output and tool
+    # arguments the sender never typed and is unlikely to have re-read, so a
+    # public copy only carries it when it was asked for explicitly.
+    include_thoughts: bool = False
+    #: None keeps the link working until it is revoked.
+    expires_in_days: int | None = Field(default=None, ge=1, le=365)
+
+
 class MessageFeedbackUpdate(BaseModel):
     #: Empty string clears an existing rating.
     feedback: Literal["up", "down", ""]

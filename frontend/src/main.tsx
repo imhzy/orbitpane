@@ -1,34 +1,35 @@
 import React, { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { MotionConfig } from 'framer-motion'
 import './index.css'
-import App from './App.tsx'
 import { registerSW } from 'virtual:pwa-register'
 import { activatePwaUpdate, configurePwaUpdate, consumeManualUpdateRequest } from './lib/pwaUpdate'
 import { OFFLINE_READY_EVENT, UPDATE_READY_EVENT } from './lib/appEvents'
+import { readShareToken } from './lib/share'
 
-const updateServiceWorker = registerSW({
-  immediate: true,
-  onNeedRefresh() {
-    if (consumeManualUpdateRequest()) {
-      void activatePwaUpdate()
-      return
-    }
-    window.dispatchEvent(new CustomEvent(UPDATE_READY_EVENT, {
-      detail: () => void activatePwaUpdate(),
-    }))
-  },
-  onOfflineReady() {
-    window.dispatchEvent(new CustomEvent(OFFLINE_READY_EVENT))
-  },
-  onRegisteredSW(_swScriptUrl, registration) {
-    configurePwaUpdate({ registration })
-  },
-})
+function registerServiceWorker() {
+  const updateServiceWorker = registerSW({
+    immediate: true,
+    onNeedRefresh() {
+      if (consumeManualUpdateRequest()) {
+        void activatePwaUpdate()
+        return
+      }
+      window.dispatchEvent(new CustomEvent(UPDATE_READY_EVENT, {
+        detail: () => void activatePwaUpdate(),
+      }))
+    },
+    onOfflineReady() {
+      window.dispatchEvent(new CustomEvent(OFFLINE_READY_EVENT))
+    },
+    onRegisteredSW(_swScriptUrl, registration) {
+      configurePwaUpdate({ registration })
+    },
+  })
 
-configurePwaUpdate({
-  activateWaitingWorker: () => updateServiceWorker(true),
-})
+  configurePwaUpdate({
+    activateWaitingWorker: () => updateServiceWorker(true),
+  })
+}
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: any }> {
   constructor(props: { children: React.ReactNode }) {
@@ -112,15 +113,46 @@ window.addEventListener('vite:preloadError', (event) => {
   window.location.reload()
 })
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <ErrorBoundary>
-      {/* The CSS `prefers-reduced-motion` block only silences CSS animations.
-          Drawers, sheets, dialogs and message entry are all framer-motion, so
-          they need this to honour the same preference. */}
-      <MotionConfig reducedMotion="user">
-        <App />
-      </MotionConfig>
-    </ErrorBoundary>
-  </StrictMode>,
-)
+const root = createRoot(document.getElementById('root')!)
+const shareToken = readShareToken(window.location.pathname)
+
+if (shareToken) {
+  /* A share link is opened by someone who has no account here, so the private
+     application is never loaded on this route: no service worker registered on
+     their browser, no install prompt, no login screen behind a failed link —
+     and the app bundle is not even fetched. */
+
+  /* The app shell pins the document so each pane can scroll itself. A snapshot
+     is a page rather than an app, so it takes normal document scrolling back;
+     stamped here, before first paint, so the locked rules never apply to it. */
+  document.documentElement.dataset.orbitpaneRoute = 'share'
+  void import('./components/SharedConversation').then(({ SharedConversation }) => {
+    root.render(
+      <StrictMode>
+        <ErrorBoundary>
+          <SharedConversation token={shareToken} />
+        </ErrorBoundary>
+      </StrictMode>,
+    )
+  })
+} else {
+  registerServiceWorker()
+  // Imported here rather than at the top of the file so the animation runtime
+  // stays out of the entry chunk, which the share route also downloads.
+  void Promise.all([import('framer-motion'), import('./App.tsx')]).then(
+    ([{ MotionConfig }, { default: App }]) => {
+      root.render(
+        <StrictMode>
+          <ErrorBoundary>
+            {/* The CSS `prefers-reduced-motion` block only silences CSS animations.
+                Drawers, sheets, dialogs and message entry are all framer-motion, so
+                they need this to honour the same preference. */}
+            <MotionConfig reducedMotion="user">
+              <App />
+            </MotionConfig>
+          </ErrorBoundary>
+        </StrictMode>,
+      )
+    },
+  )
+}

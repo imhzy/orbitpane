@@ -12,6 +12,13 @@ export default defineConfig({
       registerType: 'prompt',
       // main.tsx owns registration so it can also surface update lifecycle events.
       injectRegister: false,
+      workbox: {
+        // A share link is opened by people who do not have the app installed,
+        // and main.tsx never registers a worker on that route. Keeping /s/ out
+        // of the navigation fallback stops an *already installed* worker from
+        // answering it out of the app's precache as well.
+        navigateFallbackDenylist: [/^\/s\//],
+      },
       includeAssets: ['favicon.svg', 'favicon.ico', 'pwa-64x64.png', 'pwa-192x192.png', 'pwa-512x512.png', 'apple-touch-icon-180x180.png', 'maskable-icon-512x512.png'],
       manifest: {
         name: 'OrbitPane',

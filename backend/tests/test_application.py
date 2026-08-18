@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import logging
 import tempfile
 from pathlib import Path
 from unittest import IsolatedAsyncioTestCase
 
 import httpx
 
-from backend.app.application import create_app
+from backend.app.application import (
+    SHARE_MAX_PER_CONVERSATION,
+    ShareTokenLogFilter,
+    create_app,
+)
 from backend.tests.helpers import test_settings
 
 
@@ -191,6 +196,245 @@ class ApplicationTests(IsolatedAsyncioTestCase):
             params={"q": "app"},
         )
         self.assertEqual(response.status_code, 404)
+
+    async def _shared_conversation(self, **share_options: object) -> tuple[str, dict]:
+        """Create a two-message project and publish a snapshot of it."""
+        headers = await self.login_headers()
+        created = await self.client.post(
+            "/api/conversations",
+            headers=headers,
+            json={
+                "name": "Shared workspace",
+                "path": str(self.workspace),
+                "provider": "antigravity",
+            },
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        conversation_id = int(created.json()["id"])
+        database = self.app.state.database
+        database.add_message(conversation_id, "user", "第一个问题")
+        database.add_message(
+            conversation_id,
+            "agent",
+            "第一个回答",
+            thought="internal reasoning about /etc/passwd",
+            model="test-model",
+        )
+
+        response = await self.client.post(
+            f"/api/conversations/{conversation_id}/shares",
+            headers=headers,
+            json=share_options,
+        )
+        self.assertEqual(response.status_code, 201, response.text)
+        return str(conversation_id), response.json()
+
+    async def test_share_link_is_readable_without_a_session(self) -> None:
+        conversation_id, share = await self._shared_conversation()
+        self.assertEqual(share["url_path"], f"/s/{share['token']}")
+        self.assertEqual(share["message_count"], 2)
+        self.assertIsNone(share["expires_at"])
+
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=self.app),
+            base_url="http://test",
+        ) as anonymous:
+            # No cookie jar, no PIN: possession of the link is the whole grant.
+            response = await anonymous.get(f"/api/shared/{share['token']}")
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertIn("noindex", response.headers["X-Robots-Tag"])
+            self.assertEqual(response.headers["Referrer-Policy"], "no-referrer")
+            self.assertEqual(response.headers["Cache-Control"], "no-store")
+
+        snapshot = response.json()
+        self.assertEqual(snapshot["title"], "Shared workspace")
+        self.assertEqual(
+            [message["content"] for message in snapshot["messages"]],
+            ["第一个问题", "第一个回答"],
+        )
+        # The server's filesystem layout and the agent's reasoning are not part
+        # of what was shared.
+        self.assertNotIn("path", snapshot)
+        self.assertNotIn("thought", snapshot["messages"][1])
+
+        listed = await self.client.get(
+            f"/api/conversations/{conversation_id}/shares",
+            headers=await self.login_headers(),
+        )
+        self.assertEqual(listed.status_code, 200)
+        items = listed.json()["items"]
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["view_count"], 1)
+        # The owner list is metadata only; the token exists in the URL alone.
+        self.assertNotIn("token", items[0])
+
+    async def test_share_snapshot_does_not_follow_later_turns(self) -> None:
+        conversation_id, share = await self._shared_conversation()
+        self.app.state.database.add_message(
+            int(conversation_id), "user", "分享之后才说的话"
+        )
+
+        response = await self.client.get(f"/api/shared/{share['token']}")
+        self.assertEqual(response.status_code, 200, response.text)
+        contents = [message["content"] for message in response.json()["messages"]]
+        self.assertNotIn("分享之后才说的话", contents)
+        self.assertEqual(len(contents), 2)
+
+    async def test_share_can_opt_into_agent_reasoning(self) -> None:
+        _, share = await self._shared_conversation(include_thoughts=True)
+
+        response = await self.client.get(f"/api/shared/{share['token']}")
+        self.assertEqual(response.status_code, 200, response.text)
+        snapshot = response.json()
+        self.assertTrue(snapshot["include_thoughts"])
+        self.assertEqual(
+            snapshot["messages"][1]["thought"],
+            "internal reasoning about /etc/passwd",
+        )
+
+    async def test_revoked_share_link_stops_resolving(self) -> None:
+        conversation_id, share = await self._shared_conversation()
+        headers = await self.login_headers()
+
+        revoked = await self.client.delete(
+            f"/api/conversations/{conversation_id}/shares/{share['id']}",
+            headers=headers,
+        )
+        self.assertEqual(revoked.status_code, 200, revoked.text)
+
+        response = await self.client.get(f"/api/shared/{share['token']}")
+        self.assertEqual(response.status_code, 404)
+        repeated = await self.client.delete(
+            f"/api/conversations/{conversation_id}/shares/{share['id']}",
+            headers=headers,
+        )
+        self.assertEqual(repeated.status_code, 404)
+
+    async def test_expired_share_link_is_gone_and_no_longer_stored(self) -> None:
+        conversation_id, share = await self._shared_conversation(expires_in_days=1)
+        self.assertIsNotNone(share["expires_at"])
+        with self.app.state.database.connect() as connection:
+            connection.execute(
+                "UPDATE shares SET expires_at = ? WHERE id = ?",
+                ("2020-01-01T00:00:00.000000Z", share["id"]),
+            )
+
+        response = await self.client.get(f"/api/shared/{share['token']}")
+        self.assertEqual(response.status_code, 410)
+
+        listed = await self.client.get(
+            f"/api/conversations/{conversation_id}/shares",
+            headers=await self.login_headers(),
+        )
+        self.assertEqual(listed.json()["items"], [])
+
+    async def test_share_creation_requires_a_session(self) -> None:
+        headers = await self.login_headers()
+        created = await self.client.post(
+            "/api/conversations",
+            headers=headers,
+            json={
+                "name": "Private workspace",
+                "path": str(self.workspace),
+                "provider": "antigravity",
+            },
+        )
+        conversation_id = created.json()["id"]
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=self.app),
+            base_url="http://test",
+        ) as anonymous:
+            response = await anonymous.post(
+                f"/api/conversations/{conversation_id}/shares", json={}
+            )
+        self.assertEqual(response.status_code, 401)
+
+    async def test_empty_conversation_cannot_be_shared(self) -> None:
+        headers = await self.login_headers()
+        created = await self.client.post(
+            "/api/conversations",
+            headers=headers,
+            json={
+                "name": "Empty workspace",
+                "path": str(self.workspace),
+                "provider": "antigravity",
+            },
+        )
+        response = await self.client.post(
+            f"/api/conversations/{created.json()['id']}/shares",
+            headers=headers,
+            json={},
+        )
+        self.assertEqual(response.status_code, 422)
+
+    async def test_unknown_share_tokens_are_indistinguishable(self) -> None:
+        for token in ("not-a-real-token-value-000", "../../etc/passwd", "x"):
+            response = await self.client.get(f"/api/shared/{token}")
+            self.assertEqual(response.status_code, 404, token)
+
+    async def test_deleting_a_project_takes_its_share_links_with_it(self) -> None:
+        conversation_id, share = await self._shared_conversation()
+        headers = await self.login_headers()
+
+        deleted = await self.client.delete(
+            f"/api/conversations/{conversation_id}", headers=headers
+        )
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+
+        response = await self.client.get(f"/api/shared/{share['token']}")
+        self.assertEqual(response.status_code, 404)
+        # Not merely unreachable: the published copy is off the disk.
+        database = self.app.state.database
+        with database.connect() as connection:
+            remaining = connection.execute("SELECT COUNT(*) FROM shares").fetchone()[0]
+        self.assertEqual(remaining, 0)
+
+    async def test_clearing_history_takes_its_share_links_with_it(self) -> None:
+        conversation_id, share = await self._shared_conversation()
+        headers = await self.login_headers()
+
+        cleared = await self.client.delete(
+            f"/api/history/{conversation_id}", headers=headers
+        )
+        self.assertEqual(cleared.status_code, 200, cleared.text)
+
+        response = await self.client.get(f"/api/shared/{share['token']}")
+        self.assertEqual(response.status_code, 404)
+        listed = await self.client.get(
+            f"/api/conversations/{conversation_id}/shares", headers=headers
+        )
+        self.assertEqual(listed.json()["items"], [])
+
+    async def test_share_links_per_conversation_are_capped(self) -> None:
+        conversation_id, _ = await self._shared_conversation()
+        headers = await self.login_headers()
+
+        for _ in range(SHARE_MAX_PER_CONVERSATION - 1):
+            extra = await self.client.post(
+                f"/api/conversations/{conversation_id}/shares", headers=headers, json={}
+            )
+            self.assertEqual(extra.status_code, 201, extra.text)
+
+        refused = await self.client.post(
+            f"/api/conversations/{conversation_id}/shares", headers=headers, json={}
+        )
+        self.assertEqual(refused.status_code, 409, refused.text)
+
+    def test_share_tokens_are_redacted_from_the_access_log(self) -> None:
+        record = logging.LogRecord(
+            "uvicorn.access",
+            logging.INFO,
+            __file__,
+            0,
+            '%s - "%s %s HTTP/%s" %d',
+            ("1.2.3.4", "GET", "/api/shared/s3cr3t-token-value-here", "1.1", 200),
+            None,
+        )
+
+        self.assertTrue(ShareTokenLogFilter().filter(record))
+
+        self.assertNotIn("s3cr3t", record.getMessage())
+        self.assertIn("/api/shared/<redacted>", record.getMessage())
 
     async def test_security_headers_are_present(self) -> None:
         response = await self.client.get("/api/health")

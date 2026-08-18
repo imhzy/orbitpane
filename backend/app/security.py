@@ -4,6 +4,8 @@ import base64
 import hashlib
 import hmac
 import json
+import re
+import secrets
 import time
 from collections import defaultdict, deque
 from dataclasses import dataclass
@@ -12,6 +14,25 @@ from fastapi import HTTPException, Request, WebSocket, status
 
 
 SESSION_COOKIE_NAME = "orbitpane_session"
+
+#: 192 bits of entropy in the URL path. Share links are capability URLs — the
+#: token *is* the credential — so guessing has to stay out of reach even for a
+#: caller who can try continuously.
+SHARE_TOKEN_BYTES = 24
+SHARE_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]{16,128}$")
+
+
+def new_share_token() -> str:
+    return secrets.token_urlsafe(SHARE_TOKEN_BYTES)
+
+
+def hash_share_token(token: str) -> str:
+    """Digest used for storage and lookup.
+
+    Only the hash is persisted, so a leaked database backup is not also a set
+    of working public links.
+    """
+    return hashlib.sha256(token.encode()).hexdigest()
 
 
 class AuthenticationError(ValueError):

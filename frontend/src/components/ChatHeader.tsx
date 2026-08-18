@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
-import { Menu, ChevronLeft, Pencil, Sun, Moon, Eraser, Download, Command, FileText, MoreVertical, WifiOff, Loader2, ListChecks, RefreshCw } from 'lucide-react'
+import { Menu, ChevronLeft, Pencil, Sun, Moon, Eraser, Download, Command, FileText, MoreVertical, WifiOff, Loader2, ListChecks, RefreshCw, Share2 } from 'lucide-react'
 import { LogoIcon } from '../LogoIcon'
 import { ModelSelector } from './ModelSelector'
+import { ShareDialog } from './ShareDialog'
 import { hasProviderChoice } from '../lib/providers'
 import { haptic } from '../lib/nativeFeedback'
-import { OPEN_INSPECTOR_EVENT } from '../lib/appEvents'
+import { OPEN_INSPECTOR_EVENT, OPEN_SHARE_EVENT } from '../lib/appEvents'
 import { useUpdateCheck } from '../hooks/useUpdateCheck'
 import { useEscapeLayer } from '../hooks/useEscapeLayer'
 
@@ -39,6 +40,7 @@ export function ChatHeader(_props: ChatHeaderProps) {
   const showProviderTags = hasProviderChoice(providers)
 
   const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false)
+  const [isShareOpen, setIsShareOpen] = useState(false)
   const { isChecking: isCheckingForUpdate, checkForUpdate } = useUpdateCheck(showToast)
   const actionsMenuRef = useRef<HTMLDivElement>(null)
   const isCancelingRef = useRef(false)
@@ -80,6 +82,15 @@ export function ChatHeader(_props: ChatHeaderProps) {
     isCancelingRef.current = true
     setEditingConvId(null)
   })
+
+  /* The overflow menu owns the dialog, so the command palette asks for it the
+     same way the inspector is asked for rather than threading a callback
+     through App. */
+  useEffect(() => {
+    const openShare = () => setIsShareOpen(true)
+    window.addEventListener(OPEN_SHARE_EVENT, openShare)
+    return () => window.removeEventListener(OPEN_SHARE_EVENT, openShare)
+  }, [])
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent | TouchEvent) => {
@@ -326,6 +337,17 @@ export function ChatHeader(_props: ChatHeaderProps) {
                   <>
                     <button
                       className="actions-dropdown-item"
+                      disabled={!messages.some(message => message.role !== 'system')}
+                      onClick={() => {
+                        setIsShareOpen(true);
+                        setIsActionsMenuOpen(false);
+                      }}
+                    >
+                      <Share2 size={14} />
+                      <span>分享</span>
+                    </button>
+                    <button
+                      className="actions-dropdown-item"
                       disabled={isExporting || !messages.some(message => message.role !== 'system')}
                       onClick={() => {
                         exportConversationAsImage();
@@ -365,6 +387,8 @@ export function ChatHeader(_props: ChatHeaderProps) {
           </AnimatePresence>
         </div>
       </div>
+
+      <ShareDialog isOpen={isShareOpen} onClose={() => setIsShareOpen(false)} />
     </div>
   )
 }

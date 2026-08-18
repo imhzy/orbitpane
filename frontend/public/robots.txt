@@ -1,0 +1,4 @@
+# OrbitPane is a private, self-hosted workspace. Share links under /s/ are
+# unlisted capability URLs meant only for the person they were sent to.
+User-agent: *
+Disallow: /

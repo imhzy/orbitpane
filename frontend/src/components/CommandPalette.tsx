@@ -2,12 +2,12 @@ import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Search, Plus, Sun, Moon, RefreshCw, Square,
-  Eraser, Download, HelpCircle, MessageSquare, Terminal, Keyboard, FileText, Loader2
+  Eraser, Download, HelpCircle, MessageSquare, Terminal, Keyboard, FileText, Loader2, Share2
 } from 'lucide-react'
 import { apiFetch } from '../lib/api'
 import { useFocusTrap } from '../hooks/useFocusTrap'
 import { useEscapeLayer } from '../hooks/useEscapeLayer'
-import { REQUEST_INTERRUPT_EVENT } from '../lib/appEvents'
+import { OPEN_SHARE_EVENT, REQUEST_INTERRUPT_EVENT } from '../lib/appEvents'
 import { useUpdateCheck } from '../hooks/useUpdateCheck'
 import type { SearchResult, ToastKind } from '../lib/types'
 
@@ -124,6 +124,7 @@ export function CommandPalette({
         }]
       : []),
     { type: 'theme', label: `切换至${theme === 'dark' ? '明亮' : '暗夜'}主题`, icon: theme === 'dark' ? Sun : Moon, action: onToggleTheme },
+    { type: 'share', label: '分享当前对话（生成只读链接）', icon: Share2, action: () => window.dispatchEvent(new CustomEvent(OPEN_SHARE_EVENT)) },
     { type: 'export', label: '导出当前对话为 PNG 图片', icon: Download, action: onExportImage },
     // Previously only reachable from the mobile action sheet.
     { type: 'update', label: '检查应用更新', icon: RefreshCw, action: () => { void checkForUpdate() } },

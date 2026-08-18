@@ -78,7 +78,7 @@ class DatabaseTests(unittest.TestCase):
         self.assertTrue(self.database.delete_conversation(conversation.id))
         self.assertEqual(self.database.list_messages(conversation.id), [])
 
-    def test_clear_history_also_drops_summaries_and_runs(self) -> None:
+    def test_clear_history_also_drops_summaries_runs_and_shares(self) -> None:
         conversation = self.database.create_conversation(
             "Workspace", self.temp_dir.name, "antigravity"
         )
@@ -102,8 +102,19 @@ class DatabaseTests(unittest.TestCase):
                 is_summary=False,
             )
 
+        self.database.create_share(
+            conversation.id,
+            token_hash="hash-1",
+            title="Workspace",
+            snapshot='{"messages": []}',
+            message_count=1,
+            include_thoughts=False,
+            expires_at=None,
+        )
+
         self.database.clear_history(conversation.id)
 
+        self.assertEqual(self.database.list_shares(conversation.id), [])
         self.assertEqual(self.database.list_messages(conversation.id), [])
         self.assertEqual(
             self.database.list_summary_checkpoints(conversation.id), []
@@ -112,6 +123,159 @@ class DatabaseTests(unittest.TestCase):
             self.database.list_runs(conversation_id=conversation.id), []
         )
         self.assertIsNone(self.database.active_summary_message_id(conversation.id))
+
+
+    def test_share_snapshots_are_keyed_by_hash_and_scoped_to_a_conversation(self) -> None:
+        conversation = self.database.create_conversation(
+            "Workspace", self.temp_dir.name, "antigravity"
+        )
+        other = self.database.create_conversation(
+            "Other", self.temp_dir.name, "antigravity"
+        )
+        share = self.database.create_share(
+            conversation.id,
+            token_hash="hash-1",
+            title="Workspace",
+            snapshot='{"messages": [1]}',
+            message_count=1,
+            include_thoughts=True,
+            expires_at=None,
+        )
+        # Owner-facing metadata must never carry the lookup key or the payload.
+        self.assertNotIn("token_hash", share)
+        self.assertNotIn("snapshot", share)
+        self.assertTrue(share["include_thoughts"])
+        self.assertEqual(share["view_count"], 0)
+
+        resolved = self.database.find_share_by_token_hash("hash-1")
+        self.assertIsNotNone(resolved)
+        assert resolved is not None
+        self.assertEqual(resolved["snapshot"], '{"messages": [1]}')
+        self.assertIsNone(self.database.find_share_by_token_hash("hash-2"))
+
+        self.database.record_share_view(int(share["id"]))
+        viewed = self.database.list_shares(conversation.id)[0]
+        self.assertEqual(viewed["view_count"], 1)
+        self.assertIsNotNone(viewed["last_viewed_at"])
+
+        # A link belongs to its conversation; another project cannot revoke it.
+        self.assertFalse(self.database.delete_share(other.id, int(share["id"])))
+        self.assertTrue(self.database.delete_share(conversation.id, int(share["id"])))
+        self.assertIsNone(self.database.find_share_by_token_hash("hash-1"))
+
+    def test_deleting_a_conversation_removes_its_share_snapshots(self) -> None:
+        conversation = self.database.create_conversation(
+            "Workspace", self.temp_dir.name, "antigravity"
+        )
+        self.database.create_share(
+            conversation.id,
+            token_hash="hash-cascade",
+            title="Workspace",
+            snapshot='{"messages": []}',
+            message_count=0,
+            include_thoughts=False,
+            expires_at=None,
+        )
+
+        self.database.delete_conversation(conversation.id)
+
+        self.assertIsNone(self.database.find_share_by_token_hash("hash-cascade"))
+        with self.database.connect() as connection:
+            remaining = connection.execute("SELECT COUNT(*) FROM shares").fetchone()[0]
+        self.assertEqual(remaining, 0)
+
+    def _orphan_share(self, token_hash: str) -> None:
+        """Insert a snapshot whose conversation does not exist.
+
+        Foreign keys are turned off for the insert so the row can exist at all —
+        this is the shape a database would have if the cascade had ever failed
+        to run, which is precisely what the read path has to survive.
+        """
+        with self.database.connect() as connection:
+            connection.execute("PRAGMA foreign_keys = OFF")
+            connection.execute(
+                "INSERT INTO shares(conversation_id, token_hash, title, snapshot, "
+                "message_count, include_thoughts, expires_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (999_999, token_hash, "Ghost", '{"messages": []}', 0, 0, None),
+            )
+
+    def test_a_share_whose_conversation_is_gone_never_resolves(self) -> None:
+        self._orphan_share("hash-orphan")
+
+        self.assertIsNone(self.database.find_share_by_token_hash("hash-orphan"))
+
+    def test_purge_removes_expired_and_orphaned_snapshots(self) -> None:
+        conversation = self.database.create_conversation(
+            "Workspace", self.temp_dir.name, "antigravity"
+        )
+        self.database.create_share(
+            conversation.id,
+            token_hash="hash-expired",
+            title="Workspace",
+            snapshot='{"messages": []}',
+            message_count=0,
+            include_thoughts=False,
+            expires_at="2000-01-01T00:00:00.000000Z",
+        )
+        self.database.create_share(
+            conversation.id,
+            token_hash="hash-live",
+            title="Workspace",
+            snapshot='{"messages": []}',
+            message_count=0,
+            include_thoughts=False,
+            expires_at=None,
+        )
+        self._orphan_share("hash-orphan")
+
+        self.assertEqual(self.database.purge_dead_shares(), 2)
+
+        with self.database.connect() as connection:
+            surviving = [
+                row[0]
+                for row in connection.execute("SELECT token_hash FROM shares")
+            ]
+        self.assertEqual(surviving, ["hash-live"])
+
+    def test_deleting_a_conversation_does_not_rely_on_the_foreign_key_pragma(
+        self,
+    ) -> None:
+        """The cascade is a backstop, not the mechanism.
+
+        `delete_conversation` deletes the snapshots itself, so a connection that
+        somehow ran without foreign key enforcement would still not leave a
+        public copy of a deleted project behind.
+        """
+        conversation = self.database.create_conversation(
+            "Workspace", self.temp_dir.name, "antigravity"
+        )
+        self.database.create_share(
+            conversation.id,
+            token_hash="hash-explicit",
+            title="Workspace",
+            snapshot='{"messages": []}',
+            message_count=0,
+            include_thoughts=False,
+            expires_at=None,
+        )
+
+        original_connect = self.database.connect
+
+        def connect_without_foreign_keys():
+            connection = original_connect()
+            connection.execute("PRAGMA foreign_keys = OFF")
+            return connection
+
+        self.database.connect = connect_without_foreign_keys  # type: ignore[method-assign]
+        try:
+            self.database.delete_conversation(conversation.id)
+        finally:
+            self.database.connect = original_connect  # type: ignore[method-assign]
+
+        with self.database.connect() as connection:
+            remaining = connection.execute("SELECT COUNT(*) FROM shares").fetchone()[0]
+        self.assertEqual(remaining, 0)
 
 
 if __name__ == "__main__":

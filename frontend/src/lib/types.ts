@@ -164,3 +164,43 @@ export interface SearchResult {
   snippet: string
   created_at: string
 }
+
+/** One turn inside a published snapshot. Narrower than {@link Message}: a
+ *  public copy carries no run ids, character accounting or feedback. */
+export interface SharedMessage {
+  id?: number
+  role: 'user' | 'agent' | 'summary'
+  content: string
+  timestamp?: string
+  model?: string
+  duration?: number
+  thought?: string
+}
+
+export interface SharedSnapshot {
+  version: number
+  title: string
+  include_thoughts: boolean
+  messages: SharedMessage[]
+  shared_at: string
+  expires_at: string | null
+}
+
+/** A live link as its owner sees it. The token is never part of this. */
+export interface ShareLink {
+  id: number
+  conversation_id: number
+  title: string
+  message_count: number
+  include_thoughts: boolean
+  created_at: string
+  expires_at: string | null
+  view_count: number
+  last_viewed_at: string | null
+}
+
+/** Creation response — the one and only time the token is returned. */
+export interface ShareLinkCreated extends ShareLink {
+  token: string
+  url_path: string
+}

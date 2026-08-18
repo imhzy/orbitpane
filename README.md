@@ -186,6 +186,63 @@ events:
 - <https://developers.openai.com/codex/sdk/>
 - <https://developers.openai.com/codex/noninteractive/>
 
+## Conversation sharing
+
+Any project can be published as a read-only snapshot at `/s/<token>`. The page
+needs no session, and it is a copy rather than a view: turns added after the
+link was created never appear in it.
+
+- The token is 192 bits from `secrets.token_urlsafe`. Only its SHA-256 digest is
+  stored, so a database copy is not also a set of working links.
+- A snapshot carries the conversation and nothing else. The workspace path, run
+  ids, per-run character accounting and feedback ratings stay private, and the
+  agent's execution transcript is included only when the sender asks for it.
+- Links can be given a 7- or 30-day expiry. Expiry deletes the stored snapshot
+  rather than hiding it; revoking takes effect immediately.
+- At most 20 links per project, so the list of what is public stays reviewable.
+- `GET /api/shared/{token}` is the only unauthenticated read in the application.
+  It is rate-limited per client, answers `404` for unknown and revoked tokens
+  alike, and is served with `X-Robots-Tag: noindex` and
+  `Referrer-Policy: no-referrer`. The HTML is covered by `robots.txt` and a
+  page-level `noindex`.
+- Visitors do not download the application bundle and no service worker is
+  registered for them.
+
+### Deleted content stops being served
+
+Four independent mechanisms, because a public copy outliving the content it
+copied is the one failure this feature must not have:
+
+1. `clear_history` and `delete_conversation` delete the project's snapshots
+   explicitly, in the same transaction as the content itself.
+2. `shares.conversation_id` is `ON DELETE CASCADE`, and startup aborts if
+   SQLite's per-connection foreign key pragma is not actually in force.
+3. `find_share_by_token_hash` joins `conversations`, so a snapshot whose project
+   is gone cannot resolve *even if it is still on disk*. This is the guarantee
+   that does not depend on any write path being correct.
+4. Expired and orphaned rows are swept at startup, hourly, and whenever the
+   owner opens the share panel.
+
+Revocation stops future loads. It cannot reach what a reader already saw, and
+SQLite frees the row's bytes without overwriting them until the file is
+vacuumed.
+
+### Deployment
+
+`deploy/nginx/` is the source of truth for the reverse proxy:
+
+```bash
+sudo cp deploy/nginx/snippets/*.conf /etc/nginx/snippets/
+sudo cp deploy/nginx/conf.d/*.conf /etc/nginx/conf.d/
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+It sets HSTS, a `script-src 'self'` CSP, `frame-ancestors 'none'` and a
+`Permissions-Policy` on every route, marks `/s/` `no-store` and `noindex` at the
+HTTP level, and **masks share tokens in the access log** — a capability URL in
+plaintext in a log file is a working link. The backend applies the same
+redaction to its own Uvicorn access log.
+
 ## Security notes
 
 - Every REST endpoint except login and health requires a signed session.
@@ -202,6 +259,8 @@ events:
 - Deleting a running conversation interrupts its process group first.
 - Agent-produced Markdown does not render raw HTML.
 - Provider model IDs are validated server-side.
+- Shared snapshots are frozen copies addressed by an unguessable, revocable
+  token; possession of the link is the entire grant.
 - SQLite uses WAL mode, busy timeouts and indexed conversation history.
 
 This service runs coding agents capable of changing files and executing tools.

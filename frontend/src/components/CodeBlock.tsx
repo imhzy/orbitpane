@@ -68,7 +68,7 @@ export function CodeBlock({ children, className, ...props }: CodeBlockProps) {
         </div>
         <div className="code-block-actions">
           {fileName && (
-            <button onClick={() => window.dispatchEvent(new CustomEvent(REFERENCE_FILE_EVENT, { detail: fileName }))} title="在输入框引用此文件"><MapPin size={13} /></button>
+            <button className="code-reference-btn" onClick={() => window.dispatchEvent(new CustomEvent(REFERENCE_FILE_EVENT, { detail: fileName }))} title="在输入框引用此文件"><MapPin size={13} /></button>
           )}
           <button className={wrapLongLines ? 'active' : ''} onClick={() => setWrapLongLines(value => !value)} title="切换代码折行"><WrapText size={13} /></button>
           <button className={showLineNumbers ? 'active' : ''} onClick={() => setShowLineNumbers(value => !value)} title="切换行号"><ListOrdered size={13} /></button>

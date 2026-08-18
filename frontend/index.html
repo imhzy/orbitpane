@@ -14,6 +14,12 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="OrbitPane" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
+    <!-- The workspace is private and a /s/ share link is an unlisted capability
+         URL, so nothing served from this origin should ever be indexed, and the
+         token in the address bar must not ride along in outbound Referer
+         headers when a reader clicks a link inside a shared conversation. -->
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="referrer" content="no-referrer" />
     <title>OrbitPane</title>
     <meta name="description" content="OrbitPane - Secure, self-hosted coding agent workspace" />
   </head>
