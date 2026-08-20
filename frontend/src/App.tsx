@@ -3,6 +3,7 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useConversations } from './hooks/useConversations'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useToasts } from './hooks/useToasts'
+import { useDrawerSwipe } from './hooks/useDrawerSwipe'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ArrowDown, WifiOff, RefreshCw } from 'lucide-react'
 import './App.css'
@@ -129,7 +130,11 @@ export default function App() {
   const scrollAnimationFrameRef = useRef<number | null>(null)
   const pendingAutoScrollTopRef = useRef<number | null>(null)
   const conversationScrollPositionsRef = useRef(new Map<number, number>())
-  const pullStartYRef = useRef<number | null>(null)
+  const pullGestureRef = useRef<{
+    startX: number
+    startY: number
+    direction: 'pending' | 'vertical'
+  } | null>(null)
   const [pullDistance, setPullDistance] = useState(0)
   const [isPullRefreshing, setIsPullRefreshing] = useState(false)
 
@@ -189,6 +194,13 @@ export default function App() {
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [])
+
+  const drawerSwipe = useDrawerSwipe({
+    isDrawerOpen,
+    allowActionStarts: !activeConv,
+    setIsDrawerOpen,
+    setDrawerMode,
+  })
 
 
   // Command Palette State
@@ -298,19 +310,40 @@ export default function App() {
 
   const handlePullStart = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
     const container = messagesContainerRef.current
-    if (!container || container.scrollTop > 0 || event.touches.length !== 1) return
-    pullStartYRef.current = event.touches[0].clientY
+    if (
+      !container
+      || container.scrollTop > 0
+      || event.touches.length !== 1
+    ) return
+    pullGestureRef.current = {
+      startX: event.touches[0].clientX,
+      startY: event.touches[0].clientY,
+      direction: 'pending',
+    }
   }, [])
 
   const handlePullMove = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
-    if (pullStartYRef.current === null || event.touches.length !== 1) return
-    const distance = Math.max(0, event.touches[0].clientY - pullStartYRef.current)
-    setPullDistance(Math.min(92, distance * 0.48))
+    const gesture = pullGestureRef.current
+    if (!gesture || event.touches.length !== 1) return
+
+    const deltaX = event.touches[0].clientX - gesture.startX
+    const deltaY = event.touches[0].clientY - gesture.startY
+    if (gesture.direction === 'pending') {
+      if (Math.abs(deltaX) < 10 && Math.abs(deltaY) < 10) return
+      if (deltaY <= 0 || Math.abs(deltaY) <= Math.abs(deltaX) * 1.2) {
+        pullGestureRef.current = null
+        setPullDistance(0)
+        return
+      }
+      gesture.direction = 'vertical'
+    }
+
+    setPullDistance(Math.min(92, Math.max(0, deltaY) * 0.48))
   }, [])
 
   const handlePullEnd = useCallback(() => {
     const shouldRefresh = pullDistance >= 54 && !!activeConvRef.current && !isPullRefreshing
-    pullStartYRef.current = null
+    pullGestureRef.current = null
     setPullDistance(0)
     if (!shouldRefresh || !activeConvRef.current) return
     setIsPullRefreshing(true)
@@ -396,34 +429,6 @@ export default function App() {
   useEffect(() => {
     void updateAppBadge(mobileTaskCount)
   }, [mobileTaskCount])
-
-  useEffect(() => {
-    let edgeStart: { x: number; y: number } | null = null
-    const onPointerDown = (event: PointerEvent) => {
-      if (window.innerWidth >= 769 || event.pointerType !== 'touch' || event.clientX > 24 || isDrawerOpen) return
-      edgeStart = { x: event.clientX, y: event.clientY }
-    }
-    const onPointerUp = (event: PointerEvent) => {
-      if (!edgeStart) return
-      const horizontalDistance = event.clientX - edgeStart.x
-      const verticalDistance = Math.abs(event.clientY - edgeStart.y)
-      edgeStart = null
-      if (horizontalDistance > 72 && verticalDistance < 60) {
-        haptic('light')
-        setDrawerMode('sessions')
-        setIsDrawerOpen(true)
-      }
-    }
-    const cancel = () => { edgeStart = null }
-    window.addEventListener('pointerdown', onPointerDown, { passive: true })
-    window.addEventListener('pointerup', onPointerUp, { passive: true })
-    window.addEventListener('pointercancel', cancel, { passive: true })
-    return () => {
-      window.removeEventListener('pointerdown', onPointerDown)
-      window.removeEventListener('pointerup', onPointerUp)
-      window.removeEventListener('pointercancel', cancel)
-    }
-  }, [isDrawerOpen])
 
   // Dynamic Viewport Height for Mobile Browser / PWA Keyboard
   useEffect(() => {
@@ -1326,11 +1331,15 @@ export default function App() {
       <div className="app-container">
       {/* Sidebar Drawer Scrim */}
       <AnimatePresence>
-        {isDrawerOpen && (
+        {(isDrawerOpen || drawerSwipe.isRevealing) && (
           <motion.div 
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            initial={drawerSwipe.isRevealing ? false : { opacity: 0 }}
+            animate={drawerSwipe.isRevealing ? undefined : { opacity: 1 }}
+            exit={drawerSwipe.isRevealing ? undefined : { opacity: 0 }}
+            style={drawerSwipe.isRevealing ? { opacity: drawerSwipe.scrimOpacity } : undefined}
             className="drawer-scrim" 
             onClick={() => {
+              if (!isDrawerOpen) return
               if (scrimTouchRef.current?.isDragging) return
               requestCloseDrawer()
             }}
@@ -1343,7 +1352,10 @@ export default function App() {
       </AnimatePresence>
 
       {/* Sidebar Drawer */}
-      <Sidebar />
+      <Sidebar
+        isOpeningSwipe={drawerSwipe.isRevealing}
+        openingSwipeX={drawerSwipe.drawerX}
+      />
 
       {/* Main Chat Area */}
       <div className="chat-main">
@@ -1368,7 +1380,15 @@ export default function App() {
           onTouchMove={handlePullMove}
           onTouchEnd={handlePullEnd}
           onTouchCancel={handlePullEnd}
-          onPointerDown={handleMessagesScrollIntent}
+          onPointerDown={event => {
+            handleMessagesScrollIntent()
+            drawerSwipe.swipeHandlers.onPointerDown(event)
+          }}
+          onPointerMove={drawerSwipe.swipeHandlers.onPointerMove}
+          onPointerUp={drawerSwipe.swipeHandlers.onPointerUp}
+          onPointerCancel={drawerSwipe.swipeHandlers.onPointerCancel}
+          onLostPointerCapture={drawerSwipe.swipeHandlers.onLostPointerCapture}
+          onClickCapture={drawerSwipe.swipeHandlers.onClickCapture}
           onKeyDownCapture={handleMessagesScrollIntent}
         >
           <div
@@ -1402,6 +1422,7 @@ export default function App() {
                 messages={messages}
                 copiedMessageKey={copiedMessageKey}
                 isAgentThinking={!!isAgentThinking}
+                isDrawerSwiping={drawerSwipe.isRevealing}
                 copyMessageText={copyMessageText}
                 handleFeedback={handleFeedback}
                 regenerateLastResponse={regenerateLastResponse}

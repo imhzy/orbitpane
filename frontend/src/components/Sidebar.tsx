@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
+import type { MotionValue } from 'framer-motion'
 import {
   X, MessageSquare, Plus, Trash2, Folder,
   ChevronRight, Compass, FolderPlus,
@@ -19,7 +20,8 @@ import { useEscapeLayer } from '../hooks/useEscapeLayer'
 import { useAppContext } from '../contexts/AppContext'
 
 interface SidebarProps {
-  // Props moved to context
+  isOpeningSwipe?: boolean
+  openingSwipeX?: MotionValue<number>
 }
 
 const springConfig = { type: 'spring' as const, damping: 25, stiffness: 250, mass: 1 }
@@ -105,7 +107,7 @@ function ProviderDropdown({ providers, selectedProvider, defaultProvider, setSel
   )
 }
 
-export function Sidebar(_props: SidebarProps) {
+export function Sidebar({ isOpeningSwipe = false, openingSwipeX }: SidebarProps) {
   const {
     isDrawerOpen, setIsDrawerOpen, drawerMode, setDrawerMode,
     conversations, isConversationsLoading, activeConv, selectConversation,
@@ -258,19 +260,24 @@ export function Sidebar(_props: SidebarProps) {
 
   return (
     <AnimatePresence>
-      {isDrawerOpen && (
+      {(isDrawerOpen || isOpeningSwipe) && (
         <motion.div
           ref={drawerRef}
-          initial={{ x: -400 }} animate={{ x: 0 }} exit={{ x: -400 }}
+          initial={isOpeningSwipe ? false : { x: -400 }}
+          animate={isOpeningSwipe ? undefined : { x: 0 }}
+          exit={isOpeningSwipe ? undefined : { x: -400 }}
+          style={isOpeningSwipe && openingSwipeX ? { x: openingSwipeX } : undefined}
           transition={springConfig}
           className={`drawer ${drawerMode === 'create' ? 'create-mode' : ''} ${drawerMode === 'create' && isDirectoryExpanded ? 'directory-focus-mode' : ''}`}
-          role={isOverlayDrawer ? 'dialog' : undefined}
-          aria-modal={isOverlayDrawer ? true : undefined}
+          role={isDrawerOpen && isOverlayDrawer ? 'dialog' : undefined}
+          aria-modal={isDrawerOpen && isOverlayDrawer ? true : undefined}
+          aria-hidden={!isDrawerOpen ? true : undefined}
+          inert={!isDrawerOpen ? true : undefined}
           aria-label="项目菜单"
           onPointerDown={onFieldPointerDown}
           onPointerUp={onFieldPointerUp}
           onPointerCancel={() => { fieldSwipeRef.current = null }}
-          drag="x"
+          drag={isDrawerOpen && !isOpeningSwipe ? 'x' : false}
           dragDirectionLock={true}
           dragConstraints={{ left: -Math.max(500, typeof window !== 'undefined' ? window.innerWidth : 500), right: 0 }}
           dragElastic={0.1}

@@ -105,6 +105,7 @@ class DatabaseTests(unittest.TestCase):
         self.database.create_share(
             conversation.id,
             token_hash="hash-1",
+            token_cipher="sealed-1",
             title="Workspace",
             snapshot='{"messages": []}',
             message_count=1,
@@ -135,6 +136,7 @@ class DatabaseTests(unittest.TestCase):
         share = self.database.create_share(
             conversation.id,
             token_hash="hash-1",
+            token_cipher="sealed-1",
             title="Workspace",
             snapshot='{"messages": [1]}',
             message_count=1,
@@ -146,11 +148,17 @@ class DatabaseTests(unittest.TestCase):
         self.assertNotIn("snapshot", share)
         self.assertTrue(share["include_thoughts"])
         self.assertEqual(share["view_count"], 0)
+        # The sealed token comes back to its owner and to nobody else.
+        self.assertEqual(share["token_cipher"], "sealed-1")
+        self.assertEqual(
+            self.database.list_shares(conversation.id)[0]["token_cipher"], "sealed-1"
+        )
 
         resolved = self.database.find_share_by_token_hash("hash-1")
         self.assertIsNotNone(resolved)
         assert resolved is not None
         self.assertEqual(resolved["snapshot"], '{"messages": [1]}')
+        self.assertNotIn("token_cipher", resolved)
         self.assertIsNone(self.database.find_share_by_token_hash("hash-2"))
 
         self.database.record_share_view(int(share["id"]))
@@ -163,6 +171,32 @@ class DatabaseTests(unittest.TestCase):
         self.assertTrue(self.database.delete_share(conversation.id, int(share["id"])))
         self.assertIsNone(self.database.find_share_by_token_hash("hash-1"))
 
+    def test_a_share_stored_without_a_sealed_token_still_lists(self) -> None:
+        """The shape of every row written before the token was kept.
+
+        Such a link cannot be shown again, but it is still a live link: it has
+        to keep listing, keep counting views and keep being revocable.
+        """
+        conversation = self.database.create_conversation(
+            "Workspace", self.temp_dir.name, "antigravity"
+        )
+        share = self.database.create_share(
+            conversation.id,
+            token_hash="hash-legacy",
+            token_cipher=None,
+            title="Workspace",
+            snapshot='{"messages": []}',
+            message_count=0,
+            include_thoughts=False,
+            expires_at=None,
+        )
+
+        self.assertIsNone(share["token_cipher"])
+        listed = self.database.list_shares(conversation.id)
+        self.assertEqual(len(listed), 1)
+        self.assertIsNone(listed[0]["token_cipher"])
+        self.assertTrue(self.database.delete_share(conversation.id, int(share["id"])))
+
     def test_deleting_a_conversation_removes_its_share_snapshots(self) -> None:
         conversation = self.database.create_conversation(
             "Workspace", self.temp_dir.name, "antigravity"
@@ -170,6 +204,7 @@ class DatabaseTests(unittest.TestCase):
         self.database.create_share(
             conversation.id,
             token_hash="hash-cascade",
+            token_cipher="sealed-cascade",
             title="Workspace",
             snapshot='{"messages": []}',
             message_count=0,
@@ -212,6 +247,7 @@ class DatabaseTests(unittest.TestCase):
         self.database.create_share(
             conversation.id,
             token_hash="hash-expired",
+            token_cipher="sealed-expired",
             title="Workspace",
             snapshot='{"messages": []}',
             message_count=0,
@@ -221,6 +257,7 @@ class DatabaseTests(unittest.TestCase):
         self.database.create_share(
             conversation.id,
             token_hash="hash-live",
+            token_cipher="sealed-live",
             title="Workspace",
             snapshot='{"messages": []}',
             message_count=0,
@@ -253,6 +290,7 @@ class DatabaseTests(unittest.TestCase):
         self.database.create_share(
             conversation.id,
             token_hash="hash-explicit",
+            token_cipher="sealed-explicit",
             title="Workspace",
             snapshot='{"messages": []}',
             message_count=0,

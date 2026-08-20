@@ -399,7 +399,13 @@
 .markdown-body .markdown-table-shell { margin: var(--space-4) 0; border: 1px solid var(--border-color); border-radius: var(--radius-md); overflow: hidden; }
 .markdown-table-toolbar { display: flex; align-items: center; justify-content: space-between; min-height: 34px; padding: 0 var(--space-2-5); color: var(--text-tertiary); background: var(--bg-code-header); border-bottom: 1px solid var(--border-color); font-size: var(--text-2xs); }
 .markdown-table-toolbar button { display: inline-flex; align-items: center; gap: var(--space-1); padding: var(--space-1) var(--space-1-5); border: 0; border-radius: var(--radius-sm); color: var(--text-secondary); background: transparent; cursor: pointer; }
-.markdown-table-scroll { overflow: auto; max-width: 100%; background: var(--bg-card); }
+.markdown-table-scroll {
+  overflow: auto;
+  max-width: 100%;
+  background: var(--bg-card);
+  touch-action: pan-x pan-y pinch-zoom;
+  overscroll-behavior-x: contain;
+}
 .markdown-body .markdown-table-shell table { display: table; width: max-content; min-width: 100%; max-width: none; margin: 0; border: 0; border-radius: 0; overflow: visible; }
 .markdown-table-shell.expanded { position: fixed; inset: max(12px, var(--sat)) max(12px, var(--sar)) max(12px, var(--sab)) max(12px, var(--sal)); z-index: 10000; display: flex; flex-direction: column; background: var(--bg-primary); box-shadow: var(--shadow-lg); }
 .markdown-table-shell.expanded .markdown-table-scroll { flex: 1; }

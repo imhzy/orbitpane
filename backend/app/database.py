@@ -98,6 +98,10 @@ class Database:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     conversation_id INTEGER NOT NULL,
                     token_hash TEXT NOT NULL UNIQUE,
+                    -- Sealed by the application, opaque here. Resolution uses
+                    -- token_hash only; this column exists so the owner's panel
+                    -- can show a link it handed out earlier.
+                    token_cipher TEXT,
                     title TEXT NOT NULL,
                     snapshot TEXT NOT NULL,
                     message_count INTEGER NOT NULL DEFAULT 0,
@@ -206,10 +210,15 @@ class Database:
             "context_chars": "INTEGER NOT NULL DEFAULT 0",
             "feedback": "TEXT NOT NULL DEFAULT ''",
         }
+        # Links created before the token was kept stay listed and revocable;
+        # they simply have nothing to show.
+        share_columns = {"token_cipher": "TEXT"}
         for name, definition in conversation_columns.items():
             self._add_column(connection, "conversations", name, definition)
         for name, definition in message_columns.items():
             self._add_column(connection, "messages", name, definition)
+        for name, definition in share_columns.items():
+            self._add_column(connection, "shares", name, definition)
 
     @staticmethod
     def _conversation(row: sqlite3.Row) -> Conversation:
@@ -696,6 +705,18 @@ class Database:
     # `messages`, so later turns, edits and deletions cannot change or leak
     # into a link that is already public.
 
+    @classmethod
+    def _owner_share(cls, row: sqlite3.Row) -> dict[str, Any]:
+        """`_share_dict` plus the sealed token, for the owner's own panel.
+
+        Only the two authenticated reads use this. The public lookup builds its
+        answer from `_share_dict`, which cannot carry the token in any form.
+        """
+        return {
+            **cls._share_dict(row),
+            "token_cipher": str(row["token_cipher"]) if row["token_cipher"] else None,
+        }
+
     @staticmethod
     def _share_dict(row: sqlite3.Row) -> dict[str, Any]:
         """Owner-facing metadata. The token hash and payload never come along."""
@@ -742,6 +763,7 @@ class Database:
         conversation_id: int,
         *,
         token_hash: str,
+        token_cipher: str | None,
         title: str,
         snapshot: str,
         message_count: int,
@@ -750,12 +772,13 @@ class Database:
     ) -> dict[str, Any]:
         with self.connect() as connection:
             cursor = connection.execute(
-                "INSERT INTO shares(conversation_id, token_hash, title, snapshot, "
-                "message_count, include_thoughts, expires_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO shares(conversation_id, token_hash, token_cipher, title, "
+                "snapshot, message_count, include_thoughts, expires_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     conversation_id,
                     token_hash,
+                    token_cipher,
                     title,
                     snapshot,
                     message_count,
@@ -775,7 +798,7 @@ class Database:
                 "SELECT * FROM shares WHERE conversation_id = ? AND id = ?",
                 (conversation_id, share_id),
             ).fetchone()
-        return self._share_dict(row) if row else None
+        return self._owner_share(row) if row else None
 
     def list_shares(self, conversation_id: int) -> list[dict[str, Any]]:
         """Owner-facing link list, and the sweep that keeps the table honest.
@@ -790,7 +813,7 @@ class Database:
                 "SELECT * FROM shares WHERE conversation_id = ? ORDER BY id DESC",
                 (conversation_id,),
             ).fetchall()
-        return [self._share_dict(row) for row in rows]
+        return [self._owner_share(row) for row in rows]
 
     def count_shares(self, conversation_id: int) -> int:
         with self.connect() as connection:
@@ -801,7 +824,11 @@ class Database:
         return int(row["total"])
 
     def find_share_by_token_hash(self, token_hash: str) -> dict[str, Any] | None:
-        """Resolve a public link. Lookup is by hash: the raw token is never stored.
+        """Resolve a public link, by digest rather than by any stored token.
+
+        The sealed copy in `token_cipher` is unreachable from here by design:
+        nothing on the public path can be tricked into reading it, and the row
+        is found only by someone who already holds the token.
 
         The join is the actual guarantee that deleted content stops being
         served. Cleanup on the write side can be missed — a cascade that did not

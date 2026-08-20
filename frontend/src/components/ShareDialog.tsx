@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Check, Copy, Eye, Link2, Loader2, Share2, ShieldAlert, Trash2, X } from 'lucide-react'
+import { Check, Copy, Eye, KeyRound, Link2, Loader2, Share2, ShieldAlert, Trash2, X } from 'lucide-react'
 import { useFocusTrap } from '../hooks/useFocusTrap'
 import { useEscapeLayer } from '../hooks/useEscapeLayer'
 import { ApiError, apiFetch, describeApiError } from '../lib/api'
@@ -32,34 +32,50 @@ function formatDate(value?: string | null): string {
 /**
  * Publishes a read-only snapshot of the open project and manages its links.
  *
- * Two properties drive the whole design. A link is a *copy* taken at this
- * moment, so the dialog never promises a live view; and the token is returned
- * exactly once, so the freshly created URL stays on screen until the dialog is
- * dismissed and older links can only be listed or revoked, never re-read.
+ * A link is a *copy* taken at the moment it is made, so the dialog never
+ * promises a live view. Every link the project still has is listed with its
+ * full address: the backend keeps each token sealed and unseals it for this
+ * list, so a link created last week can be copied again rather than only
+ * revoked. A link from before that was kept — or one sealed with a signing
+ * secret that has since been rotated — is listed without an address.
  */
 export function ShareDialog({ isOpen, onClose }: ShareDialogProps) {
   const { activeConv, showToast, requestConfirm } = useAppContext()
   const [links, setLinks] = useState<ShareLink[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
-  const [createdUrl, setCreatedUrl] = useState<string | null>(null)
+  /** The link made in this sitting: highlighted, scrolled to, and warned about. */
+  const [freshId, setFreshId] = useState<number | null>(null)
+  const [copiedId, setCopiedId] = useState<number | null>(null)
   const [includeThoughts, setIncludeThoughts] = useState(false)
   const [expiresInDays, setExpiresInDays] = useState<number | null>(null)
-  const [isCopied, setIsCopied] = useState(false)
   const closeRef = useRef<HTMLButtonElement | null>(null)
+  const freshRef = useRef<HTMLLIElement | null>(null)
+  const copiedTimer = useRef<number | null>(null)
   const conversationId = activeConv?.id ?? null
+  const canNativeShare = typeof navigator !== 'undefined' && !!navigator.share
 
   const dialogRef = useFocusTrap<HTMLDivElement>(isOpen, {
     initialFocus: () => closeRef.current,
   })
   useEscapeLayer(isOpen, onClose)
 
+  const markCopied = useCallback((id: number) => {
+    setCopiedId(id)
+    if (copiedTimer.current) window.clearTimeout(copiedTimer.current)
+    copiedTimer.current = window.setTimeout(() => setCopiedId(null), 2000)
+  }, [])
+
+  useEffect(() => () => {
+    if (copiedTimer.current) window.clearTimeout(copiedTimer.current)
+  }, [])
+
   useEffect(() => {
     if (!isOpen || conversationId === null) return
     let cancelled = false
     setIsLoading(true)
-    setCreatedUrl(null)
-    setIsCopied(false)
+    setFreshId(null)
+    setCopiedId(null)
     apiFetch<{ items: ShareLink[] }>(`/api/conversations/${conversationId}/shares`)
       .then(response => {
         if (!cancelled) setLinks(response.items ?? [])
@@ -75,6 +91,13 @@ export function ShareDialog({ isOpen, onClose }: ShareDialogProps) {
     }
   }, [isOpen, conversationId, showToast])
 
+  // The new link lands in the list below the button that made it, which on a
+  // phone sheet is usually just off screen.
+  useEffect(() => {
+    if (freshId === null) return
+    freshRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [freshId])
+
   const createLink = useCallback(async () => {
     if (conversationId === null || isCreating) return
     setIsCreating(true)
@@ -89,15 +112,13 @@ export function ShareDialog({ isOpen, onClose }: ShareDialogProps) {
           }),
         },
       )
-      const url = absoluteShareUrl(created.url_path)
-      setCreatedUrl(url)
       setLinks(current => [created, ...current])
+      setFreshId(created.id)
       // Best effort: a clipboard that refuses still leaves the URL on screen.
-      void navigator.clipboard?.writeText(url).then(
+      void navigator.clipboard?.writeText(absoluteShareUrl(created.url_path)).then(
         () => {
-          setIsCopied(true)
+          markCopied(created.id)
           showToast('分享链接已生成并复制')
-          window.setTimeout(() => setIsCopied(false), 2000)
         },
         () => showToast('分享链接已生成'),
       )
@@ -114,7 +135,7 @@ export function ShareDialog({ isOpen, onClose }: ShareDialogProps) {
     } finally {
       setIsCreating(false)
     }
-  }, [conversationId, expiresInDays, includeThoughts, isCreating, showToast])
+  }, [conversationId, expiresInDays, includeThoughts, isCreating, markCopied, showToast])
 
   const revokeLink = useCallback(
     (link: ShareLink) => {
@@ -131,6 +152,7 @@ export function ShareDialog({ isOpen, onClose }: ShareDialogProps) {
           })
             .then(() => {
               setLinks(current => current.filter(item => item.id !== link.id))
+              setFreshId(current => (current === link.id ? null : current))
               showToast('分享链接已撤销')
             })
             .catch(error => showToast(describeApiError(error, '撤销失败'), 'error'))
@@ -140,24 +162,32 @@ export function ShareDialog({ isOpen, onClose }: ShareDialogProps) {
     [conversationId, requestConfirm, showToast],
   )
 
-  const copyCreatedUrl = useCallback(() => {
-    if (!createdUrl) return
-    void navigator.clipboard
-      ?.writeText(createdUrl)
-      .then(() => {
-        setIsCopied(true)
-        showToast('已复制到剪贴板')
-        window.setTimeout(() => setIsCopied(false), 2000)
-      })
-      .catch(() => showToast('复制失败，请手动选择链接', 'error'))
-  }, [createdUrl, showToast])
+  const copyLink = useCallback(
+    (link: ShareLink) => {
+      if (!link.url_path) return
+      void navigator.clipboard
+        ?.writeText(absoluteShareUrl(link.url_path))
+        .then(() => {
+          markCopied(link.id)
+          showToast('已复制到剪贴板')
+        })
+        .catch(() => showToast('复制失败，请手动选择链接', 'error'))
+    },
+    [markCopied, showToast],
+  )
 
-  const shareCreatedUrl = useCallback(() => {
-    if (!createdUrl || !navigator.share) return
-    void navigator
-      .share({ title: activeConv?.name ?? 'OrbitPane 对话', url: createdUrl })
-      .catch(() => undefined)
-  }, [activeConv?.name, createdUrl])
+  const shareLink = useCallback(
+    (link: ShareLink) => {
+      if (!link.url_path || !navigator.share) return
+      void navigator
+        .share({
+          title: activeConv?.name ?? 'OrbitPane 对话',
+          url: absoluteShareUrl(link.url_path),
+        })
+        .catch(() => undefined)
+    },
+    [activeConv?.name],
+  )
 
   /* Portalled to the body because the trigger lives in `.chat-header`, which
      has both a `z-index` and a `backdrop-filter` — so it is a stacking context
@@ -207,42 +237,6 @@ export function ShareDialog({ isOpen, onClose }: ShareDialogProps) {
               </button>
             </div>
 
-            {createdUrl && (
-              <div className="share-result">
-                <label className="share-result-label" htmlFor="share-created-url">
-                  <Link2 size={13} />
-                  分享链接
-                </label>
-                <div className="share-result-row">
-                  <input
-                    id="share-created-url"
-                    className="cw-input share-url-input"
-                    value={createdUrl}
-                    readOnly
-                    onFocus={event => event.currentTarget.select()}
-                  />
-                  <button type="button" className="share-copy-btn" onClick={copyCreatedUrl}>
-                    {isCopied ? <Check size={14} /> : <Copy size={14} />}
-                    {isCopied ? '已复制' : '复制'}
-                  </button>
-                  {typeof navigator !== 'undefined' && !!navigator.share && (
-                    <button
-                      type="button"
-                      className="share-copy-btn"
-                      onClick={shareCreatedUrl}
-                      aria-label="调用系统分享"
-                    >
-                      <Share2 size={14} />
-                    </button>
-                  )}
-                </div>
-                {/* Said once, at the moment it becomes true. */}
-                <p className="share-result-note">
-                  链接现在就是有效的。任何拿到它的人都能查看，请确认这段对话里没有密钥、凭据或私密信息。
-                </p>
-              </div>
-            )}
-
             <div className="share-options">
               <label className="share-option-row">
                 <input
@@ -284,7 +278,7 @@ export function ShareDialog({ isOpen, onClose }: ShareDialogProps) {
               onClick={() => void createLink()}
             >
               {isCreating ? <Loader2 size={15} className="animate-spin" /> : <Link2 size={15} />}
-              {isCreating ? '正在生成…' : createdUrl ? '再生成一个链接' : '生成分享链接'}
+              {isCreating ? '正在生成…' : freshId !== null ? '再生成一个链接' : '生成分享链接'}
             </button>
 
             <div className="share-links">
@@ -298,31 +292,86 @@ export function ShareDialog({ isOpen, onClose }: ShareDialogProps) {
                 <p className="share-links-empty">这个项目还没有对外分享过。</p>
               ) : (
                 <ul>
-                  {links.map(link => (
-                    <li key={link.id}>
-                      <div className="share-link-facts">
-                        <strong>{formatDate(link.created_at)} 的快照</strong>
-                        <span>
-                          {link.message_count} 条消息
-                          {link.include_thoughts ? ' · 含执行过程' : ''}
-                          {link.expires_at ? ` · ${formatDate(link.expires_at)} 到期` : ''}
-                        </span>
-                      </div>
-                      <span className="share-link-views" title="被打开的次数">
-                        <Eye size={12} />
-                        {link.view_count}
-                      </span>
-                      <button
-                        type="button"
-                        className="share-revoke-btn"
-                        onClick={() => revokeLink(link)}
-                        aria-label="撤销这个分享链接"
-                        title="撤销"
+                  {links.map(link => {
+                    const isFresh = link.id === freshId
+                    const url = link.url_path ? absoluteShareUrl(link.url_path) : null
+                    return (
+                      <li
+                        key={link.id}
+                        ref={isFresh ? freshRef : undefined}
+                        className={isFresh ? 'is-fresh' : undefined}
                       >
-                        <Trash2 size={14} />
-                      </button>
-                    </li>
-                  ))}
+                        <div className="share-link-head">
+                          <div className="share-link-facts">
+                            <strong>
+                              {formatDate(link.created_at)} 的快照
+                              {isFresh && <em>刚刚生成</em>}
+                            </strong>
+                            <span>
+                              {link.message_count} 条消息
+                              {link.include_thoughts ? ' · 含执行过程' : ''}
+                              {link.expires_at ? ` · ${formatDate(link.expires_at)} 到期` : ''}
+                            </span>
+                          </div>
+                          <span className="share-link-views" title="被打开的次数">
+                            <Eye size={12} />
+                            {link.view_count}
+                          </span>
+                          <button
+                            type="button"
+                            className="share-revoke-btn"
+                            onClick={() => revokeLink(link)}
+                            aria-label="撤销这个分享链接"
+                            title="撤销"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+
+                        {url ? (
+                          <div className="share-link-url-row">
+                            <input
+                              className="cw-input share-url-input"
+                              value={url}
+                              readOnly
+                              aria-label="分享链接地址"
+                              onFocus={event => event.currentTarget.select()}
+                            />
+                            <button
+                              type="button"
+                              className="share-copy-btn"
+                              onClick={() => copyLink(link)}
+                            >
+                              {copiedId === link.id ? <Check size={14} /> : <Copy size={14} />}
+                              {copiedId === link.id ? '已复制' : '复制'}
+                            </button>
+                            {canNativeShare && (
+                              <button
+                                type="button"
+                                className="share-copy-btn"
+                                onClick={() => shareLink(link)}
+                                aria-label="调用系统分享"
+                              >
+                                <Share2 size={14} />
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="share-link-unreadable">
+                            <KeyRound size={13} />
+                            服务器已无法还原这条链接的地址（生成于更早的版本，或签名密钥已更换）。它对拿到过链接的人依然有效，如果地址丢了，撤销后重新生成一个。
+                          </p>
+                        )}
+
+                        {/* Said once, at the moment it becomes true. */}
+                        {isFresh && (
+                          <p className="share-link-note">
+                            链接现在就是有效的。任何拿到它的人都能查看，请确认这段对话里没有密钥、凭据或私密信息。
+                          </p>
+                        )}
+                      </li>
+                    )
+                  })}
                 </ul>
               )}
             </div>

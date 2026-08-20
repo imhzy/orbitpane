@@ -186,7 +186,15 @@ export interface SharedSnapshot {
   expires_at: string | null
 }
 
-/** A live link as its owner sees it. The token is never part of this. */
+/**
+ * A live link as its owner sees it.
+ *
+ * `url_path` is rebuilt server-side from the sealed token, so the owner can
+ * copy a link they created earlier. It is null when the token can no longer be
+ * unsealed — a link from before tokens were kept, or one sealed with a signing
+ * secret that has since been rotated. Such a link still works for whoever
+ * holds it; it just cannot be shown again, only revoked.
+ */
 export interface ShareLink {
   id: number
   conversation_id: number
@@ -197,9 +205,10 @@ export interface ShareLink {
   expires_at: string | null
   view_count: number
   last_viewed_at: string | null
+  url_path: string | null
 }
 
-/** Creation response — the one and only time the token is returned. */
+/** Creation response — the one and only time the raw token is returned. */
 export interface ShareLinkCreated extends ShareLink {
   token: string
   url_path: string

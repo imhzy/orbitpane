@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import functools
 import hashlib
 import hmac
 import json
@@ -10,6 +11,10 @@ import time
 from collections import defaultdict, deque
 from dataclasses import dataclass
 
+from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from fastapi import HTTPException, Request, WebSocket, status
 
 
@@ -27,12 +32,78 @@ def new_share_token() -> str:
 
 
 def hash_share_token(token: str) -> str:
-    """Digest used for storage and lookup.
+    """Digest used for lookup.
 
-    Only the hash is persisted, so a leaked database backup is not also a set
-    of working public links.
+    Resolution never handles a stored token: a link is found by hashing what
+    the visitor supplied. `ShareTokenCipher` keeps a separate sealed copy so
+    the owner can be shown the link again, and that copy is not reachable from
+    this side of the system at all.
     """
     return hashlib.sha256(token.encode()).hexdigest()
+
+
+#: Domain separator for the share key. The same secret signs session cookies,
+#: and the two derivations must not be able to coincide.
+SHARE_CIPHER_INFO = b"orbitpane share-token v1"
+#: Version tag on every sealed value, so the format can change without having
+#: to guess how an existing row was written.
+SHARE_CIPHER_PREFIX = "v1:"
+SHARE_CIPHER_NONCE_BYTES = 12
+
+
+@functools.lru_cache(maxsize=4)
+def _share_cipher_key(secret: str) -> bytes:
+    return HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=None,
+        info=SHARE_CIPHER_INFO,
+    ).derive(secret.encode())
+
+
+@dataclass(frozen=True, slots=True)
+class ShareTokenCipher:
+    """Reversible at-rest storage for share tokens.
+
+    A link the owner cannot read back is a link they can only revoke, so the
+    token is kept — but kept sealed. The key is derived from the signing
+    secret, which lives in the environment rather than in the database, so a
+    stolen `history.db` on its own is still not a set of working links.
+    """
+
+    secret: str
+
+    def encrypt(self, token: str) -> str:
+        nonce = secrets.token_bytes(SHARE_CIPHER_NONCE_BYTES)
+        sealed = AESGCM(_share_cipher_key(self.secret)).encrypt(
+            nonce, token.encode(), None
+        )
+        return SHARE_CIPHER_PREFIX + base64.urlsafe_b64encode(nonce + sealed).decode()
+
+    def decrypt(self, stored: str | None) -> str | None:
+        """The token, or None when it cannot be recovered.
+
+        Unrecoverable is an ordinary outcome rather than an error: rows written
+        before tokens were kept at all, and rows sealed with a secret that has
+        since been rotated. Both mean "this link can no longer be shown", which
+        every caller has to handle anyway, so nothing here raises.
+        """
+        if not stored or not stored.startswith(SHARE_CIPHER_PREFIX):
+            return None
+        try:
+            raw = base64.urlsafe_b64decode(stored[len(SHARE_CIPHER_PREFIX) :])
+            nonce, sealed = (
+                raw[:SHARE_CIPHER_NONCE_BYTES],
+                raw[SHARE_CIPHER_NONCE_BYTES:],
+            )
+            token = AESGCM(_share_cipher_key(self.secret)).decrypt(
+                nonce, sealed, None
+            ).decode()
+        except (InvalidTag, ValueError, TypeError, UnicodeDecodeError):
+            return None
+        # A value that decrypts but is not a token means the column no longer
+        # holds what this class wrote; a link is not built out of it.
+        return token if SHARE_TOKEN_PATTERN.match(token) else None
 
 
 class AuthenticationError(ValueError):

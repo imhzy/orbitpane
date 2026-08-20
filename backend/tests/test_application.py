@@ -12,6 +12,7 @@ from backend.app.application import (
     ShareTokenLogFilter,
     create_app,
 )
+from backend.app.security import ShareTokenCipher
 from backend.tests.helpers import test_settings
 
 
@@ -265,8 +266,96 @@ class ApplicationTests(IsolatedAsyncioTestCase):
         items = listed.json()["items"]
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["view_count"], 1)
-        # The owner list is metadata only; the token exists in the URL alone.
+        # The owner gets the link back as a path, never as a raw token and
+        # never as the sealed column it was rebuilt from.
+        self.assertEqual(items[0]["url_path"], share["url_path"])
         self.assertNotIn("token", items[0])
+        self.assertNotIn("token_cipher", items[0])
+        self.assertNotIn("token_hash", items[0])
+        self.assertNotIn("snapshot", items[0])
+
+    async def test_an_earlier_link_can_be_copied_again_from_the_owner_list(
+        self,
+    ) -> None:
+        """The creation response is not the only chance to keep the address.
+
+        The panel is where someone goes to find a link they already handed out,
+        so the listed `url_path` has to be the same live URL, not a new one.
+        """
+        conversation_id, first = await self._shared_conversation()
+        headers = await self.login_headers()
+        second = await self.client.post(
+            f"/api/conversations/{conversation_id}/shares", headers=headers, json={}
+        )
+        self.assertEqual(second.status_code, 201, second.text)
+
+        listed = await self.client.get(
+            f"/api/conversations/{conversation_id}/shares", headers=headers
+        )
+        paths = {item["id"]: item["url_path"] for item in listed.json()["items"]}
+        self.assertEqual(paths[first["id"]], f"/s/{first['token']}")
+        self.assertEqual(paths[second.json()["id"]], second.json()["url_path"])
+
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=self.app),
+            base_url="http://test",
+        ) as anonymous:
+            for path in paths.values():
+                relisted = await anonymous.get(
+                    f"/api/shared/{path.removeprefix('/s/')}"
+                )
+                self.assertEqual(relisted.status_code, 200, relisted.text)
+
+    async def test_a_link_stored_before_tokens_were_kept_is_listed_without_one(
+        self,
+    ) -> None:
+        conversation_id, share = await self._shared_conversation()
+        with self.app.state.database.connect() as connection:
+            connection.execute(
+                "UPDATE shares SET token_cipher = NULL WHERE id = ?", (share["id"],)
+            )
+
+        headers = await self.login_headers()
+        listed = await self.client.get(
+            f"/api/conversations/{conversation_id}/shares", headers=headers
+        )
+        item = listed.json()["items"][0]
+        self.assertIsNone(item["url_path"])
+        # Unshowable is not unusable: the link still works, and can still be
+        # taken back.
+        self.assertEqual(
+            (await self.client.get(f"/api/shared/{share['token']}")).status_code, 200
+        )
+        revoked = await self.client.delete(
+            f"/api/conversations/{conversation_id}/shares/{item['id']}",
+            headers=headers,
+        )
+        self.assertEqual(revoked.status_code, 200, revoked.text)
+
+    async def test_a_rotated_signing_secret_hides_addresses_but_breaks_nothing(
+        self,
+    ) -> None:
+        conversation_id, share = await self._shared_conversation()
+        with self.app.state.database.connect() as connection:
+            connection.execute(
+                "UPDATE shares SET token_cipher = ? WHERE id = ?",
+                (
+                    ShareTokenCipher("a-secret-this-app-does-not-have").encrypt(
+                        share["token"]
+                    ),
+                    share["id"],
+                ),
+            )
+
+        listed = await self.client.get(
+            f"/api/conversations/{conversation_id}/shares",
+            headers=await self.login_headers(),
+        )
+        self.assertEqual(listed.status_code, 200, listed.text)
+        self.assertIsNone(listed.json()["items"][0]["url_path"])
+        self.assertEqual(
+            (await self.client.get(f"/api/shared/{share['token']}")).status_code, 200
+        )
 
     async def test_share_snapshot_does_not_follow_later_turns(self) -> None:
         conversation_id, share = await self._shared_conversation()

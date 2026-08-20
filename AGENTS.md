@@ -22,6 +22,11 @@ in `frontend/`. Preserve unrelated user changes in the working tree.
   joins `conversations` so resolution is impossible once the source is gone; keep
   that join, and keep the explicit `DELETE FROM shares` in both `clear_history`
   and `delete_conversation` even though the FK cascade duplicates it.
+- `shares.token_cipher` is storage, not API. It is written and read only
+  through `ShareTokenCipher`, leaves the backend only as the `url_path` of the
+  two authenticated share routes, and must stay unreachable from the public
+  read path, which resolves by digest alone. A token that cannot be unsealed is
+  `url_path: null` — an ordinary state, never an error.
 - Share tokens must never be written to a log. `ShareTokenLogFilter` covers the
   Uvicorn access log and the `map` in `deploy/nginx/` covers Nginx; any new
   logging around `/api/shared/` or `/s/` has to redact too.

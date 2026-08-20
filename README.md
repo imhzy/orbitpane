@@ -192,8 +192,16 @@ Any project can be published as a read-only snapshot at `/s/<token>`. The page
 needs no session, and it is a copy rather than a view: turns added after the
 link was created never appear in it.
 
-- The token is 192 bits from `secrets.token_urlsafe`. Only its SHA-256 digest is
-  stored, so a database copy is not also a set of working links.
+- The token is 192 bits from `secrets.token_urlsafe`. Resolution is by SHA-256
+  digest; a second copy is stored sealed with AES-GCM under a key derived from
+  `ORBITPANE_AUTH_SECRET`, which is what lets the share panel show a link again
+  rather than only revoke it. The secret lives in the environment and not in
+  the database, so a stolen `history.db` is still not a set of working links.
+  Rotating the secret leaves existing links working but no longer listable with
+  their address, and links created before this was kept list the same way.
+- The share panel lists every live link of the open project with its address,
+  snapshot date, view count and expiry, so a link handed out last week can be
+  copied again from the app that made it.
 - A snapshot carries the conversation and nothing else. The workspace path, run
   ids, per-run character accounting and feedback ratings stay private, and the
   agent's execution transcript is included only when the sender asks for it.

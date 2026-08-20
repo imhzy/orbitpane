@@ -13,6 +13,7 @@ interface MessageListProps {
   /** Stable key of the message whose copy button is showing its tick. */
   copiedMessageKey: string | null
   isAgentThinking: boolean
+  isDrawerSwiping: boolean
   copyMessageText: (text: string, messageKey: string) => void
   handleFeedback: (messageId: number | undefined, type: 'up' | 'down') => void
   regenerateLastResponse: () => void
@@ -200,6 +201,7 @@ const MessageRow = React.memo(function MessageRow({
 export function MessageList({
   messages,
   copiedMessageKey,
+  isDrawerSwiping,
   copyMessageText,
   handleFeedback,
   regenerateLastResponse,
@@ -217,7 +219,12 @@ export function MessageList({
   const [expandedHistoryKey, setExpandedHistoryKey] = React.useState<string | null>(null)
   const [expandedSummaryKey, setExpandedSummaryKey] = React.useState<string | null>(null)
   const [contextMessageKey, setContextMessageKey] = React.useState<string | null>(null)
-  const longPressRef = React.useRef<{ timer: number; x: number; y: number } | null>(null)
+  const longPressRef = React.useRef<{
+    timer: number
+    pointerId: number
+    x: number
+    y: number
+  } | null>(null)
   const isHistoryExpanded = latestSummaryKey !== null && expandedHistoryKey === latestSummaryKey
   const summarizedMessageCount = latestSummaryIndex > 0
     ? messages.slice(0, latestSummaryIndex).filter(message => message.role !== 'system').length
@@ -266,9 +273,10 @@ export function MessageList({
   }, [])
 
   const beginLongPress = React.useCallback((event: React.PointerEvent, rowKey: string) => {
-    if (event.pointerType !== 'touch') return
+    if (event.pointerType !== 'touch' || isDrawerSwiping) return
     if (longPressRef.current) window.clearTimeout(longPressRef.current.timer)
     longPressRef.current = {
+      pointerId: event.pointerId,
       x: event.clientX,
       y: event.clientY,
       timer: window.setTimeout(() => {
@@ -277,25 +285,54 @@ export function MessageList({
         longPressRef.current = null
       }, 460),
     }
-  }, [])
+  }, [isDrawerSwiping])
 
   const moveLongPress = React.useCallback((event: React.PointerEvent) => {
     const pending = longPressRef.current
-    if (!pending) return
+    if (!pending || pending.pointerId !== event.pointerId) return
     if (Math.abs(event.clientX - pending.x) > 10 || Math.abs(event.clientY - pending.y) > 10) {
-      if (longPressRef.current) window.clearTimeout(longPressRef.current.timer)
-      longPressRef.current = null
+      cancelLongPress()
     }
-  }, [])
+  }, [cancelLongPress])
 
   const handleContextMenu = React.useCallback((event: React.SyntheticEvent, rowKey: string) => {
     if (!window.matchMedia('(pointer: coarse)').matches) return
     event.preventDefault()
+    if (isDrawerSwiping) return
     haptic('light')
     setContextMessageKey(rowKey)
-  }, [])
+  }, [isDrawerSwiping])
 
   React.useEffect(() => cancelLongPress, [cancelLongPress])
+  React.useEffect(() => {
+    // The message viewport captures touch pointers so the drawer remains
+    // continuous when its scrim mounts. Captured events no longer target the
+    // message row, but they still bubble to window, where the long-press timer
+    // can be cancelled without weakening the drawer gesture.
+    const handlePointerMove = (event: PointerEvent) => {
+      const pending = longPressRef.current
+      if (!pending || pending.pointerId !== event.pointerId) return
+      if (Math.abs(event.clientX - pending.x) > 10 || Math.abs(event.clientY - pending.y) > 10) {
+        cancelLongPress()
+      }
+    }
+    const handlePointerEnd = (event: PointerEvent) => {
+      if (longPressRef.current?.pointerId === event.pointerId) cancelLongPress()
+    }
+    window.addEventListener('pointermove', handlePointerMove, { passive: true })
+    window.addEventListener('pointerup', handlePointerEnd, { passive: true })
+    window.addEventListener('pointercancel', handlePointerEnd, { passive: true })
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerEnd)
+      window.removeEventListener('pointercancel', handlePointerEnd)
+    }
+  }, [cancelLongPress])
+  React.useEffect(() => {
+    if (!isDrawerSwiping) return
+    cancelLongPress()
+    setContextMessageKey(null)
+  }, [cancelLongPress, isDrawerSwiping])
 
   return (
     <>

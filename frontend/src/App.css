@@ -1235,8 +1235,13 @@
 /* === Chat Messages === */
 .chat-messages {
   flex: 1;
+  position: relative;
   overflow-y: auto;
   overflow-x: hidden;
+  /* Vertical scroll remains native. Horizontal movement on ordinary message
+     content stays available to the in-app drawer recognizer; nested horizontal
+     scrollers keep their own native panning. */
+  touch-action: pan-y pinch-zoom;
   padding: var(--space-6) var(--space-6) var(--space-12) var(--space-6);
   display: flex;
   flex-direction: column;

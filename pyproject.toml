@@ -8,6 +8,8 @@ version = "2.1.0"
 description = "A secure, self-hosted workspace for coding agents"
 requires-python = ">=3.11"
 dependencies = [
+  # AES-GCM for the share tokens kept at rest, so a link can be shown again.
+  "cryptography>=42,<50",
   "fastapi>=0.115,<1",
   "pydantic>=2.10,<3",
   "uvicorn[standard]>=0.34,<1",

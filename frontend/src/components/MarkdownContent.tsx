@@ -46,7 +46,10 @@ function ResponsiveTable({ children, ...props }: React.TableHTMLAttributes<HTMLT
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [expanded])
   return (
-    <div className={`markdown-table-shell ${expanded ? 'expanded' : ''}`}>
+    <div
+      className={`markdown-table-shell ${expanded ? 'expanded' : ''}`}
+      data-drawer-swipe-ignore="horizontal"
+    >
       <div className="markdown-table-toolbar">
         <span>数据表格</span>
         <button onClick={() => setExpanded(value => !value)} aria-label={expanded ? '退出全屏表格' : '全屏查看表格'}>

@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 from fastapi import (
     Depends,
@@ -47,6 +48,7 @@ from .security import (
     LoginRateLimiter,
     SESSION_COOKIE_NAME,
     SHARE_TOKEN_PATTERN,
+    ShareTokenCipher,
     TokenService,
     authenticate_websocket,
     hash_share_token,
@@ -211,6 +213,23 @@ def _share_expiry(days: int | None) -> str | None:
         return None
     deadline = datetime.now(timezone.utc) + timedelta(days=days)
     return deadline.isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
+def _owner_share_response(
+    share: dict[str, Any], cipher: ShareTokenCipher
+) -> dict[str, Any]:
+    """Turn a stored share row into what its owner is allowed to see.
+
+    `token_cipher` is storage and never API: it is unsealed here into the same
+    `url_path` the creation response returns, or into a null that means "this
+    link still works, but we can no longer show you what it is". The column
+    itself must not reach the client, so it is dropped rather than overwritten.
+    """
+    token = cipher.decrypt(share.get("token_cipher"))
+    return {
+        **{key: value for key, value in share.items() if key != "token_cipher"},
+        "url_path": f"{SHARE_URL_PREFIX}{token}" if token else None,
+    }
 
 
 def _is_expired(expires_at: str | None) -> bool:
@@ -388,6 +407,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         resolved_settings.auth_secret,
         resolved_settings.auth_ttl_seconds,
     )
+    # Derived from the signing secret rather than stored: rotating
+    # ORBITPANE_AUTH_SECRET makes existing links unshowable, not unusable.
+    share_cipher = ShareTokenCipher(resolved_settings.auth_secret)
+    app.state.share_cipher = share_cipher
     logging.getLogger("uvicorn.access").addFilter(ShareTokenLogFilter())
     app.state.login_limiter = LoginRateLimiter()
     # Share tokens are far too large to guess, but the public lookup is the one
@@ -723,15 +746,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         share = database.create_share(
             conversation_id,
             token_hash=hash_share_token(token),
+            token_cipher=share_cipher.encrypt(token),
             title=conversation.name,
             snapshot=payload,
             message_count=len(messages),
             include_thoughts=request.include_thoughts,
             expires_at=_share_expiry(request.expires_in_days),
         )
-        # The only time the raw token exists outside the reader's URL bar. The
-        # database keeps its digest, so this response cannot be reconstructed.
-        return {**share, "token": token, "url_path": f"{SHARE_URL_PREFIX}{token}"}
+        # `token` is returned only here; the link list rebuilds `url_path` from
+        # the sealed copy instead, and never exposes the raw token again.
+        return {
+            **_owner_share_response(share, share_cipher),
+            "token": token,
+            "url_path": f"{SHARE_URL_PREFIX}{token}",
+        }
 
     @app.get(
         "/api/conversations/{conversation_id}/shares",
@@ -741,7 +769,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if database.get_conversation(conversation_id) is None:
             raise HTTPException(status_code=404, detail="Conversation not found")
         shares = [
-            share
+            _owner_share_response(share, share_cipher)
             for share in database.list_shares(conversation_id)
             if not _is_expired(share["expires_at"])
         ]
