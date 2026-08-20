@@ -8,6 +8,7 @@ import { haptic } from '../lib/nativeFeedback'
 import { OPEN_INSPECTOR_EVENT, OPEN_SHARE_EVENT } from '../lib/appEvents'
 import { useUpdateCheck } from '../hooks/useUpdateCheck'
 import { useEscapeLayer } from '../hooks/useEscapeLayer'
+import { MobileBottomSheet } from './MobileBottomSheet'
 
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -49,33 +50,15 @@ export function ChatHeader(_props: ChatHeaderProps) {
      popover under the trigger on a pointer device. It used to exist only on
      the phone, which is why the desktop header carried three loose buttons for
      actions that are used once a session. */
-  const [isCoarsePointer, setIsCoarsePointer] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches,
+  const [isMobileViewport, setIsMobileViewport] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches,
   )
   useEffect(() => {
-    const query = window.matchMedia('(pointer: coarse)')
-    const sync = () => setIsCoarsePointer(query.matches)
+    const query = window.matchMedia('(max-width: 768px)')
+    const sync = () => setIsMobileViewport(query.matches)
     query.addEventListener('change', sync)
     return () => query.removeEventListener('change', sync)
   }, [])
-  const sheetMotion = isCoarsePointer
-    ? {
-        drag: 'y' as const,
-        dragDirectionLock: true,
-        dragConstraints: { top: 0, bottom: 800 },
-        dragElastic: 0.08,
-        dragMomentum: false,
-        initial: { y: 800 },
-        animate: { y: 0 },
-        exit: { y: 800 },
-        transition: { type: 'spring' as const, damping: 28, stiffness: 320 },
-      }
-    : {
-        initial: { opacity: 0, y: -6, scale: 0.98 },
-        animate: { opacity: 1, y: 0, scale: 1 },
-        exit: { opacity: 0, y: -4, scale: 0.98 },
-        transition: { duration: 0.14, ease: [0.22, 1, 0.36, 1] as const },
-      }
 
   useEscapeLayer(isActionsMenuOpen, () => setIsActionsMenuOpen(false))
   useEscapeLayer(editingConvId !== null, () => {
@@ -94,6 +77,7 @@ export function ChatHeader(_props: ChatHeaderProps) {
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent | TouchEvent) => {
+      if ((e.target as Element | null)?.closest('.actions-sheet-surface')) return
       if (actionsMenuRef.current && !actionsMenuRef.current.contains(e.target as Node)) {
         setIsActionsMenuOpen(false)
       }
@@ -105,6 +89,89 @@ export function ChatHeader(_props: ChatHeaderProps) {
       document.removeEventListener('touchstart', handleClickOutside)
     }
   }, [])
+
+  const actionMenuItems = (
+    <>
+      <button
+        className="actions-dropdown-item"
+        onClick={() => {
+          onOpenCmdPalette()
+          setIsActionsMenuOpen(false)
+        }}
+      >
+        <Command size={14} />
+        <span>快捷指令</span>
+      </button>
+      <button
+        className="actions-dropdown-item"
+        onClick={() => {
+          toggleTheme()
+          setIsActionsMenuOpen(false)
+        }}
+      >
+        {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+        <span>切换主题</span>
+      </button>
+      <button
+        className="actions-dropdown-item"
+        disabled={isCheckingForUpdate}
+        onClick={() => {
+          setIsActionsMenuOpen(false)
+          void checkForUpdate()
+        }}
+      >
+        <RefreshCw size={14} className={isCheckingForUpdate ? 'animate-spin' : ''} />
+        <span>{isCheckingForUpdate ? '正在更新…' : '检查更新'}</span>
+      </button>
+      {activeConv && (
+        <>
+          <button
+            className="actions-dropdown-item"
+            disabled={!messages.some(message => message.role !== 'system')}
+            onClick={() => {
+              setIsShareOpen(true)
+              setIsActionsMenuOpen(false)
+            }}
+          >
+            <Share2 size={14} />
+            <span>分享</span>
+          </button>
+          <button
+            className="actions-dropdown-item"
+            disabled={isExporting || !messages.some(message => message.role !== 'system')}
+            onClick={() => {
+              exportConversationAsImage()
+              setIsActionsMenuOpen(false)
+            }}
+          >
+            <Download size={14} className={isExporting ? 'animate-pulse' : ''} />
+            <span>导出</span>
+          </button>
+          <button
+            className="actions-dropdown-item"
+            disabled={!messages.some(message => message.role !== 'system')}
+            onClick={() => {
+              summarizeMessages()
+              setIsActionsMenuOpen(false)
+            }}
+          >
+            <FileText size={14} />
+            <span>总结</span>
+          </button>
+          <button
+            className="actions-dropdown-item"
+            onClick={() => {
+              clearMessages()
+              setIsActionsMenuOpen(false)
+            }}
+          >
+            <Eraser size={14} />
+            <span>清空</span>
+          </button>
+        </>
+      )}
+    </>
+  )
 
   return (
     <div className="chat-header">
@@ -280,112 +347,30 @@ export function ChatHeader(_props: ChatHeaderProps) {
           </button>
           
           <AnimatePresence>
-            {isActionsMenuOpen && (
-              <>
-                <motion.button
-                  type="button"
-                  className="mobile-sheet-backdrop actions-sheet-backdrop"
-                  aria-label="关闭更多操作"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  onClick={() => setIsActionsMenuOpen(false)}
-                />
-                <motion.div
-                  className="actions-dropdown-menu mobile-actions-sheet"
-                  role="menu"
-                  onDragEnd={(_event, info) => {
-                    if (info.offset.y > 90 || info.velocity.y > 500) setIsActionsMenuOpen(false)
-                  }}
-                  {...sheetMotion}
-                >
-                <div className="mobile-sheet-grabber" aria-hidden="true" />
-                <div className="mobile-sheet-title">更多操作</div>
-                <button
-                  className="actions-dropdown-item"
-                  onClick={() => {
-                    onOpenCmdPalette();
-                    setIsActionsMenuOpen(false);
-                  }}
-                >
-                  <Command size={14} />
-                  <span>快捷指令</span>
-                </button>
-                <button
-                  className="actions-dropdown-item"
-                  onClick={() => {
-                    toggleTheme();
-                    setIsActionsMenuOpen(false);
-                  }}
-                >
-                  {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
-                  <span>切换主题</span>
-                </button>
-                <button
-                  className="actions-dropdown-item"
-                  disabled={isCheckingForUpdate}
-                  onClick={() => {
-                    setIsActionsMenuOpen(false)
-                    void checkForUpdate()
-                  }}
-                >
-                  <RefreshCw size={14} className={isCheckingForUpdate ? 'animate-spin' : ''} />
-                  <span>{isCheckingForUpdate ? '正在更新…' : '检查更新'}</span>
-                </button>
-
-                {activeConv && (
-                  <>
-                    <button
-                      className="actions-dropdown-item"
-                      disabled={!messages.some(message => message.role !== 'system')}
-                      onClick={() => {
-                        setIsShareOpen(true);
-                        setIsActionsMenuOpen(false);
-                      }}
-                    >
-                      <Share2 size={14} />
-                      <span>分享</span>
-                    </button>
-                    <button
-                      className="actions-dropdown-item"
-                      disabled={isExporting || !messages.some(message => message.role !== 'system')}
-                      onClick={() => {
-                        exportConversationAsImage();
-                        setIsActionsMenuOpen(false);
-                      }}
-                    >
-                      <Download size={14} className={isExporting ? 'animate-pulse' : ''} />
-                      <span>导出</span>
-                    </button>
-                    <button 
-                      className="actions-dropdown-item"
-                      disabled={!messages.some(message => message.role !== 'system')}
-                      onClick={() => {
-                        summarizeMessages();
-                        setIsActionsMenuOpen(false);
-                      }}
-                    >
-                      <FileText size={14} />
-                      <span>总结</span>
-                    </button>
-                    <button 
-                      className="actions-dropdown-item"
-                      onClick={() => {
-                        clearMessages();
-                        setIsActionsMenuOpen(false);
-                      }}
-                    >
-                      <Eraser size={14} />
-                      <span>清空</span>
-                    </button>
-                  </>
-                )}
-
-                </motion.div>
-              </>
+            {isActionsMenuOpen && !isMobileViewport && (
+              <motion.div
+                className="actions-dropdown-menu"
+                role="menu"
+                initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -4, scale: 0.98 }}
+                transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
+              >
+                {actionMenuItems}
+              </motion.div>
             )}
           </AnimatePresence>
         </div>
+        <MobileBottomSheet
+          open={isActionsMenuOpen && isMobileViewport}
+          onClose={() => setIsActionsMenuOpen(false)}
+          title="更多操作"
+          className="actions-sheet-surface mobile-actions-sheet"
+          backdropClassName="actions-sheet-backdrop"
+          role="menu"
+        >
+          {actionMenuItems}
+        </MobileBottomSheet>
       </div>
 
       <ShareDialog isOpen={isShareOpen} onClose={() => setIsShareOpen(false)} />

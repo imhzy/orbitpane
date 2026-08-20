@@ -4,6 +4,7 @@ import { Cpu, ChevronDown, Check } from 'lucide-react'
 import { formatModelName } from '../lib/providers'
 import { useEscapeLayer } from '../hooks/useEscapeLayer'
 import type { ModelOption } from '../lib/types'
+import { MobileBottomSheet } from './MobileBottomSheet'
 
 export interface ModelSelectorProps {
   selectedModel: string
@@ -20,6 +21,7 @@ export function ModelSelector({ selectedModel, setSelectedModel, models, positio
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
+      if ((e.target as Element | null)?.closest('.model-bottom-sheet')) return
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setIsOpen(false)
       }
@@ -74,51 +76,29 @@ export function ModelSelector({ selectedModel, setSelectedModel, models, positio
 
       <AnimatePresence>
         {isOpen && (
-          <>
-            <motion.div
-              initial={{ opacity: 0, y: isInput ? 6 : -5, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: isInput ? 6 : -5, scale: 0.98 }}
-              transition={{ duration: 0.15 }}
-              className={`model-dropdown-menu desktop-model-menu ${isInput ? 'input-menu' : ''}`}
-              role="listbox"
-              aria-label="模型列表"
-            >
-              {modelOptions}
-            </motion.div>
-            <motion.button
-              type="button"
-              className="mobile-sheet-backdrop"
-              aria-label="关闭模型选择"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsOpen(false)}
-            />
-            <motion.div
-              className="mobile-bottom-sheet model-bottom-sheet"
-              role="listbox"
-              aria-label="模型列表"
-              drag="y"
-              dragDirectionLock={true}
-              dragConstraints={{ top: 0, bottom: 800 }}
-              dragElastic={0.08}
-              dragMomentum={false}
-              onDragEnd={(_event, info) => {
-                if (info.offset.y > 90 || info.velocity.y > 500) setIsOpen(false)
-              }}
-              initial={{ y: 800 }}
-              animate={{ y: 0 }}
-              exit={{ y: 800 }}
-              transition={{ type: 'spring', damping: 28, stiffness: 320 }}
-            >
-              <div className="mobile-sheet-grabber" aria-hidden="true" />
-              <div className="mobile-sheet-title">选择运行模型</div>
-              <div className="mobile-sheet-options">{modelOptions}</div>
-            </motion.div>
-          </>
+          <motion.div
+            initial={{ opacity: 0, y: isInput ? 6 : -5, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: isInput ? 6 : -5, scale: 0.98 }}
+            transition={{ duration: 0.15 }}
+            className={`model-dropdown-menu desktop-model-menu ${isInput ? 'input-menu' : ''}`}
+            role="listbox"
+            aria-label="模型列表"
+          >
+            {modelOptions}
+          </motion.div>
         )}
       </AnimatePresence>
+      <MobileBottomSheet
+        open={isOpen}
+        onClose={() => setIsOpen(false)}
+        title="选择运行模型"
+        className="model-bottom-sheet"
+        role="listbox"
+        ariaLabel="模型列表"
+      >
+        <div className="mobile-sheet-options">{modelOptions}</div>
+      </MobileBottomSheet>
     </div>
   )
 }

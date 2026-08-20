@@ -16,19 +16,35 @@ import { AUTH_EXPIRED_EVENT } from '../lib/auth'
 import { haptic } from '../lib/nativeFeedback'
 import { useFocusTrap } from '../hooks/useFocusTrap'
 import { useEscapeLayer } from '../hooks/useEscapeLayer'
+import { MobileBottomSheet } from './MobileBottomSheet'
 
 import { useAppContext } from '../contexts/AppContext'
 
 interface SidebarProps {
-  isOpeningSwipe?: boolean
-  openingSwipeX?: MotionValue<number>
+  /** On screen at all, including while it slides out. Owned by the gesture controller. */
+  isVisible: boolean
+  /** Horizontal offset in pixels, driven by gesture and spring alike. */
+  drawerX?: MotionValue<number>
 }
 
-const springConfig = { type: 'spring' as const, damping: 25, stiffness: 250, mass: 1 }
-/* Damped hard enough not to overshoot: this slide carries a list the user is
+/* Damped hard enough not to overshoot: this carries a list the user is
    reading, and a bounce at the end reads as a glitch rather than as polish. */
-const PANE_SLIDE = { type: 'spring' as const, stiffness: 380, damping: 40, mass: 0.9 }
-const PANE_SLIDE_REDUCED = { duration: 0 }
+const PANE_ZOOM = { type: 'spring' as const, stiffness: 380, damping: 40, mass: 0.9 }
+const PANE_ZOOM_REDUCED = { duration: 0 }
+
+/* Switching tabs moves through the panes rather than sideways past them: the
+   outgoing pane grows and dissolves as the incoming one rises to meet it, so
+   the whole drawer reads as one surface zooming instead of two panels being
+   swapped. The sessions list sits nearest the viewer and the create flow one
+   step behind it, which is what gives the transition its direction. */
+const SESSIONS_PANE = {
+  active: { opacity: 1, scale: 1 },
+  hidden: { opacity: 0, scale: 1.06 },
+}
+const CREATE_PANE = {
+  active: { opacity: 1, scale: 1 },
+  hidden: { opacity: 0, scale: 0.94 },
+}
 
 function ProviderDropdown({ providers, selectedProvider, defaultProvider, setSelectedProvider }: {
   providers: Provider[],
@@ -107,9 +123,9 @@ function ProviderDropdown({ providers, selectedProvider, defaultProvider, setSel
   )
 }
 
-export function Sidebar({ isOpeningSwipe = false, openingSwipeX }: SidebarProps) {
+export function Sidebar({ isVisible, drawerX }: SidebarProps) {
   const {
-    isDrawerOpen, setIsDrawerOpen, drawerMode, setDrawerMode,
+    isDrawerOpen, drawerMode, setDrawerMode,
     conversations, isConversationsLoading, activeConv, selectConversation,
     editingConvId, editingConvName, setEditingConvName, saveConvName,
     startEditingConv, setEditingConvId, deleteConversation, getProviderBadge,
@@ -137,7 +153,7 @@ export function Sidebar({ isOpeningSwipe = false, openingSwipeX }: SidebarProps)
   /* The global reduced-motion rule only reaches CSS transitions; a spring
      driven in JS keeps running unless it is asked not to. */
   const prefersReducedMotion = useReducedMotion()
-  const paneSlide = prefersReducedMotion ? PANE_SLIDE_REDUCED : PANE_SLIDE
+  const paneZoom = prefersReducedMotion ? PANE_ZOOM_REDUCED : PANE_ZOOM
   const [contextConv, setContextConv] = useState<Conversation | null>(null)
   /* Only an overlay drawer is modal; the docked desktop column must keep Tab
      flowing into the conversation next to it. */
@@ -149,7 +165,13 @@ export function Sidebar({ isOpeningSwipe = false, openingSwipeX }: SidebarProps)
     query.addEventListener('change', sync)
     return () => query.removeEventListener('change', sync)
   }, [])
-  const drawerRef = useFocusTrap<HTMLDivElement>(isDrawerOpen && isOverlayDrawer)
+  /* Focus the panel itself, not the first control in it. The default target is
+     the refresh button, and a drawer pulled open by a swipe would arrive with
+     a focus ring drawn around it as if the user had selected it. Tab still
+     steps into the header from here. */
+  const drawerRef = useFocusTrap<HTMLDivElement>(isDrawerOpen && isOverlayDrawer, {
+    initialFocus: (): HTMLElement | null => drawerRef.current,
+  })
   useEscapeLayer(isDrawerOpen && isOverlayDrawer, requestCloseDrawer)
   // Registered after the drawer layer, so cancelling a rename wins over
   // closing the drawer for the same keypress.
@@ -160,37 +182,6 @@ export function Sidebar({ isOpeningSwipe = false, openingSwipeX }: SidebarProps)
   useEscapeLayer(contextConv !== null, () => setContextConv(null))
   const longPressRef = React.useRef<{ timer: number; x: number; y: number } | null>(null)
   const suppressClickRef = React.useRef(false)
-
-  /* Swipe-to-close over form fields.
-   *
-   * Framer Motion's drag deliberately never engages when the gesture starts on
-   * an input or textarea — it hands the pointer to the field so typing and
-   * caret placement keep working. Traced on a phone viewport, a swipe starting
-   * in the search box delivered every pointermove to the drawer and still left
-   * its transform untouched, which is why that strip was a dead zone in 0 of 5
-   * attempts while the rest of the drawer closed fine.
-   *
-   * These listeners sit on the drawer and only arm when the gesture began on a
-   * field, so everywhere else the real drag still owns the interaction. The
-   * thresholds mirror onDragEnd below so the two feel identical. */
-  const fieldSwipeRef = React.useRef<{ x: number; y: number; t: number } | null>(null)
-  const onFieldPointerDown = (event: React.PointerEvent) => {
-    fieldSwipeRef.current = null
-    if (event.pointerType !== 'touch') return
-    const target = event.target as Element | null
-    if (!target?.closest('input, textarea')) return
-    fieldSwipeRef.current = { x: event.clientX, y: event.clientY, t: event.timeStamp }
-  }
-  const onFieldPointerUp = (event: React.PointerEvent) => {
-    const start = fieldSwipeRef.current
-    fieldSwipeRef.current = null
-    if (!start) return
-    const dx = event.clientX - start.x
-    const dy = event.clientY - start.y
-    if (Math.abs(dx) <= Math.abs(dy)) return          // a vertical scroll, not a dismiss
-    const velocity = (dx / Math.max(event.timeStamp - start.t, 1)) * 1000
-    if (dx < -60 || velocity < -200) setIsDrawerOpen(false)
-  }
 
   const cancelLongPress = () => {
     if (longPressRef.current) window.clearTimeout(longPressRef.current.timer)
@@ -259,35 +250,18 @@ export function Sidebar({ isOpeningSwipe = false, openingSwipeX }: SidebarProps)
   })
 
   return (
-    <AnimatePresence>
-      {(isDrawerOpen || isOpeningSwipe) && (
-        <motion.div
-          ref={drawerRef}
-          initial={isOpeningSwipe ? false : { x: -400 }}
-          animate={isOpeningSwipe ? undefined : { x: 0 }}
-          exit={isOpeningSwipe ? undefined : { x: -400 }}
-          style={isOpeningSwipe && openingSwipeX ? { x: openingSwipeX } : undefined}
-          transition={springConfig}
-          className={`drawer ${drawerMode === 'create' ? 'create-mode' : ''} ${drawerMode === 'create' && isDirectoryExpanded ? 'directory-focus-mode' : ''}`}
-          role={isDrawerOpen && isOverlayDrawer ? 'dialog' : undefined}
-          aria-modal={isDrawerOpen && isOverlayDrawer ? true : undefined}
-          aria-hidden={!isDrawerOpen ? true : undefined}
-          inert={!isDrawerOpen ? true : undefined}
-          aria-label="项目菜单"
-          onPointerDown={onFieldPointerDown}
-          onPointerUp={onFieldPointerUp}
-          onPointerCancel={() => { fieldSwipeRef.current = null }}
-          drag={isDrawerOpen && !isOpeningSwipe ? 'x' : false}
-          dragDirectionLock={true}
-          dragConstraints={{ left: -Math.max(500, typeof window !== 'undefined' ? window.innerWidth : 500), right: 0 }}
-          dragElastic={0.1}
-          dragMomentum={false}
-          onDragEnd={(_e, { offset, velocity }) => {
-            if (offset.x < -60 || velocity.x < -200) {
-              setIsDrawerOpen(false)
-            }
-          }}
-        >
+    <>
+      {isVisible && (
+          <motion.div
+            ref={drawerRef}
+            style={drawerX ? { x: drawerX } : undefined}
+            className={`drawer ${drawerMode === 'create' ? 'create-mode' : ''} ${drawerMode === 'create' && isDirectoryExpanded ? 'directory-focus-mode' : ''}`}
+            role={isDrawerOpen && isOverlayDrawer ? 'dialog' : undefined}
+            aria-modal={isDrawerOpen && isOverlayDrawer ? true : undefined}
+            aria-hidden={!isDrawerOpen ? true : undefined}
+            inert={!isDrawerOpen ? true : undefined}
+            aria-label="项目菜单"
+          >
           <div className="drawer-header">
             <div className="drawer-brand">
               <LogoIcon size={24} />
@@ -339,7 +313,7 @@ export function Sidebar({ isOpeningSwipe = false, openingSwipeX }: SidebarProps)
                   <motion.span
                     layoutId="drawer-tab-pill"
                     className="drawer-tab-pill"
-                    transition={paneSlide}
+                    transition={paneZoom}
                   />
                 )}
                 <Icon size={14} />
@@ -348,19 +322,21 @@ export function Sidebar({ isOpeningSwipe = false, openingSwipeX }: SidebarProps)
             ))}
           </div>
 
-          {/* The two modes ride on one track and slide, rather than swapping
-              instantly. Both panes stay mounted so the browser keeps each one's
-              scroll position — an unmount/remount resets it, which is what made
-              the old switch feel like a page load. The inactive pane is `inert`
-              so it takes no focus and is invisible to assistive tech. */}
+          {/* The two modes are stacked in depth and cross-zoom, rather than
+              swapping instantly. Both panes stay mounted so the browser keeps
+              each one's scroll position — an unmount/remount resets it, which
+              is what made the old switch feel like a page load. The inactive
+              pane is `inert` so it takes no focus and is invisible to
+              assistive tech. */}
           <div className="drawer-panes">
             <motion.div
-              className="drawer-pane-track"
-              animate={{ x: drawerMode === 'create' ? '-50%' : '0%' }}
-              transition={paneSlide}
+              className="drawer-pane"
+              inert={drawerMode !== 'sessions'}
+              variants={SESSIONS_PANE}
+              animate={drawerMode === 'sessions' ? 'active' : 'hidden'}
+              transition={paneZoom}
               initial={false}
             >
-              <div className="drawer-pane" inert={drawerMode !== 'sessions'}>
                 <div className="drawer-content">
               {/* Search input for conversations */}
               {conversations.length > 0 && (
@@ -588,10 +564,18 @@ export function Sidebar({ isOpeningSwipe = false, openingSwipeX }: SidebarProps)
                 })()
               )}
                 </div>
-              </div>
 
-              {/* Create Project Mode */}
-              <div className="drawer-pane" inert={drawerMode !== 'create'}>
+            </motion.div>
+
+            {/* Create Project Mode */}
+            <motion.div
+              className="drawer-pane"
+              inert={drawerMode !== 'create'}
+              variants={CREATE_PANE}
+              animate={drawerMode === 'create' ? 'active' : 'hidden'}
+              transition={paneZoom}
+              initial={false}
+            >
                 <div className="drawer-content cw-content">
               <div className="cw-header">
                 <h3 className="cw-title">配置新项目</h3>
@@ -876,7 +860,6 @@ export function Sidebar({ isOpeningSwipe = false, openingSwipeX }: SidebarProps)
                 )}
                   </div>
                 </div>
-              </div>
             </motion.div>
           </div>
 
@@ -895,37 +878,18 @@ export function Sidebar({ isOpeningSwipe = false, openingSwipeX }: SidebarProps)
               <span>退出系统</span>
             </button>
           </div>
-        </motion.div>
+          </motion.div>
       )}
-      {contextConv && (
-        <>
-          <motion.button
-            type="button"
-            className="mobile-sheet-backdrop project-actions-backdrop"
-            aria-label="关闭项目操作"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setContextConv(null)}
-          />
-          <motion.div
-            className="mobile-bottom-sheet project-actions-sheet"
-            role="menu"
-            drag="y"
-            dragDirectionLock={true}
-            dragConstraints={{ top: 0, bottom: 800 }}
-            dragElastic={0.1}
-            dragMomentum={false}
-            onDragEnd={(_event, info) => {
-              if (info.offset.y > 90 || info.velocity.y > 500) setContextConv(null)
-            }}
-            initial={{ y: 800 }}
-            animate={{ y: 0 }}
-            exit={{ y: 800 }}
-            transition={{ type: 'spring', damping: 28, stiffness: 320 }}
-          >
-            <div className="mobile-sheet-grabber" aria-hidden="true" />
-            <div className="mobile-sheet-title">{contextConv.name}</div>
+      <MobileBottomSheet
+        open={contextConv !== null}
+        onClose={() => setContextConv(null)}
+        title={contextConv?.name ?? '项目操作'}
+        className="project-actions-sheet"
+        backdropClassName="project-actions-backdrop"
+        role="menu"
+      >
+        {contextConv && (
+          <>
             <button type="button" role="menuitem" onClick={() => {
               void updateConversation(contextConv.id, { is_pinned: !contextConv.is_pinned })
               haptic('selection')
@@ -947,9 +911,9 @@ export function Sidebar({ isOpeningSwipe = false, openingSwipeX }: SidebarProps)
               haptic('warning')
               setContextConv(null)
             }}><Trash2 size={17} />删除项目</button>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
+          </>
+        )}
+      </MobileBottomSheet>
+    </>
   )
 }

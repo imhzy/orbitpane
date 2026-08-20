@@ -3,7 +3,7 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useConversations } from './hooks/useConversations'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useToasts } from './hooks/useToasts'
-import { useDrawerSwipe } from './hooks/useDrawerSwipe'
+import { useDrawerGesture } from './hooks/useDrawerGesture'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ArrowDown, WifiOff, RefreshCw } from 'lucide-react'
 import './App.css'
@@ -194,13 +194,6 @@ export default function App() {
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [])
-
-  const drawerSwipe = useDrawerSwipe({
-    isDrawerOpen,
-    allowActionStarts: !activeConv,
-    setIsDrawerOpen,
-    setDrawerMode,
-  })
 
 
   // Command Palette State
@@ -1212,7 +1205,7 @@ export default function App() {
   const requestCloseDrawer = useCallback(() => {
     if (!hasUnsavedDraftProject) {
       setIsDrawerOpen(false)
-      return
+      return true
     }
     requestConfirm({
       id: 'discard-draft-project',
@@ -1222,6 +1215,7 @@ export default function App() {
       variant: 'destructive',
       onConfirm: () => setIsDrawerOpen(false),
     })
+    return false
   }, [hasUnsavedDraftProject, requestConfirm])
 
   /** Drop a starter suggestion into the composer rather than sending blind. */
@@ -1259,40 +1253,15 @@ export default function App() {
     ? conversations
     : conversations.filter(conversation => !pendingDeletionIds.includes(conversation.id))
 
-  const scrimTouchRef = useRef<{ startX: number; startY: number; isDragging: boolean } | null>(null)
-
-  const handleScrimPointerDown = useCallback((e: React.PointerEvent) => {
-    if (e.pointerType !== 'touch') return
-    scrimTouchRef.current = { startX: e.clientX, startY: e.clientY, isDragging: false }
-  }, [])
-
-  const handleScrimPointerMove = useCallback((e: React.PointerEvent) => {
-    const start = scrimTouchRef.current
-    if (!start) return
-    const deltaX = e.clientX - start.startX
-    const deltaY = Math.abs(e.clientY - start.startY)
-
-    if (deltaX < -25 && deltaY < Math.abs(deltaX)) {
-      start.isDragging = true
-    }
-  }, [])
-
-  const handleScrimPointerUp = useCallback((e: React.PointerEvent) => {
-    const start = scrimTouchRef.current
-    scrimTouchRef.current = null
-    if (!start) return
-
-    const deltaX = e.clientX - start.startX
-    const deltaY = Math.abs(e.clientY - start.startY)
-
-    if (start.isDragging || (deltaX < -35 && deltaY < Math.abs(deltaX))) {
-      requestCloseDrawer()
-    }
-  }, [requestCloseDrawer])
-
-  const handleScrimPointerCancel = useCallback(() => {
-    scrimTouchRef.current = null
-  }, [])
+  /* Reveal, dismiss and every programmatic toggle share one motion value, so
+     a finger can interrupt any of them and carry the drawer on from there. */
+  const drawer = useDrawerGesture({
+    isDrawerOpen,
+    allowActionStarts: !activeConv,
+    setIsDrawerOpen,
+    setDrawerMode,
+    requestClose: requestCloseDrawer,
+  })
 
   if (isLoggedIn === null) {
     return <div className="app-container" aria-label="正在验证登录状态" />
@@ -1329,33 +1298,28 @@ export default function App() {
   return (
     <AppContext.Provider value={contextValue}>
       <div className="app-container">
-      {/* Sidebar Drawer Scrim */}
-      <AnimatePresence>
-        {(isDrawerOpen || drawerSwipe.isRevealing) && (
-          <motion.div 
-            initial={drawerSwipe.isRevealing ? false : { opacity: 0 }}
-            animate={drawerSwipe.isRevealing ? undefined : { opacity: 1 }}
-            exit={drawerSwipe.isRevealing ? undefined : { opacity: 0 }}
-            style={drawerSwipe.isRevealing ? { opacity: drawerSwipe.scrimOpacity } : undefined}
-            className="drawer-scrim" 
+      {/* One hit region owns both the drawer and its scrim. Pointer capture
+          therefore remains on the same element when a swipe crosses their
+          visual boundary in either direction. */}
+      <div
+        className={`drawer-layer ${drawer.isVisible ? 'active' : ''}`}
+        {...drawer.layerHandlers}
+      >
+        {/* The scrim reads its opacity off the same value that positions the
+            drawer, so the two can never disagree about how open it is. */}
+        {drawer.isVisible && (
+          <motion.div
+            style={{ opacity: drawer.scrimOpacity }}
+            className="drawer-scrim"
             onClick={() => {
               if (!isDrawerOpen) return
-              if (scrimTouchRef.current?.isDragging) return
               requestCloseDrawer()
             }}
-            onPointerDown={handleScrimPointerDown}
-            onPointerMove={handleScrimPointerMove}
-            onPointerUp={handleScrimPointerUp}
-            onPointerCancel={handleScrimPointerCancel}
           />
         )}
-      </AnimatePresence>
 
-      {/* Sidebar Drawer */}
-      <Sidebar
-        isOpeningSwipe={drawerSwipe.isRevealing}
-        openingSwipeX={drawerSwipe.drawerX}
-      />
+        <Sidebar isVisible={drawer.isVisible} drawerX={drawer.x} />
+      </div>
 
       {/* Main Chat Area */}
       <div className="chat-main">
@@ -1382,13 +1346,13 @@ export default function App() {
           onTouchCancel={handlePullEnd}
           onPointerDown={event => {
             handleMessagesScrollIntent()
-            drawerSwipe.swipeHandlers.onPointerDown(event)
+            drawer.contentHandlers.onPointerDown(event)
           }}
-          onPointerMove={drawerSwipe.swipeHandlers.onPointerMove}
-          onPointerUp={drawerSwipe.swipeHandlers.onPointerUp}
-          onPointerCancel={drawerSwipe.swipeHandlers.onPointerCancel}
-          onLostPointerCapture={drawerSwipe.swipeHandlers.onLostPointerCapture}
-          onClickCapture={drawerSwipe.swipeHandlers.onClickCapture}
+          onPointerMove={drawer.contentHandlers.onPointerMove}
+          onPointerUp={drawer.contentHandlers.onPointerUp}
+          onPointerCancel={drawer.contentHandlers.onPointerCancel}
+          onLostPointerCapture={drawer.contentHandlers.onLostPointerCapture}
+          onClickCapture={drawer.contentHandlers.onClickCapture}
           onKeyDownCapture={handleMessagesScrollIntent}
         >
           <div
@@ -1422,7 +1386,7 @@ export default function App() {
                 messages={messages}
                 copiedMessageKey={copiedMessageKey}
                 isAgentThinking={!!isAgentThinking}
-                isDrawerSwiping={drawerSwipe.isRevealing}
+                isDrawerSwiping={drawer.isDragging}
                 copyMessageText={copyMessageText}
                 handleFeedback={handleFeedback}
                 regenerateLastResponse={regenerateLastResponse}

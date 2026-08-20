@@ -7,6 +7,7 @@ import type { Message } from '../lib/types'
 import { haptic } from '../lib/nativeFeedback'
 import { messageKey } from '../lib/messageIdentity'
 import { formatModelName } from '../lib/providers'
+import { MobileBottomSheet } from './MobileBottomSheet'
 
 interface MessageListProps {
   messages: Message[]
@@ -445,35 +446,16 @@ export function MessageList({
           />
         )
       })}
-      {contextMessage && (
-        <>
-          <motion.button
-            type="button"
-            className="mobile-sheet-backdrop message-actions-backdrop"
-            aria-label="关闭消息操作"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setContextMessageKey(null)}
-          />
-          <motion.div
-            className="mobile-bottom-sheet message-actions-sheet"
-            role="menu"
-            drag="y"
-            dragDirectionLock={true}
-            dragConstraints={{ top: 0, bottom: 800 }}
-            dragElastic={0.08}
-            dragMomentum={false}
-            onDragEnd={(_event, info) => {
-              if (info.offset.y > 90 || info.velocity.y > 500) setContextMessageKey(null)
-            }}
-            initial={{ y: 800 }}
-            animate={{ y: 0 }}
-            exit={{ y: 800 }}
-            transition={{ type: 'spring', damping: 28, stiffness: 320 }}
-          >
-            <div className="mobile-sheet-grabber" aria-hidden="true" />
-            <div className="mobile-sheet-title">消息操作</div>
+      <MobileBottomSheet
+        open={contextMessage !== null}
+        onClose={() => setContextMessageKey(null)}
+        title="消息操作"
+        className="message-actions-sheet"
+        backdropClassName="message-actions-backdrop"
+        role="menu"
+      >
+        {contextMessage && (
+          <>
             <button type="button" role="menuitem" onClick={() => {
               copyMessageText(contextMessage.content, contextMessageKey!)
               setContextMessageKey(null)
@@ -498,9 +480,9 @@ export function MessageList({
                 )}
               </>
             )}
-          </motion.div>
-        </>
-      )}
+          </>
+        )}
+      </MobileBottomSheet>
       <div ref={messagesEndRef} />
     </>
   )

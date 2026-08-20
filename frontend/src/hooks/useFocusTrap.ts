@@ -12,11 +12,14 @@ const FOCUSABLE_SELECTOR = [
 function focusableWithin(container: HTMLElement): HTMLElement[] {
   return Array.from(
     container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
-  ).filter(element => (
-    element.offsetWidth > 0
-    || element.offsetHeight > 0
-    || element === document.activeElement
-  ))
+  ).filter(element => {
+    if (element === document.activeElement) return true
+    if (element.offsetWidth === 0 && element.offsetHeight === 0) return false
+    // A collapsed section still lays its contents out at full size, so the
+    // box measurements alone would keep hidden controls in the Tab cycle
+    // where the browser then silently refuses to focus them.
+    return window.getComputedStyle(element).visibility !== 'hidden'
+  })
 }
 
 interface FocusTrapOptions {

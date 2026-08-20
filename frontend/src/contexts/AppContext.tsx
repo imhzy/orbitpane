@@ -34,8 +34,8 @@ export interface AppContextType {
   drawerMode: 'sessions' | 'create';
   setDrawerMode: React.Dispatch<React.SetStateAction<'sessions' | 'create'>>;
   showProjectHome: () => void;
-  /** Closes the drawer, warning first if the create form has unsaved input. */
-  requestCloseDrawer: () => void;
+  /** Returns false when a dirty create form keeps the drawer open for confirmation. */
+  requestCloseDrawer: () => boolean;
   activeTaskCount: number;
 
   // Command Palette

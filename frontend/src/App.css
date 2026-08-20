@@ -12,6 +12,17 @@
 }
 
 /* === Sidebar Drawer === */
+.drawer-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+}
+
+.drawer-layer.active {
+  pointer-events: auto;
+}
+
 .drawer-scrim {
   position: absolute;
   inset: 0;
@@ -19,7 +30,10 @@
   z-index: 40;
   backdrop-filter: var(--scrim-blur);
   -webkit-backdrop-filter: var(--scrim-blur);
-  touch-action: pan-y pan-x;
+  /* The scrim has no scrollable interaction of its own. Let it retain the
+     pointer stream so a leftward dismiss works from anywhere in the shaded
+     area instead of being cancelled as a browser pan. */
+  touch-action: none;
 }
 
 .drawer {
@@ -37,9 +51,37 @@
   box-shadow: var(--shadow-lg);
   padding-top: var(--sat);
   padding-bottom: var(--sab);
-  transition: background-color var(--transition-normal), border-color var(--transition-normal);
-  touch-action: pan-y pan-x;
+  /* Width is animated because the create pane is full-bleed on phones: without
+     it, switching tabs snaps the whole panel from 310px to the viewport edge
+     in a single frame. */
+  transition:
+    background-color var(--transition-normal),
+    border-color var(--transition-normal),
+    width 0.34s var(--ease-emphasis),
+    max-width 0.34s var(--ease-emphasis);
+  /* Vertical scrolling stays native; horizontal touches remain available to
+     the full-screen drawer gesture no matter which child they start on. */
+  touch-action: pan-y;
   will-change: transform;
+  /* Chrome, not a document. A drag that ends with the finger resting over the
+     header used to raise the platform's text-selection box around whichever
+     control was underneath — most often the refresh button. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.drawer input,
+.drawer textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* The panel takes focus itself when it opens so that no single control starts
+   out ringed; the ring belongs on whatever the user Tabs to next. */
+.drawer:focus,
+.drawer:focus-visible {
+  outline: none;
 }
 
 /* 60px, the same as .chat-header. They meet along the drawer's right edge, so
@@ -143,31 +185,34 @@
   color: var(--text-primary);
 }
 
-/* Sliding pane track. The viewport clips; the track is two panes wide and is
-   the only thing that moves. */
+/* Depth stack. Both panes occupy the same grid cell and cross-zoom, so the
+   drawer changes mode by moving through its own surface rather than by
+   sliding one panel out from beside another. The cell clips whichever pane is
+   currently oversized. */
 .drawer-panes {
   flex: 1;
   min-height: 0;
   overflow: hidden;
-}
-
-.drawer-pane-track {
-  display: flex;
-  width: 200%;
-  height: 100%;
+  display: grid;
+  grid-template: 100% / 100%;
 }
 
 .drawer-pane {
-  width: 50%;
+  grid-area: 1 / 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  /* Above the midline: the header and the first rows are what the eye tracks
+     through the zoom, not the footer. */
+  transform-origin: 50% 42%;
 }
 
-/* `inert` already blocks interaction; this stops the off-screen pane from
-   being reachable by a stray flick and from painting during the slide. */
+/* `inert` already blocks interaction; this keeps the hidden pane from being
+   reachable by a stray flick and from painting outside the cell. */
 .drawer-pane[inert] {
   overflow: hidden;
+  pointer-events: none;
 }
 
 .drawer-content {
@@ -2923,8 +2968,35 @@
     max-width: 100vw;
   }
 
+  /* The create flow reclaims the footer's room. Collapsing it rather than
+     dropping it out of the layout keeps the switch continuous: the drawer
+     grows and the footer folds away as one movement, instead of the panes
+     jumping 60px the instant the tab changes. */
+  .sidebar-footer {
+    overflow: hidden;
+    max-height: 96px;
+    visibility: visible;
+    transition:
+      max-height 0.34s var(--ease-emphasis),
+      padding 0.34s var(--ease-emphasis),
+      opacity 0.16s var(--ease-out),
+      visibility 0s;
+  }
+
+  /* Visibility flips only once the fold has finished, which is what takes the
+     logout button back out of the tab order — a collapsed box still lays its
+     contents out, so height alone would leave it reachable by keyboard. */
   .drawer.create-mode .sidebar-footer {
-    display: none;
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    opacity: 0;
+    visibility: hidden;
+    transition:
+      max-height 0.34s var(--ease-emphasis),
+      padding 0.34s var(--ease-emphasis),
+      opacity 0.16s var(--ease-out),
+      visibility 0s linear 0.34s;
   }
 
   .drawer.create-mode .cw-content {
@@ -2997,6 +3069,11 @@
 
 /* Desktop layout: the drawer stops being an overlay and docks as a column. */
 @media (min-width: 1024px) {
+  /* Let the docked drawer participate directly in .app-container's flex row. */
+  .drawer-layer {
+    display: contents;
+  }
+
   .drawer-scrim {
     display: none;
   }
