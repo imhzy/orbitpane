@@ -729,6 +729,10 @@
 .cw-list {
   flex: 1;
   overflow-y: auto;
+  /* This is a nested scroll container, so the drawer's touch-action does not
+     govern gestures that begin on a directory row. Keep native vertical
+     scrolling here while leaving horizontal movement to swipe-to-close. */
+  touch-action: pan-y;
   padding: var(--space-2);
   display: flex;
   flex-direction: column;

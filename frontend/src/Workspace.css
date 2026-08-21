@@ -286,6 +286,45 @@
 }
 
 /* Completed summaries become an in-thread boundary for collapsed history. */
+.summarized-originals-heading,
+.summary-content-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.summarized-originals-heading {
+  padding: var(--space-2-5) var(--space-3);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-lg);
+  color: var(--text-tertiary);
+  background: var(--bg-surface);
+}
+.summarized-originals-heading > span,
+.summary-content-heading > span {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+}
+.summarized-originals-heading strong,
+.summary-content-heading strong {
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+  line-height: 1.3;
+}
+.summarized-originals-heading small,
+.summary-content-heading small {
+  color: var(--text-tertiary);
+  font-size: var(--text-2xs);
+  line-height: 1.4;
+}
+.summary-content-heading {
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-2-5);
+  border-bottom: 1px solid var(--accent-border);
+  color: var(--accent-text);
+}
 .conversation-summary-boundary {
   width: 100%;
   display: flex;

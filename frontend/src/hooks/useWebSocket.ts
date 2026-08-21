@@ -34,6 +34,100 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
 }
 
+function moveResponseAfterPrompt(
+  messages: Message[],
+  responseIndex: number,
+  promptIndex: number,
+): number {
+  if (responseIndex === promptIndex + 1) return responseIndex
+  const [response] = messages.splice(responseIndex, 1)
+  if (responseIndex < promptIndex) promptIndex -= 1
+  const targetIndex = promptIndex + 1
+  messages.splice(targetIndex, 0, response)
+  return targetIndex
+}
+
+/**
+ * Attach the server acknowledgement to the optimistic turn that produced it.
+ *
+ * A socket can acknowledge several sends after React has already rendered all
+ * of them. Picking the last unbound user row swaps run ids in that case, so the
+ * eventual replies appear beside the wrong prompts. Acknowledgements arrive in
+ * send order; bind the oldest matching optimistic turn instead.
+ */
+export function applySubmittedTask(messages: Message[], task: TaskRecord): Message[] {
+  const next = [...messages]
+  let userIndex = next.findIndex(message => (
+    message.role === 'user' && message.run_id === task.run_id
+  ))
+
+  if (userIndex < 0) {
+    const optimisticUserIndexes = next.flatMap((message, index) => (
+      message.role === 'user' && message.isOptimistic && !message.run_id
+        ? [index]
+        : []
+    ))
+    userIndex = optimisticUserIndexes.find(index => next[index].content === task.prompt)
+      ?? optimisticUserIndexes[0]
+      ?? -1
+    if (userIndex >= 0) {
+      const userMessage = next[userIndex]
+      next[userIndex] = {
+        ...userMessage,
+        run_id: task.run_id,
+        isOptimistic: false,
+      }
+      if (userMessage.localId) {
+        bindRunLocalId('user', task.run_id, userMessage.localId)
+      }
+    }
+  }
+
+  let agentIndex = next.findIndex(message => (
+    message.role === 'agent' && message.run_id === task.run_id
+  ))
+  if (agentIndex < 0 && userIndex >= 0) {
+    const candidateIndex = userIndex + 1
+    const candidate = next[candidateIndex]
+    if (
+      candidate
+      && candidate.role === 'agent'
+      && !candidate.run_id
+      && candidate.isOptimistic
+    ) {
+      agentIndex = candidateIndex
+      next[agentIndex] = {
+        ...candidate,
+        run_id: task.run_id,
+        isOptimistic: false,
+      }
+      if (candidate.localId) {
+        bindRunLocalId('agent', task.run_id, candidate.localId)
+      }
+    }
+  }
+
+  if (agentIndex >= 0) {
+    const isQueued = task.status === 'queued'
+    const currentAgent = next[agentIndex]
+    const hasAlreadyStarted = (
+      currentAgent.streamSequence !== undefined && !currentAgent.isQueued
+    )
+    const keepCurrentState = currentAgent.streamFinished || hasAlreadyStarted
+    next[agentIndex] = {
+      ...currentAgent,
+      isThinking: keepCurrentState ? currentAgent.isThinking : !isQueued,
+      isQueued: keepCurrentState ? currentAgent.isQueued : isQueued,
+      queuePosition: keepCurrentState
+        ? currentAgent.queuePosition
+        : (isQueued ? task.position : undefined),
+      isOptimistic: false,
+    }
+  }
+
+  return next
+}
+
 function ensureRunAgent(
   messages: Message[],
   event: RealtimeEvent,
@@ -48,7 +142,7 @@ function ensureRunAgent(
     : -1
 
   if (runId && userIndex < 0 && typeof event.user_content === 'string') {
-    for (let index = next.length - 1; index >= 0; index -= 1) {
+    for (let index = 0; index < next.length; index += 1) {
       const message = next[index]
       if (
         message.role === 'user'
@@ -91,7 +185,7 @@ function ensureRunAgent(
       candidate
       && candidate.role === 'agent'
       && !candidate.run_id
-      && candidate.isThinking
+      && (candidate.isThinking || candidate.isQueued)
     ) {
       agentIndex = candidateIndex
       next[agentIndex] = {
@@ -113,8 +207,7 @@ function ensureRunAgent(
   }
 
   if (agentIndex < 0) {
-    agentIndex = next.length
-    next.push(ensureLocalId({
+    const agentMessage = ensureLocalId({
       role: 'agent',
       content: '',
       thought: '',
@@ -125,7 +218,17 @@ function ensureRunAgent(
       provider: event.provider,
       run_id: runId,
       streamSequence: -1,
-    }))
+    })
+    // A response belongs immediately after its user prompt. Appending it to
+    // the whole list puts reconnect/sync replies below turns that were queued
+    // later, making those queued prompts look as if they preceded the reply
+    // currently being generated.
+    agentIndex = userIndex >= 0 ? userIndex + 1 : next.length
+    next.splice(agentIndex, 0, agentMessage)
+  } else if (userIndex >= 0 && agentIndex !== userIndex + 1) {
+    // Repair an already-misordered transient row as soon as another event for
+    // that run arrives. This also covers state restored by an older cache.
+    agentIndex = moveResponseAfterPrompt(next, agentIndex, userIndex)
   }
 
   return { messages: next, agentIndex }
@@ -240,6 +343,7 @@ export function mergeHistoryWithTransientMessages(
     message.run_id
     && (
       message.isThinking
+      || message.isQueued
       || message.streamSequence !== undefined
     )
       ? [message.run_id]
@@ -278,6 +382,21 @@ export function mergeHistoryWithTransientMessages(
         isThinking: false,
         streamFinished: true,
       }
+    }
+  }
+
+  // A silent history refresh can race the first realtime event and otherwise
+  // replay a temporarily misordered array. Keep the turn invariant even when
+  // no further token happens to arrive immediately afterward.
+  for (const runId of trackedRunIds) {
+    const userIndex = merged.findIndex(message => (
+      message.role === 'user' && message.run_id === runId
+    ))
+    const agentIndex = merged.findIndex(message => (
+      message.role === 'agent' && message.run_id === runId
+    ))
+    if (userIndex >= 0 && agentIndex >= 0 && agentIndex !== userIndex + 1) {
+      moveResponseAfterPrompt(merged, agentIndex, userIndex)
     }
   }
 
@@ -479,37 +598,7 @@ export function useWebSocket(
 
         if (data.type === 'submitted' && data.task) {
           const task = data.task
-          if (task.status === 'queued') {
-            setMessages(previous => {
-              const next = [...previous]
-              let userIndex = -1
-              for (let index = next.length - 1; index >= 0; index -= 1) {
-                const message = next[index]
-                if (message.role === 'user' && message.isOptimistic && !message.run_id) {
-                  userIndex = index
-                  next[index] = { ...message, run_id: task.run_id, isOptimistic: false }
-                  if (message.localId) bindRunLocalId('user', task.run_id, message.localId)
-                  break
-                }
-              }
-              const agentIndex = userIndex >= 0 ? userIndex + 1 : -1
-              if (agentIndex >= 0 && next[agentIndex]?.role === 'agent') {
-                const agentMessage = next[agentIndex]
-                next[agentIndex] = {
-                  ...agentMessage,
-                  run_id: task.run_id,
-                  isThinking: false,
-                  isQueued: true,
-                  queuePosition: task.position,
-                  isOptimistic: false,
-                }
-                if (agentMessage.localId) {
-                  bindRunLocalId('agent', task.run_id, agentMessage.localId)
-                }
-              }
-              return next
-            })
-          }
+          setMessages(previous => applySubmittedTask(previous, task))
           emitTaskChange()
           return
         }
@@ -521,7 +610,15 @@ export function useWebSocket(
             const position = positions.get(message.run_id)
             return position
               ? { ...message, queuePosition: position }
-              : { ...message, isQueued: false, streamFinished: true }
+              : {
+                  ...message,
+                  isQueued: false,
+                  queuePosition: undefined,
+                  // Leaving the queue normally means this run is starting.
+                  // Marking it finished here made the following `start` and
+                  // token events get discarded as stale.
+                  streamFinished: false,
+                }
           }))
           emitTaskChange()
           return

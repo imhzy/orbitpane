@@ -1,5 +1,5 @@
-import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
-import { ChevronDown, ChevronUp, Clock3, FileText, Link2Off, Lock, Moon, Sun, TimerOff } from 'lucide-react'
+import { Fragment, Suspense, lazy, useEffect, useMemo, useState } from 'react'
+import { ChevronDown, ChevronUp, Clock3, FileText, History, Link2Off, Lock, Moon, Sparkles, Sun, TimerOff } from 'lucide-react'
 import { LogoIcon } from '../LogoIcon'
 import MarkdownContent from './MarkdownContent'
 import { ApiError, apiFetch, describeApiError } from '../lib/api'
@@ -139,6 +139,7 @@ export function SharedConversation({ token }: SharedConversationProps) {
   useEffect(() => {
     let cancelled = false
     setState({ status: 'loading' })
+    setIsHistoryExpanded(false)
     apiFetch<unknown>(`/api/shared/${encodeURIComponent(token)}`)
       .then(payload => {
         if (cancelled) return
@@ -171,9 +172,10 @@ export function SharedConversation({ token }: SharedConversationProps) {
 
   const snapshot = state.status === 'ready' ? state.snapshot : null
 
-  /* The chat collapses history behind its most recent summary checkpoint; a
-     snapshot of that conversation opens the same way, so the link shows what
-     the sender was looking at rather than silently unfolding everything. */
+  /* The chat collapses the history through its most recent summary checkpoint,
+     including the summary text itself. A snapshot opens the same way, so the
+     link shows what the sender was looking at rather than silently unfolding
+     everything. */
   const latestSummaryIndex = useMemo(() => {
     if (!snapshot) return -1
     return snapshot.messages.reduce(
@@ -182,7 +184,12 @@ export function SharedConversation({ token }: SharedConversationProps) {
     )
   }, [snapshot])
 
-  const hiddenCount = latestSummaryIndex > 0 ? latestSummaryIndex : 0
+  const summarizedMessageCount = latestSummaryIndex > 0 && snapshot
+    ? snapshot.messages
+      .slice(0, latestSummaryIndex)
+      .filter(message => message.role !== 'summary').length
+    : 0
+  const hasCollapsedSummary = latestSummaryIndex >= 0
 
   return (
     <div className="shared-page">
@@ -259,7 +266,7 @@ export function SharedConversation({ token }: SharedConversationProps) {
               </div>
             </div>
 
-            {hiddenCount > 0 && (
+            {hasCollapsedSummary && (
               <button
                 type="button"
                 className="shared-history-toggle"
@@ -268,17 +275,45 @@ export function SharedConversation({ token }: SharedConversationProps) {
               >
                 {isHistoryExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
                 {isHistoryExpanded
-                  ? '收起总结之前的对话'
-                  : `展开总结之前的 ${hiddenCount} 条对话`}
+                  ? '收起已总结内容'
+                  : summarizedMessageCount > 0
+                    ? `展开 ${summarizedMessageCount} 条原始消息与总结内容`
+                    : '展开总结内容'}
               </button>
             )}
 
             <div className="chat-message-list shared-message-list">
-              {snapshot.messages.map((message, index) =>
-                !isHistoryExpanded && index < latestSummaryIndex ? null : (
-                  <SharedMessageRow key={message.id ?? index} message={message} />
-                ),
+              {isHistoryExpanded && summarizedMessageCount > 0 && (
+                <div className="summarized-originals-heading" role="heading" aria-level={2}>
+                  <History size={14} aria-hidden="true" />
+                  <span>
+                    <strong>原始消息</strong>
+                    <small>以下内容已被本段总结覆盖</small>
+                  </span>
+                </div>
               )}
+              {snapshot.messages.map((message, index) => {
+                if (!isHistoryExpanded && index <= latestSummaryIndex) return null
+                const key = message.id ?? index
+                return (
+                  <Fragment key={key}>
+                    {isHistoryExpanded && index === latestSummaryIndex && (
+                      <div
+                        className="summarized-originals-heading shared-summary-heading"
+                        role="heading"
+                        aria-level={2}
+                      >
+                        <Sparkles size={14} aria-hidden="true" />
+                        <span>
+                          <strong>总结内容</strong>
+                          <small>与上方原始消息分开展示</small>
+                        </span>
+                      </div>
+                    )}
+                    <SharedMessageRow message={message} />
+                  </Fragment>
+                )
+              })}
             </div>
 
             <footer className="shared-footer">

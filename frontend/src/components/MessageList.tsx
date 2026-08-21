@@ -226,9 +226,13 @@ export function MessageList({
     x: number
     y: number
   } | null>(null)
-  const isHistoryExpanded = latestSummaryKey !== null && expandedHistoryKey === latestSummaryKey
+  const isSummarizedSectionExpanded = (
+    latestSummaryKey !== null && expandedHistoryKey === latestSummaryKey
+  )
   const summarizedMessageCount = latestSummaryIndex > 0
-    ? messages.slice(0, latestSummaryIndex).filter(message => message.role !== 'system').length
+    ? messages.slice(0, latestSummaryIndex).filter(message => (
+        message.role === 'user' || message.role === 'agent'
+      )).length
     : 0
 
   const lastAgentKey = React.useMemo(() => {
@@ -340,8 +344,21 @@ export function MessageList({
       <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
         {liveAnnouncement}
       </div>
+      {isSummarizedSectionExpanded && summarizedMessageCount > 0 && (
+        <div className="summarized-originals-heading" role="heading" aria-level={3}>
+          <History size={14} aria-hidden="true" />
+          <span>
+            <strong>原始消息</strong>
+            <small>以下 {summarizedMessageCount} 条消息已被本段总结覆盖</small>
+          </span>
+        </div>
+      )}
       {messages.map((m, i) => {
-        if (latestSummaryIndex >= 0 && i < latestSummaryIndex && !isHistoryExpanded) {
+        if (
+          latestSummaryIndex >= 0
+          && i < latestSummaryIndex
+          && !isSummarizedSectionExpanded
+        ) {
           return null
         }
 
@@ -359,7 +376,9 @@ export function MessageList({
         const isCompletedSummary = m.role === 'summary' && !m.isThinking && Boolean(m.content)
         if (isCompletedSummary) {
           const isLatestSummary = i === latestSummaryIndex
-          const isSummaryExpanded = expandedSummaryKey === key
+          const isSummaryExpanded = isLatestSummary
+            ? isSummarizedSectionExpanded
+            : expandedSummaryKey === key
           return (
             <motion.section
               key={key}
@@ -379,36 +398,50 @@ export function MessageList({
                   <strong>{isLatestSummary ? '此前对话已总结' : '历史总结检查点'}</strong>
                   <span>
                     {isLatestSummary
-                      ? `${summarizedMessageCount} 条历史消息已收起，可随时展开查看`
+                      ? summarizedMessageCount > 0
+                        ? `${summarizedMessageCount} 条原始消息与总结内容已${isSummarizedSectionExpanded ? '展开' : '收起'}`
+                        : `总结内容已${isSummarizedSectionExpanded ? '展开' : '收起'}`
                       : '这段历史曾在这里生成总结'}
                   </span>
                 </div>
                 <div className="summary-boundary-actions">
-                  <button
-                    type="button"
-                    aria-expanded={isSummaryExpanded}
-                    onClick={() => setExpandedSummaryKey(isSummaryExpanded ? null : key)}
-                  >
-                    <FileText size={13} />
-                    {isSummaryExpanded ? '收起总结' : '查看总结'}
-                    {isSummaryExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-                  </button>
-                  {isLatestSummary && summarizedMessageCount > 0 && (
+                  {isLatestSummary ? (
                     <button
                       type="button"
                       className="summary-history-toggle"
-                      aria-expanded={isHistoryExpanded}
-                      onClick={() => setExpandedHistoryKey(isHistoryExpanded ? null : key)}
+                      aria-expanded={isSummarizedSectionExpanded}
+                      onClick={() => setExpandedHistoryKey(
+                        isSummarizedSectionExpanded ? null : key,
+                      )}
                     >
                       <History size={13} />
-                      {isHistoryExpanded ? '收起上方对话' : '展开上方对话'}
-                      {isHistoryExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                      {isSummarizedSectionExpanded ? '收起已总结内容' : '展开已总结内容'}
+                      {isSummarizedSectionExpanded
+                        ? <ChevronUp size={13} />
+                        : <ChevronDown size={13} />}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      aria-expanded={isSummaryExpanded}
+                      onClick={() => setExpandedSummaryKey(isSummaryExpanded ? null : key)}
+                    >
+                      <FileText size={13} />
+                      {isSummaryExpanded ? '收起总结' : '查看总结'}
+                      {isSummaryExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
                     </button>
                   )}
                 </div>
               </div>
               {isSummaryExpanded && (
                 <div className="summary-boundary-content">
+                  <div className="summary-content-heading" role="heading" aria-level={3}>
+                    <Sparkles size={14} aria-hidden="true" />
+                    <span>
+                      <strong>总结内容</strong>
+                      <small>由 OrbitPane 基于上方原始消息生成</small>
+                    </span>
+                  </div>
                   <div className="markdown-body">
                     <Suspense fallback={<div className="message-loading-placeholder">{m.content}</div>}>
                       <MarkdownContent content={m.content} enableCodeBlocks />

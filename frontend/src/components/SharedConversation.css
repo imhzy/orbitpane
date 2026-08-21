@@ -163,6 +163,13 @@ html[data-orbitpane-route='share'] body {
   min-height: 0;
 }
 
+.shared-summary-heading {
+  border-style: solid;
+  border-color: var(--accent-border);
+  color: var(--accent-text);
+  background: var(--accent-subtle-bg);
+}
+
 /* Hover affordances on a page where nothing is interactive read as broken
    controls, so the agent bubble sits flat and the code block's "reference this
    file in the composer" action — which has no composer to reach — is gone. */
