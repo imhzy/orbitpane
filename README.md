@@ -169,7 +169,12 @@ WebSocket protocol as Antigravity.
 ```bash
 export CODEX_ENABLED=true
 export CODEX_SANDBOX=workspace-write
+export CODEX_REASONING_SUMMARY=detailed
 ```
+
+`CODEX_REASONING_SUMMARY` accepts `auto`, `concise`, `detailed`, or `none` and
+defaults to `detailed`, so supported Codex models publish useful reasoning
+summaries to the execution timeline. This does not enable raw hidden reasoning.
 
 Model lists are discovered once per backend process from `antigravity models`
 (or `agy models`, when configured as the command) and `codex debug models`.

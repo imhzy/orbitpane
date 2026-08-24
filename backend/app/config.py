@@ -77,6 +77,7 @@ class Settings:
     codex_enabled: bool
     codex_command: str
     codex_models: tuple[str, ...]
+    codex_reasoning_summary: str
     codex_sandbox: str
 
     @classmethod
@@ -149,6 +150,9 @@ class Settings:
                 "gpt-5.4",
                 "gpt-5.4-mini",
             ),
+            codex_reasoning_summary=os.getenv(
+                "CODEX_REASONING_SUMMARY", "detailed"
+            ).strip().lower(),
             codex_sandbox=os.getenv("CODEX_SANDBOX", "workspace-write").strip(),
         )
 

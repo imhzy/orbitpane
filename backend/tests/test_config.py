@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest import TestCase
 from unittest.mock import patch
 
-from backend.app.config import load_dotenv
+from backend.app.config import Settings, load_dotenv
 
 
 class DotenvTests(TestCase):
@@ -51,3 +51,27 @@ class DotenvTests(TestCase):
             with patch.dict(os.environ, {}, clear=True):
                 load_dotenv(Path(temp_dir) / "absent.env")
                 self.assertNotIn("ORBITPANE_PIN", os.environ)
+
+
+class SettingsTests(TestCase):
+    def test_codex_reasoning_summary_defaults_to_detailed(self) -> None:
+        with (
+            patch("backend.app.config.load_dotenv"),
+            patch.dict(os.environ, {}, clear=True),
+        ):
+            settings = Settings.from_env()
+
+        self.assertEqual(settings.codex_reasoning_summary, "detailed")
+
+    def test_codex_reasoning_summary_is_normalized(self) -> None:
+        with (
+            patch("backend.app.config.load_dotenv"),
+            patch.dict(
+                os.environ,
+                {"CODEX_REASONING_SUMMARY": " Concise "},
+                clear=True,
+            ),
+        ):
+            settings = Settings.from_env()
+
+        self.assertEqual(settings.codex_reasoning_summary, "concise")

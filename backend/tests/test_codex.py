@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from subprocess import CompletedProcess
-from unittest import TestCase
-from unittest.mock import patch
+from unittest import IsolatedAsyncioTestCase, TestCase
+from unittest.mock import AsyncMock, patch
 
 from backend.app.agents.codex import CodexCliProvider, fetch_codex_models
+from backend.app.agents.base import AgentRequest
 from backend.app.config import Settings
 
 
@@ -22,6 +24,29 @@ class CodexProviderTests(TestCase):
         self.assertEqual(
             self.provider._permission_args("unrestricted"),
             ["--dangerously-bypass-approvals-and-sandbox"],
+        )
+
+    def test_reasoning_summary_is_detailed_and_visible(self) -> None:
+        provider = CodexCliProvider(
+            replace(self.settings, codex_reasoning_summary="detailed")
+        )
+        self.assertEqual(
+            provider._reasoning_args(),
+            [
+                "--config",
+                'model_reasoning_summary="detailed"',
+                "--config",
+                "hide_agent_reasoning=false",
+            ],
+        )
+
+    def test_invalid_reasoning_summary_falls_back_to_detailed(self) -> None:
+        provider = CodexCliProvider(
+            replace(self.settings, codex_reasoning_summary="unexpected")
+        )
+        self.assertIn(
+            'model_reasoning_summary="detailed"',
+            provider._reasoning_args(),
         )
 
     def test_fetch_models_uses_visible_cli_catalog(self) -> None:
@@ -129,3 +154,160 @@ class CodexProviderTests(TestCase):
         )
         self.assertIn("▸ *Thought*:", res)
         self.assertIn("Analyzing the input query step by step.", res)
+
+    def test_empty_reasoning_start_does_not_hide_completed_summary(self) -> None:
+        seen_started: set[str] = set()
+        seen_completed: set[str] = set()
+        item = {"id": "item_4", "type": "reasoning"}
+
+        self.assertEqual(
+            self.provider._format_thought(
+                "item.started", item, seen_started, seen_completed
+            ),
+            "",
+        )
+        self.assertNotIn("item_4", seen_started)
+
+        completed = {
+            **item,
+            "summary": [
+                {"type": "summary_text", "text": "Inspecting the event stream."},
+                {"type": "summary_text", "text": "Preparing the fix."},
+            ],
+        }
+        result = self.provider._format_thought(
+            "item.completed", completed, seen_started, seen_completed
+        )
+        self.assertIn("Inspecting the event stream.\nPreparing the fix.", result)
+
+    def test_format_todo_updates_from_current_sdk_shape(self) -> None:
+        result = self.provider._format_thought(
+            "item.updated",
+            {
+                "id": "item_5",
+                "type": "todo_list",
+                "items": [
+                    {"text": "Inspect events", "completed": True},
+                    {"text": "Add compatibility", "completed": False},
+                ],
+            },
+            set(),
+            set(),
+        )
+        self.assertIn("● **Plan**:", result)
+        self.assertIn("- [x] Inspect events", result)
+        self.assertIn("- [ ] Add compatibility", result)
+
+    def test_format_file_changes_from_current_sdk_shape(self) -> None:
+        result = self.provider._format_thought(
+            "item.completed",
+            {
+                "id": "item_6",
+                "type": "file_change",
+                "changes": [
+                    {"path": "backend/app/agents/codex.py", "kind": "update"},
+                    {"path": "backend/tests/test_codex.py", "kind": "add"},
+                ],
+            },
+            set(),
+            set(),
+        )
+        self.assertIn("**File (update)**: backend/app/agents/codex.py", result)
+        self.assertIn("**File (add)**: backend/tests/test_codex.py", result)
+
+
+class _FakeStream:
+    def __init__(self, lines: list[bytes] | None = None, content: bytes = b"") -> None:
+        self._lines = list(lines or [])
+        self._content = content
+
+    async def readline(self) -> bytes:
+        return self._lines.pop(0) if self._lines else b""
+
+    async def read(self) -> bytes:
+        return self._content
+
+
+class _FakeProcess:
+    def __init__(self, events: list[dict[str, object]]) -> None:
+        self.stdout = _FakeStream(
+            [(json.dumps(event) + "\n").encode() for event in events]
+        )
+        self.stderr = _FakeStream()
+        self.returncode: int | None = None
+
+    async def wait(self) -> int:
+        self.returncode = 0
+        return 0
+
+
+class CodexRunTests(IsolatedAsyncioTestCase):
+    async def test_run_streams_commentary_but_keeps_latest_message_as_final(self) -> None:
+        settings = replace(
+            Settings.from_env(),
+            codex_enabled=True,
+            codex_models=("gpt-test",),
+            codex_reasoning_summary="detailed",
+        )
+        provider = CodexCliProvider(settings)
+        process = _FakeProcess(
+            [
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "id": "item_0",
+                        "type": "agent_message",
+                        "text": "I will inspect this.",
+                    },
+                },
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "id": "item_1",
+                        "type": "reasoning",
+                        "text": "Checking compatibility.",
+                    },
+                },
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "id": "item_2",
+                        "type": "agent_message",
+                        "text": "Final answer.",
+                    },
+                },
+                {"type": "turn.completed", "usage": {}},
+            ]
+        )
+        emitted: list[tuple[str, str]] = []
+
+        async def emit(event) -> None:
+            emitted.append((event.type, event.content))
+
+        request = AgentRequest(
+            run_id="run-1",
+            conversation_id=1,
+            working_directory="/tmp",
+            prompt="test",
+            history=(),
+            model="gpt-test",
+        )
+        create_process = AsyncMock(return_value=process)
+        with (
+            patch("backend.app.agents.codex.fetch_codex_models", return_value=()),
+            patch("backend.app.agents.codex.shutil.which", return_value="/bin/codex"),
+            patch(
+                "backend.app.agents.codex.asyncio.create_subprocess_exec",
+                create_process,
+            ),
+        ):
+            result = await provider.run(request, emit)
+
+        self.assertEqual(result.content, "Final answer.")
+        self.assertIn("Checking compatibility.", result.thought)
+        self.assertEqual(
+            [content for event_type, content in emitted if event_type == "token"],
+            ["I will inspect this.", "\n\nFinal answer."],
+        )
+        command = create_process.await_args.args
+        self.assertIn('model_reasoning_summary="detailed"', command)

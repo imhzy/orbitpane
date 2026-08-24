@@ -62,6 +62,7 @@ class CodexCliProvider(AgentProvider):
     id = "codex"
     display_name = "ChatGPT Codex"
     tone = "codex"
+    _REASONING_SUMMARIES = frozenset({"auto", "concise", "detailed", "none"})
 
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -111,6 +112,20 @@ class CodexCliProvider(AgentProvider):
             sandbox = "workspace-write"
         return ["--sandbox", sandbox]
 
+    def _reasoning_args(self) -> list[str]:
+        summary = self.settings.codex_reasoning_summary
+        if summary not in self._REASONING_SUMMARIES:
+            summary = "detailed"
+        # `hide_agent_reasoning` is a user-level Codex preference. OrbitPane has
+        # an explicit, access-controlled execution timeline, so ensure summary
+        # events reach the JSONL stream even if the interactive CLI hides them.
+        return [
+            "--config",
+            f'model_reasoning_summary="{summary}"',
+            "--config",
+            "hide_agent_reasoning=false",
+        ]
+
     async def run(self, request: AgentRequest, emit: EmitEvent) -> AgentResult:
         if not self.available:
             raise ProviderError(
@@ -127,6 +142,7 @@ class CodexCliProvider(AgentProvider):
             "--model",
             model,
         ]
+        command.extend(self._reasoning_args())
         command.extend(self._permission_args(request.permission_mode))
         command.append(prompt)
         process = await asyncio.create_subprocess_exec(
@@ -138,7 +154,8 @@ class CodexCliProvider(AgentProvider):
             start_new_session=True,
         )
         self._processes[request.conversation_id] = process
-        content_parts: list[str] = []
+        final_content = ""
+        emitted_agent_message = False
         thought_parts: list[str] = []
         stderr_task = asyncio.create_task(process.stderr.read())  # type: ignore[union-attr]
 
@@ -156,10 +173,16 @@ class CodexCliProvider(AgentProvider):
                 item = event.get("item") or {}
                 item_type = item.get("type", "")
                 if event_type == "item.completed" and item_type == "agent_message":
-                    text = item.get("text", "")
+                    text = self._item_text(item.get("text", ""))
+                    final_content = text
                     if text:
-                        content_parts.append(text)
-                        await emit(AgentEvent("token", text))
+                        # Codex can emit progress commentary before its final
+                        # response. Stream all of it, with readable boundaries,
+                        # but follow the SDK contract and retain the latest agent
+                        # message as the completed turn's final response.
+                        streamed_text = f"\n\n{text}" if emitted_agent_message else text
+                        emitted_agent_message = True
+                        await emit(AgentEvent("token", streamed_text))
                 elif event_type.startswith("item."):
                     thought = self._format_thought(event_type, item, seen_started, seen_completed)
                     if thought:
@@ -180,7 +203,6 @@ class CodexCliProvider(AgentProvider):
                     f"Codex exited with code {return_code}"
                     + (f": {stderr[-4000:]}" if stderr else "")
                 )
-            final_content = "".join(content_parts)
             if not final_content.strip() and not interrupted:
                 raise ProviderError(
                     "Codex completed without generating text content."
@@ -230,17 +252,36 @@ class CodexCliProvider(AgentProvider):
             return ""
 
         is_start = event_type == "item.started"
+        is_update = event_type == "item.updated"
         is_complete = event_type == "item.completed"
+
+        # Reasoning items carry model-generated summaries on completion. Some
+        # CLI releases first emit an empty started item with the same id; do not
+        # let that placeholder suppress the completed summary.
+        if item_type == "reasoning":
+            if not is_complete:
+                return ""
+            if item_id and item_id in seen_completed:
+                return ""
+            if item_id:
+                seen_completed.add(item_id)
+            text = self._item_text(
+                item.get("text")
+                or item.get("summary")
+                or item.get("content")
+                or item.get("thinking")
+                or item.get("detail")
+                or ""
+            ).strip()
+            return f"\n▸ *Thought*:\n{text}\n" if text else ""
 
         if is_start:
             if item_id and item_id in seen_started:
                 return ""
-            if item_id:
-                seen_started.add(item_id)
-
+            text = ""
             if item_type == "command_execution":
                 cmd = str(item.get("command") or "")
-                return f"\n● **Exec**: `{cmd}`\n" if cmd else ""
+                text = f"\n● **Exec**: `{cmd}`\n" if cmd else ""
             elif item_type == "mcp_tool_call":
                 server = item.get("server")
                 name = item.get("name") or item.get("tool") or "tool"
@@ -251,30 +292,30 @@ class CodexCliProvider(AgentProvider):
                     else str(args)
                 )
                 prefix = f"{server}:" if server else ""
-                return f"\n● **{prefix}{name}**({args_str[:500]})\n"
+                text = f"\n● **{prefix}{name}**({args_str[:500]})\n"
             elif item_type == "web_search":
                 query = str(item.get("query") or item.get("text") or "")
-                return f"\n● **Search**: {query}\n" if query else ""
+                text = f"\n● **Search**: {query}\n" if query else ""
             elif item_type == "file_change":
-                action = str(item.get("action") or "change")
-                path = str(item.get("path") or "")
-                return f"\n● **File ({action})**: {path}\n" if path else ""
+                text = self._format_file_changes(item)
             elif item_type in {"todo_list", "plan_update"}:
-                text = str(item.get("text") or item.get("plan") or "")
-                return f"\n● **Plan**: {text}\n" if text else ""
-            elif item_type == "reasoning":
-                text = (
-                    item.get("text")
-                    or item.get("summary")
-                    or item.get("content")
-                    or item.get("thinking")
-                    or item.get("detail")
-                    or ""
-                )
-                if isinstance(text, list):
-                    text = "\n".join(str(part) for part in text)
-                text_str = str(text).strip()
-                return f"\n▸ *Thought*:\n{text_str}\n" if text_str else ""
+                text = self._format_plan(item)
+            elif item_type == "error":
+                message = self._item_text(item.get("message") or "").strip()
+                text = f"\n● **Error**: {message}\n" if message else ""
+
+            # A start item with no useful payload is only a placeholder. Marking
+            # it as seen would hide richer fields delivered at completion.
+            if text and item_id:
+                seen_started.add(item_id)
+            return text
+
+        elif is_update:
+            # Todo updates are meaningful progress events. Command updates carry
+            # cumulative output and are rendered once at completion to avoid
+            # duplicating large terminal transcripts.
+            if item_type in {"todo_list", "plan_update"}:
+                return self._format_plan(item)
 
         elif is_complete:
             if item_id and item_id in seen_completed:
@@ -293,23 +334,37 @@ class CodexCliProvider(AgentProvider):
                     parts.append(f"```text\n{snippet}\n```\n")
                 return "".join(parts)
 
-            elif item_type == "reasoning":
-                text = (
-                    item.get("text")
-                    or item.get("summary")
-                    or item.get("content")
-                    or item.get("thinking")
-                    or item.get("detail")
-                    or ""
-                )
-                if isinstance(text, list):
-                    text = "\n".join(str(part) for part in text)
-                text_str = str(text).strip()
-                if text_str and item_id not in seen_started:
-                    return f"\n▸ *Thought*:\n{text_str}\n"
+            elif item_type == "file_change":
+                return self._format_file_changes(item)
+
+            elif item_type in {"todo_list", "plan_update"}:
+                return self._format_plan(item) if item_id not in seen_started else ""
+
+            elif item_type == "mcp_tool_call":
+                parts: list[str] = []
+                if item_id not in seen_started:
+                    server = item.get("server")
+                    name = item.get("name") or item.get("tool") or "tool"
+                    prefix = f"{server}:" if server else ""
+                    parts.append(f"\n● **{prefix}{name}**\n")
+                error = item.get("error")
+                if isinstance(error, dict):
+                    message = self._item_text(error.get("message") or "").strip()
+                    if message:
+                        parts.append(f"**Error**: {message}\n")
+                return "".join(parts)
+
+            elif item_type == "web_search":
+                query = str(item.get("query") or item.get("text") or "")
+                if query and item_id not in seen_started:
+                    return f"\n● **Search**: {query}\n"
+
+            elif item_type == "error":
+                message = self._item_text(item.get("message") or "").strip()
+                return f"\n● **Error**: {message}\n" if message else ""
 
             elif item_id not in seen_started:
-                text = str(
+                text = self._item_text(
                     item.get("text")
                     or item.get("command")
                     or item.get("name")
@@ -320,3 +375,59 @@ class CodexCliProvider(AgentProvider):
                     return f"\n● **{item_type}**: {text}\n"
 
         return ""
+
+    @classmethod
+    def _item_text(cls, value: object) -> str:
+        """Normalize both Codex CLI strings and Responses-style text parts."""
+        if isinstance(value, str):
+            return value
+        if isinstance(value, list):
+            return "\n".join(
+                part for item in value if (part := cls._item_text(item))
+            )
+        if isinstance(value, dict):
+            for key in ("text", "content", "summary", "value"):
+                if key in value:
+                    text = cls._item_text(value[key])
+                    if text:
+                        return text
+        return "" if value is None else str(value)
+
+    @classmethod
+    def _format_plan(cls, item: dict[str, object]) -> str:
+        raw_items = item.get("items")
+        if isinstance(raw_items, list):
+            lines: list[str] = []
+            for raw_item in raw_items:
+                if isinstance(raw_item, dict):
+                    text = cls._item_text(raw_item.get("text") or "").strip()
+                    if text:
+                        marker = "x" if raw_item.get("completed") is True else " "
+                        lines.append(f"- [{marker}] {text}")
+                else:
+                    text = cls._item_text(raw_item).strip()
+                    if text:
+                        lines.append(f"- [ ] {text}")
+            plan = "\n".join(lines)
+        else:
+            plan = cls._item_text(item.get("text") or item.get("plan") or "").strip()
+        return f"\n● **Plan**:\n{plan}\n" if plan else ""
+
+    @classmethod
+    def _format_file_changes(cls, item: dict[str, object]) -> str:
+        raw_changes = item.get("changes")
+        parts: list[str] = []
+        if isinstance(raw_changes, list):
+            for change in raw_changes:
+                if not isinstance(change, dict):
+                    continue
+                path = cls._item_text(change.get("path") or "").strip()
+                kind = cls._item_text(change.get("kind") or "change").strip()
+                if path:
+                    parts.append(f"\n● **File ({kind})**: {path}\n")
+        else:
+            path = cls._item_text(item.get("path") or "").strip()
+            action = cls._item_text(item.get("action") or "change").strip()
+            if path:
+                parts.append(f"\n● **File ({action})**: {path}\n")
+        return "".join(parts)

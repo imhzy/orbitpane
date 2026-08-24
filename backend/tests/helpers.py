@@ -22,5 +22,6 @@ def test_settings(tmp_path: Path) -> Settings:
         codex_enabled=False,
         codex_command="codex",
         codex_models=(),
+        codex_reasoning_summary="detailed",
         codex_sandbox="workspace-write",
     )
