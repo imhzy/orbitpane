@@ -987,7 +987,7 @@
   .chat-header .header-brand > .icon-btn { margin-right: var(--space-0-5); }
 
   /* Compact idle composer that expands only while editing. */
-  .input-area { padding: 7px 10px calc(8px + var(--sab)); }
+  .input-area { padding: 7px 10px var(--sab-chrome); }
   .keyboard-open .input-area { padding-bottom: var(--space-2); }
   .workspace-inspector.mobile-open .inspector-body { padding-bottom: calc(14px + var(--sab)); }
   .input-box { padding: var(--space-2) var(--space-2-5); }
@@ -1047,7 +1047,7 @@
     position: fixed;
     left: max(8px, var(--sal));
     right: max(8px, var(--sar));
-    bottom: calc(8px + var(--sab));
+    bottom: var(--sab-chrome);
     top: auto;
     z-index: 600;
     width: auto;

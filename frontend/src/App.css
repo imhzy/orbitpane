@@ -16,11 +16,11 @@
   position: absolute;
   inset: 0;
   z-index: 40;
+  /* Whether this region catches taps is written inline from the drawer's own
+     position — see useDrawerGesture. Granting it to a second rule keyed on
+     "the drawer is mounted" is what let a drawer that failed to finish its
+     exit sit invisibly over the app and eat every tap. */
   pointer-events: none;
-}
-
-.drawer-layer.active {
-  pointer-events: auto;
 }
 
 .drawer-scrim {
@@ -1677,7 +1677,7 @@
   background: var(--bg-primary);
   flex-shrink: 0;
   z-index: 10;
-  padding-bottom: calc(22px + var(--sab));
+  padding-bottom: max(22px, var(--sab-chrome));
   transition: background-color 0.25s ease;
   border-top: 1px solid var(--border-subtle);
 }

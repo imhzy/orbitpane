@@ -8,6 +8,16 @@
   --sab: env(safe-area-inset-bottom, 0px);
   --sal: env(safe-area-inset-left, 0px);
   --sar: env(safe-area-inset-right, 0px);
+  /* The platform inset is the whole home-indicator region — 34px in portrait —
+     and it is sized for content that scrolls *under* the indicator. Fixed
+     bottom chrome paints its own background down there and only has to keep
+     touch targets clear of iOS's swipe-up strip, which is about 20px wide.
+     Reserving the full inset on top of a base padding is what left 42px of
+     dead space under the composer: 34 for the indicator, 8 for the padding.
+     Absorb rather than stack, and cap at 24px — four more than the gesture
+     strip needs, ten less than Apple's conservative figure. Below ~20px the
+     system starts eating the first tap on whatever sits there. */
+  --sab-chrome: clamp(8px, var(--sab), 24px);
   --app-height: 100vh;
   --viewport-offset-top: 0px;
 

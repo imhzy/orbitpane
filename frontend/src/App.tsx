@@ -1301,8 +1301,9 @@ export default function App() {
       {/* One hit region owns both the drawer and its scrim. Pointer capture
           therefore remains on the same element when a swipe crosses their
           visual boundary in either direction. */}
-      <div
-        className={`drawer-layer ${drawer.isVisible ? 'active' : ''}`}
+      <motion.div
+        className="drawer-layer"
+        style={{ pointerEvents: drawer.layerPointerEvents }}
         {...drawer.layerHandlers}
       >
         {/* The scrim reads its opacity off the same value that positions the
@@ -1319,7 +1320,7 @@ export default function App() {
         )}
 
         <Sidebar isVisible={drawer.isVisible} drawerX={drawer.x} />
-      </div>
+      </motion.div>
 
       {/* Main Chat Area */}
       <div className="chat-main">

@@ -11,7 +11,16 @@
     <meta name="background-color" content="#0c0c0b" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- Not black-translucent. On iOS that style gives a standalone web app a
+         full-bleed *origin* but a status-bar-shortened *height*: the layout
+         viewport starts at y=0, under the notch, yet innerHeight comes back as
+         screen height minus the top inset (797 of 844 on an iPhone 14). The
+         missing 47px land at the bottom, outside the viewport, where nothing
+         can be laid out and only the propagated body background paints — the
+         band under the composer that no amount of padding would close. It also
+         poisons env(safe-area-inset-bottom), which then marks a strip 47px
+         above the real home indicator as unsafe. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
     <meta name="apple-mobile-web-app-title" content="OrbitPane" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
     <!-- The workspace is private and a /s/ share link is an unlisted capability

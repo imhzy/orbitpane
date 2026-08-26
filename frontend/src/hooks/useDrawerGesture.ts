@@ -200,6 +200,15 @@ export function useDrawerGesture({
     clamp(1 + value / (widthRef.current || 1), 0, 1)
   ))
 
+  /* The hit region is written from the same value that positions the drawer,
+     for the same reason the scrim's opacity is: a layer that spans the app and
+     decides on its own whether to swallow taps is one missed frame away from
+     bricking the page invisibly. A drawer parked off-screen shades nothing, so
+     it catches nothing — whatever the mount flag still believes. */
+  const layerPointerEvents = useTransform(scrimOpacity, opacity => (
+    opacity > 0.01 ? 'auto' : 'none'
+  ))
+
   const stopSettle = useCallback(() => {
     settleGenerationRef.current += 1
     settleRef.current?.stop()
@@ -252,7 +261,13 @@ export function useDrawerGesture({
   const restIfInterrupted = useCallback(() => {
     if (gestureRef.current || settleRef.current) return
     const resting = isOpenRef.current ? 0 : -widthRef.current
-    if (Math.abs(x.get() - resting) < 0.5) return
+    if (Math.abs(x.get() - resting) < 0.5) {
+      // Taking the pointer killed the spring that would have unmounted the
+      // drawer on completion. Nothing is left to animate, so retire it here
+      // rather than wait for a callback that is no longer coming.
+      if (!isOpenRef.current && isMountedRef.current) setIsMounted(false)
+      return
+    }
     settle(isOpenRef.current ? 'open' : 'closed')
   }, [settle, x])
 
@@ -502,6 +517,16 @@ export function useDrawerGesture({
     if (!isMounted) return
     widthRef.current = measureDrawerWidth()
     if (settleTargetRef.current !== 'closed') settle('closed')
+
+    /* The spring's onComplete is the fast path, not the guarantee. It rides on
+       a frame callback, and WebKit stops delivering those while the app is
+       backgrounded or a system gesture owns the touch — the exit animation
+       then never finishes and the drawer stays mounted for the rest of the
+       session. Long enough that the spring wins under normal conditions. */
+    const retire = window.setTimeout(() => {
+      if (!isOpenRef.current && !gestureRef.current) setIsMounted(false)
+    }, 700)
+    return () => window.clearTimeout(retire)
   }, [isDrawerOpen, isMounted, isOverlay, settle, stopSettle, x])
 
   useEffect(() => {
@@ -541,6 +566,7 @@ export function useDrawerGesture({
   return {
     x,
     scrimOpacity,
+    layerPointerEvents,
     isDragging,
     /** True while any part of the drawer is on screen, including its exit. */
     isVisible: isMounted,

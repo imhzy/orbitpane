@@ -13,13 +13,48 @@
 .login-screen {
   position: relative;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 100vh;
-  min-height: 100dvh;
+  flex-direction: column;
+  /* iOS does not resize the layout viewport for the keyboard: it shrinks the
+     *visual* viewport and leaves 100dvh at its full height. Because <body> is
+     pinned position:fixed and every ancestor is overflow:hidden, a 100dvh
+     screen could not be scrolled back either, so the centred card sat behind
+     the keyboard with no way to reach the field. --app-height is the visual
+     viewport height, republished on every visualViewport resize, so the screen
+     is exactly the strip that is actually visible. */
+  height: var(--app-height, 100dvh);
   background: var(--bg-primary);
-  padding: var(--space-5);
   overflow: hidden;
+}
+
+/* The lockup and the field scroll inside that strip. On a small phone — and on
+   any phone in landscape — the keyboard leaves less room than the card needs,
+   and a logo scrolled off the top is recoverable where a hidden input is not. */
+.login-scroll {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding:
+    max(var(--space-5), var(--sat))
+    max(var(--space-5), var(--sar))
+    max(var(--space-10), var(--sab))
+    max(var(--space-5), var(--sal));
+  /* The strip is a height the layout viewport never reports — @media
+     (max-height) still sees the full screen while the keyboard is up — so the
+     screen has to ask its own box. */
+  container-type: size;
+  container-name: login;
+}
+
+/* Keyboard up, the footer is gone, so the room held for it goes to the card. */
+.keyboard-open .login-scroll {
+  padding-bottom: max(var(--space-4), var(--sab));
 }
 
 /* Two stops, both extremely low alpha. Anything stronger and it becomes a
@@ -48,6 +83,18 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-8);
+  /* Auto margins centre the card while it fits and collapse to zero when it
+     does not, which leaves the top of the column reachable by scrolling.
+     align-items:center centres the overflow instead, putting the mark above
+     the scroll origin where nothing can bring it back. */
+  flex-shrink: 0;
+  margin: auto 0;
+}
+
+/* 32px between lockup and form is right on a full screen and is a twelfth of
+   what is left when the keyboard is up. */
+.keyboard-open .login-card {
+  gap: var(--space-5);
 }
 
 /* Logo Area. The mark carries the screen, so it is set at a size that can
@@ -221,7 +268,7 @@
 /* Footer */
 .login-footer {
   position: absolute;
-  bottom: calc(var(--space-5) + var(--sab));
+  bottom: max(var(--space-5), var(--sab-chrome));
   left: 0;
   right: 0;
   text-align: center;
@@ -229,8 +276,34 @@
   font-family: var(--font-mono);
   color: var(--text-tertiary);
   opacity: 0.6;
+  transition: opacity var(--transition-normal), visibility var(--transition-normal);
+}
+
+/* A build number is not worth a line of the strip above the keyboard, and it
+   sits over the card once that strip is short. */
+.keyboard-open .login-footer {
+  opacity: 0;
+  visibility: hidden;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .login-screen::before { display: none; }
+}
+
+/* Below these heights the column no longer fits the strip, and scrolling a
+   login form is a worse answer than dropping decoration: the lockup says which
+   machine this is, the field is the whole purpose of the screen.
+
+   A size query measures the container's *content box* — the strip less its
+   padding — and the column measures 238px whole, 207px without the subtitle
+   and 100px as bare field-and-button. Each step therefore hands the next one
+   about 17px more than it needs, which is the room for iOS metrics running
+   taller than the numbers above (measured in Chrome). Under ~100px the field
+   still scrolls into view; no keyboard leaves a strip that thin. */
+@container login (max-height: 256px) {
+  .login-brand-sub { display: none; }
+}
+
+@container login (max-height: 224px) {
+  .login-header { display: none; }
 }
