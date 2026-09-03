@@ -64,6 +64,7 @@ class AntigravityProvider(AgentProvider):
     display_name = "Google Gemini"
     tone = "gemini"
     _COMPLETION_GRACE_SECONDS = 30
+    _CACHE_TTL_SECONDS = 300
 
     CLI_MODEL_ALIASES = {
         "gemini-3.1-pro-high": "gemini-3.1-pro-low",
@@ -74,18 +75,27 @@ class AntigravityProvider(AgentProvider):
         self._processes: dict[int, asyncio.subprocess.Process] = {}
         self._interrupted: set[int] = set()
         self._cached_models: tuple[str, ...] | None = None
+        self._cached_at: float = 0
         self._model_labels: dict[str, str] = {}
 
     @property
     def models(self) -> tuple[str, ...]:
-        if self._cached_models is None:
+        now = time.monotonic()
+        if (
+            self._cached_models is None
+            or (now - self._cached_at) > self._CACHE_TTL_SECONDS
+        ):
             fetched = fetch_antigravity_models(self.settings.antigravity_command)
             if fetched:
                 self._model_labels = {model: label for model, label in fetched}
                 self._cached_models = tuple(model for model, _ in fetched)
-            else:
+                self._cached_at = now
+            elif self._cached_models is None:
                 # Fallback to environment variable if agy models fetch fails
                 self._cached_models = self.settings.antigravity_models
+                self._cached_at = now
+            else:
+                self._cached_at = now
         return self._cached_models
 
     def model_display_name(self, model: str) -> str:

@@ -9,6 +9,7 @@ class HumanizeModelIdTests(TestCase):
     def test_matches_previously_hardcoded_client_labels(self) -> None:
         """The fallback must reproduce the names the client used to hardcode."""
         cases = {
+            "gemini-3.8-flash-high": "Gemini 3.8 Flash (High)",
             "gemini-3.6-flash-high": "Gemini 3.6 Flash (High)",
             "gemini-3.6-flash-medium": "Gemini 3.6 Flash (Medium)",
             "gemini-3.1-pro-low": "Gemini 3.1 Pro (Low)",

@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 
 from ..config import Settings
 from .base import (
@@ -63,25 +64,35 @@ class CodexCliProvider(AgentProvider):
     display_name = "ChatGPT Codex"
     tone = "codex"
     _REASONING_SUMMARIES = frozenset({"auto", "concise", "detailed", "none"})
+    _CACHE_TTL_SECONDS = 300
 
     def __init__(self, settings: Settings):
         self.settings = settings
         self._processes: dict[int, asyncio.subprocess.Process] = {}
         self._interrupted: set[int] = set()
         self._cached_models: tuple[str, ...] | None = None
+        self._cached_at: float = 0
         self._model_labels: dict[str, str] = {}
 
     @property
     def models(self) -> tuple[str, ...]:
         if os.getenv("CODEX_MODELS"):
             return self.settings.codex_models
-        if self._cached_models is None:
+        now = time.monotonic()
+        if (
+            self._cached_models is None
+            or (now - self._cached_at) > self._CACHE_TTL_SECONDS
+        ):
             fetched = fetch_codex_models(self.settings.codex_command)
             if fetched:
                 self._model_labels = {model: label for model, label in fetched}
                 self._cached_models = tuple(model for model, _ in fetched)
-            else:
+                self._cached_at = now
+            elif self._cached_models is None:
                 self._cached_models = self.settings.codex_models
+                self._cached_at = now
+            else:
+                self._cached_at = now
         return self._cached_models
 
     def model_display_name(self, model: str) -> str:

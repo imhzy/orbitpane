@@ -79,6 +79,26 @@ class AntigravityModelCatalogTests(TestCase):
 
         fetch_mock.assert_called_once_with("true")
 
+    def test_provider_refreshes_models_after_ttl(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            provider = AntigravityProvider(test_settings(Path(temp_dir)))
+            provider._CACHE_TTL_SECONDS = 10
+            with (
+                patch.dict("os.environ", {}, clear=True),
+                patch(
+                    "backend.app.agents.antigravity.fetch_antigravity_models",
+                    side_effect=[
+                        (("model-v1", "Model V1"),),
+                        (("model-v2", "Model V2"),),
+                    ],
+                ) as fetch_mock,
+                patch("time.monotonic", side_effect=[100.0, 105.0, 120.0]),
+            ):
+                self.assertEqual(provider.models, ("model-v1",))
+                self.assertEqual(provider.models, ("model-v1",))
+                self.assertEqual(provider.models, ("model-v2",))
+                self.assertEqual(fetch_mock.call_count, 2)
+
     def test_model_catalog_falls_back_to_humanized_ids(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             provider = AntigravityProvider(test_settings(Path(temp_dir)))
