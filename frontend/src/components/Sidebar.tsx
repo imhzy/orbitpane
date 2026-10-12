@@ -1,25 +1,20 @@
 import React, { useState, useEffect } from 'react'
-import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
+import { motion, useReducedMotion } from 'framer-motion'
 import type { MotionValue } from 'framer-motion'
 import {
   X, MessageSquare, Plus, Trash2, Folder,
   ChevronRight, Compass, FolderPlus,
   Check, Pencil, Layers, HardDrive, RefreshCw, Cpu,
-  Search, Star, LogOut, ChevronDown, Maximize2, Minimize2,
-  Archive, ArchiveRestore, ShieldAlert, ShieldCheck, Fingerprint
+  Search, Star, Settings, Command, MoreHorizontal, ChevronDown, Maximize2, Minimize2,
+  Archive, ShieldAlert, ShieldCheck
 } from 'lucide-react'
 import { LogoIcon } from '../LogoIcon'
-import type { Conversation, Provider } from '../lib/types'
+import type { Conversation } from '../lib/types'
 import { hasProviderChoice } from '../lib/providers'
-import { apiFetch } from '../lib/api'
-import { registerPasskey, passkeyError, supportsPasskeys } from '../lib/passkeys'
-import { AUTH_EXPIRED_EVENT } from '../lib/auth'
 import { haptic } from '../lib/nativeFeedback'
 import { useFocusTrap } from '../hooks/useFocusTrap'
 import { useEscapeLayer } from '../hooks/useEscapeLayer'
 import { MobileBottomSheet } from './MobileBottomSheet'
-import { PushNotificationButton } from './PushNotificationButton'
-import { disablePush } from '../lib/push'
 
 import { useAppContext } from '../contexts/AppContext'
 
@@ -49,102 +44,34 @@ const CREATE_PANE = {
   hidden: { opacity: 0, scale: 0.94 },
 }
 
-function ProviderDropdown({ providers, selectedProvider, defaultProvider, setSelectedProvider }: {
-  providers: Provider[],
-  selectedProvider: string,
-  defaultProvider: string,
-  setSelectedProvider: (provider: string) => void
-}) {
-  const [isOpen, setIsOpen] = useState(false)
-  const dropdownRef = React.useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setIsOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
-
-  const currentProvider = providers.find(p => p.id === (selectedProvider || defaultProvider))
-  const displaySelectedProvider = selectedProvider || defaultProvider
-
-  return (
-    <div ref={dropdownRef} className="provider-selector-container">
-      <button
-        className="cw-input provider-selector-btn"
-        onClick={(e) => { e.preventDefault(); setIsOpen(!isOpen) }}
-        type="button"
-        aria-haspopup="listbox"
-        aria-expanded={isOpen}
-        aria-label="选择 Agent"
-      >
-        <span>{currentProvider ? currentProvider.name : '选择 Agent'}</span>
-        <ChevronDown size={14} className={`provider-selector-chevron ${isOpen ? 'open' : ''}`} />
-      </button>
-
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: -5, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -5, scale: 0.98 }}
-            transition={{ duration: 0.15 }}
-            className="model-dropdown-menu provider-dropdown-menu"
-            role="listbox"
-            aria-label="Agent 列表"
-          >
-            {providers.map(p => (
-              <button
-                key={p.id}
-                disabled={!p.available}
-                className={`model-dropdown-item ${displaySelectedProvider === p.id ? 'selected' : ''}`}
-                role="option"
-                aria-selected={displaySelectedProvider === p.id}
-                onClick={(e) => {
-                  e.preventDefault()
-                  if (p.available) {
-                    setSelectedProvider(p.id)
-                    setIsOpen(false)
-                  }
-                }}
-                type="button"
-                style={{ opacity: p.available ? 1 : 0.5, cursor: p.available ? 'pointer' : 'not-allowed' }}
-              >
-                <div className="model-item-icon">
-                  {displaySelectedProvider === p.id ? <Check size={14} /> : <div style={{ width: 14 }} />}
-                </div>
-                <span className="model-item-name">{p.name} {!p.available && '(不可用)'}</span>
-              </button>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  )
+function projectMenuPosition(element: Element) {
+  const trigger = element.querySelector<HTMLElement>('.project-menu-trigger') ?? element
+  const rect = trigger.getBoundingClientRect()
+  return {
+    top: Math.max(8, Math.min(rect.bottom + 5, window.innerHeight - 238)),
+    left: Math.max(8, Math.min(rect.left, window.innerWidth - 210)),
+  }
 }
 
 export function Sidebar({ isVisible, drawerX }: SidebarProps) {
-  const [bindingPasskey, setBindingPasskey] = useState(false)
   const {
     isDrawerOpen, drawerMode, setDrawerMode,
     conversations, isConversationsLoading, activeConv, selectConversation,
     editingConvId, editingConvName, setEditingConvName, saveConvName,
-    startEditingConv, setEditingConvId, deleteConversation, getProviderBadge,
+    setEditingConvId, deleteConversation, getProviderBadge,
     providers, newConvName, setNewConvName, selectedDir, setSelectedDir,
     currentPath, setCurrentPath, selectedProvider, setSelectedProvider,
     selectedPermissionMode, setSelectedPermissionMode,
     defaultProvider, items, loadDir, getBreadcrumbParts, createConversation,
-    loadConversations, updateConversation, showToast, requestCloseDrawer
+    loadConversations, updateConversation, showToast, requestCloseDrawer,
+    openSettings, settingsSection, setIsCmdPaletteOpen
   } = useAppContext()
 
   const [searchTerm, setSearchTerm] = useState('')
   const [isDirectoryExpanded, setIsDirectoryExpanded] = useState(false)
   const isCancelingRef = React.useRef(false)
-  const [showArchived, setShowArchived] = useState(false)
-  const [createStep, setCreateStep] = useState<1 | 2>(1)
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 })
+  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false)
   const [unrestrictedAcknowledged, setUnrestrictedAcknowledged] = useState(false)
   const canLeaveFirstStep = Boolean(newConvName.trim() && selectedDir.trim())
   const isSelectedProviderAvailable = providers.length === 0 || Boolean(
@@ -159,6 +86,14 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
   const prefersReducedMotion = useReducedMotion()
   const paneZoom = prefersReducedMotion ? PANE_ZOOM_REDUCED : PANE_ZOOM
   const [contextConv, setContextConv] = useState<Conversation | null>(null)
+  const [isPhone, setIsPhone] = useState(() => window.matchMedia('(max-width: 768px)').matches)
+  const menuRef = useFocusTrap<HTMLDivElement>(contextConv !== null && !isPhone && !settingsSection)
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 768px)')
+    const sync = () => setIsPhone(query.matches)
+    query.addEventListener('change', sync)
+    return () => query.removeEventListener('change', sync)
+  }, [])
   /* Only an overlay drawer is modal; the docked desktop column must keep Tab
      flowing into the conversation next to it. */
   const [isOverlayDrawer, setIsOverlayDrawer] = useState(() => window.innerWidth < 1024)
@@ -173,10 +108,10 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
      the refresh button, and a drawer pulled open by a swipe would arrive with
      a focus ring drawn around it as if the user had selected it. Tab still
      steps into the header from here. */
-  const drawerRef = useFocusTrap<HTMLDivElement>(isDrawerOpen && isOverlayDrawer, {
+  const drawerRef = useFocusTrap<HTMLDivElement>(isDrawerOpen && isOverlayDrawer && !settingsSection, {
     initialFocus: (): HTMLElement | null => drawerRef.current,
   })
-  useEscapeLayer(isDrawerOpen && isOverlayDrawer, requestCloseDrawer)
+  useEscapeLayer(isDrawerOpen && isOverlayDrawer && !settingsSection, requestCloseDrawer)
   // Registered after the drawer layer, so cancelling a rename wins over
   // closing the drawer for the same keypress.
   useEscapeLayer(editingConvId !== null, () => {
@@ -195,12 +130,14 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
   const beginLongPress = (event: React.PointerEvent, conversation: Conversation) => {
     if (event.pointerType !== 'touch') return
     cancelLongPress()
+    const position = projectMenuPosition(event.currentTarget)
     longPressRef.current = {
       x: event.clientX,
       y: event.clientY,
       timer: window.setTimeout(() => {
         suppressClickRef.current = true
         haptic('light')
+        setMenuPosition(position)
         setContextConv(conversation)
         longPressRef.current = null
       }, 460),
@@ -226,24 +163,50 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
   useEffect(() => {
     if (!isDrawerOpen || drawerMode !== 'create') {
       setIsDirectoryExpanded(false)
-      setCreateStep(1)
+      setIsAdvancedOpen(false)
       setUnrestrictedAcknowledged(false)
     }
   }, [isDrawerOpen, drawerMode])
 
-  const togglePin = (e: React.MouseEvent, id: number) => {
-    e.stopPropagation()
-    const conversation = conversations.find(item => item.id === id)
-    if (!conversation) return
-    void updateConversation(id, { is_pinned: !conversation.is_pinned })
-      .then(updated => {
-        if (updated) showToast(conversation.is_pinned ? '已取消星标' : '已添加星标')
-      })
-  }
+  useEffect(() => {
+    if (!contextConv) return
+    const close = (event: MouseEvent) => {
+      if ((event.target as Element | null)?.closest('.project-actions-sheet, .project-menu-trigger')) return
+      if (!menuRef.current?.contains(event.target as Node)) setContextConv(null)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [contextConv, menuRef])
+
+  const projectActions = contextConv && <>
+    <button type="button" role="menuitem" onClick={() => {
+      openSettings('project', contextConv.id)
+      setContextConv(null)
+    }}><Settings size={16} />项目设置</button>
+    <button type="button" role="menuitem" onClick={() => {
+      void updateConversation(contextConv.id, { is_pinned: !contextConv.is_pinned })
+      haptic('selection')
+      setContextConv(null)
+    }}><Star size={16} fill={contextConv.is_pinned ? 'currentColor' : 'none'} />{contextConv.is_pinned ? '取消星标' : '星标置顶'}</button>
+    <button type="button" role="menuitem" onClick={() => {
+      setEditingConvId(contextConv.id)
+      setEditingConvName(contextConv.name)
+      setContextConv(null)
+    }}><Pencil size={16} />重命名项目</button>
+    <button type="button" role="menuitem" onClick={() => {
+      void updateConversation(contextConv.id, { is_archived: !contextConv.is_archived })
+      setContextConv(null)
+    }}><Archive size={16} />{contextConv.is_archived ? '恢复项目' : '归档项目'}</button>
+    <button type="button" role="menuitem" className="destructive" onClick={event => {
+      deleteConversation(event, contextConv.id)
+      haptic('warning')
+      setContextConv(null)
+    }}><Trash2 size={16} />删除项目</button>
+  </>
 
   // Filter & sort conversations (pinned top)
   const filteredConvs = conversations.filter(c =>
-    c.is_archived === showArchived && (
+    !c.is_archived && (
       c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       c.path.toLowerCase().includes(searchTerm.toLowerCase())
     )
@@ -360,16 +323,6 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
                   )}
                 </div>
               )}
-              {(showArchived || conversations.some(conversation => conversation.is_archived)) && (
-                <button
-                  className={`archived-toggle-btn ${showArchived ? 'active' : ''}`}
-                  onClick={() => setShowArchived(previous => !previous)}
-                >
-                  <ArchiveRestore size={13} />
-                  {showArchived ? '返回活跃项目' : '查看已归档项目'}
-                </button>
-              )}
-
               {isConversationsLoading ? (
                 <div className="flex flex-col gap-2 p-2">
                   {[1, 2, 3].map(i => (
@@ -432,6 +385,7 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
                         onContextMenu={event => {
                           if (!window.matchMedia('(pointer: coarse)').matches) return
                           event.preventDefault()
+                          setMenuPosition(projectMenuPosition(event.currentTarget))
                           setContextConv(conv)
                           haptic('light')
                         }}
@@ -502,38 +456,14 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
                             </button>
                           ) : (
                             <>
-                              {conv.is_archived && (
-                                <button
-                                  className="icon-btn"
-                                  title="恢复项目"
-                                  onClick={() => void updateConversation(conv.id, { is_archived: false }).then(() => {
-                                    void loadConversations(false)
-                                  })}
-                                >
-                                  <ArchiveRestore size={13} />
-                                </button>
-                              )}
-                              <button
-                                className={`icon-btn pin-btn ${isPinned ? 'pinned' : ''}`}
-                                title={isPinned ? '取消星标' : '星标置顶'}
-                                onClick={(e) => togglePin(e, conv.id)}
-                              >
-                                <Star size={13} fill={isPinned ? 'currentColor' : 'none'} />
-                              </button>
-                              <button 
-                                className="icon-btn" 
-                                title="重命名项目"
-                                onClick={(e) => startEditingConv(e, conv)}
-                              >
-                                <Pencil size={13} />
-                              </button>
-                              <button 
-                                className="icon-btn destructive" 
-                                title="删除项目"
-                                onClick={(e) => deleteConversation(e, conv.id)}
-                              >
-                                <Trash2 size={14} />
-                              </button>
+                              <button type="button" className="icon-btn project-menu-trigger"
+                                title="项目操作" aria-label={`项目操作 ${conv.name}`}
+                                aria-haspopup="menu" aria-expanded={contextConv?.id === conv.id}
+                                onClick={event => {
+                                  event.stopPropagation()
+                                  setMenuPosition(projectMenuPosition(event.currentTarget))
+                                  setContextConv(previous => previous?.id === conv.id ? null : conv)
+                                }}><MoreHorizontal size={16} /></button>
                             </>
                           )}
                         </div>
@@ -582,28 +512,9 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
             >
                 <div className="drawer-content cw-content">
               <div className="cw-header">
-                <h3 className="cw-title">配置新项目</h3>
+                <h3 className="cw-title">新建项目</h3>
               </div>
-              {/* Two steps, and the stepper is clickable: the old three-step
-                  flow made you walk back through "返回" to fix a typo in the
-                  name, and step 3 only restated what you had just entered. */}
-              <div className="cw-stepper" aria-label={`新建项目第 ${createStep} 步，共 2 步`}>
-                {([1, 2] as const).map(step => (
-                  <button
-                    key={step}
-                    type="button"
-                    className={createStep >= step ? 'active' : ''}
-                    aria-current={createStep === step ? 'step' : undefined}
-                    disabled={step > createStep && !canLeaveFirstStep}
-                    onClick={() => setCreateStep(step)}
-                  >
-                    <b>{step}</b>{step === 1 ? '项目与目录' : '运行配置'}
-                  </button>
-                ))}
-              </div>
-
-              {createStep === 1 && (
-                <>
+              <>
                   <div className="cw-form">
                     <div className="cw-field-group">
                       <label className="cw-label">项目名称</label>
@@ -735,22 +646,28 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
                   </div>
                 </div>
                   </div>
-                </>
-              )}
+              </>
 
-              {createStep === 2 && (
+              <button type="button" className="cw-advanced-toggle" aria-expanded={isAdvancedOpen}
+                onClick={() => setIsAdvancedOpen(open => !open)}>
+                <Cpu size={14} /><span>运行配置<small>{providers.find(provider => provider.id === (selectedProvider || defaultProvider))?.name || selectedProvider} · {selectedPermissionMode === 'workspace' ? '受限工作区' : '完全访问'}</small></span>
+                <ChevronDown size={15} className={isAdvancedOpen ? 'open' : ''} />
+              </button>
+              <p className="cw-default-note">默认配置可在<button type="button" onClick={() => openSettings('ai')}>设置 → AI 与工作区</button>中调整。</p>
+
+              {isAdvancedOpen && (
                 <div className="cw-provider-step">
                   <div className="cw-form">
                     <div className="cw-field-group">
                       <label className="cw-label">Agent 接入方式</label>
                       <div className="cw-input-wrapper">
                         <Cpu size={14} className="cw-icon" />
-                        <ProviderDropdown
-                          providers={providers}
-                          selectedProvider={selectedProvider}
-                          defaultProvider={defaultProvider}
-                          setSelectedProvider={setSelectedProvider}
-                        />
+                        <select className="cw-input cw-agent-select" aria-label="选择 Agent"
+                          value={selectedProvider || defaultProvider} onChange={event => setSelectedProvider(event.target.value)}>
+                          {providers.map(provider => <option key={provider.id} value={provider.id} disabled={!provider.available}>
+                            {provider.name}{!provider.available ? '（不可用）' : ''}
+                          </option>)}
+                        </select>
                       </div>
                     </div>
                   </div>
@@ -809,138 +726,43 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
                       </label>
                     )}
                   </div>
-                  <div className="provider-capability-list">
-                    <span><Check size={12} />读取项目上下文</span>
-                    <span><Check size={12} />在授权范围内修改文件</span>
-                    <span><Check size={12} />实时展示命令与工具调用</span>
-                  </div>
-
-                  <dl className="cw-summary">
-                    <div><dt>名称</dt><dd>{newConvName || '—'}</dd></div>
-                    <div><dt>目录</dt><dd>{selectedDir || '—'}</dd></div>
-                    <div><dt>Agent</dt><dd>{providers.find(provider => provider.id === (selectedProvider || defaultProvider))?.name || selectedProvider || '—'}</dd></div>
-                    <div className={selectedPermissionMode === 'unrestricted' ? 'danger' : undefined}>
-                      <dt>权限</dt>
-                      <dd>{selectedPermissionMode === 'workspace' ? '受限工作区' : '完全访问'}</dd>
-                    </div>
-                  </dl>
                 </div>
               )}
 
               <div className="cw-action cw-wizard-actions">
-                {createStep > 1 && (
-                  <button className="cw-back-btn" onClick={() => setCreateStep(1)}>
-                    返回
-                  </button>
-                )}
-                {createStep === 1 ? (
-                  <button
-                    className="cw-create-btn"
-                    disabled={!canLeaveFirstStep}
-                    onClick={() => setCreateStep(2)}
-                  >
-                    <span>下一步</span><ChevronRight size={15} />
-                  </button>
-                ) : (
-                  <button
-                    className="cw-create-btn"
-                    disabled={!canCreateProject}
-                    title={
-                      !isSelectedProviderAvailable
-                        ? '所选 Agent 当前不可用'
-                        : !canCreateProject
-                          ? '请先确认完全访问模式的风险'
-                          : undefined
-                    }
-                    onClick={() => {
-                      createConversation()
-                      setCreateStep(1)
-                      setUnrestrictedAcknowledged(false)
-                    }}
-                  >
-                    <Plus size={16} strokeWidth={2.5} />
-                    <span>创建项目</span>
-                  </button>
-                )}
-                  </div>
+                <button className="cw-create-btn" disabled={!canCreateProject}
+                  title={!canLeaveFirstStep ? '请填写项目名称与目录' : !isSelectedProviderAvailable ? '所选 Agent 当前不可用' : !canCreateProject ? '请先确认完全访问模式的风险' : undefined}
+                  onClick={() => { createConversation(); setIsAdvancedOpen(false); setUnrestrictedAcknowledged(false) }}>
+                  <Plus size={16} strokeWidth={2.5} /><span>创建项目</span>
+                </button>
+              </div>
                 </div>
             </motion.div>
           </div>
 
-          {/* Sidebar Global Footer */}
           <div className="sidebar-footer">
-            <PushNotificationButton />
-            {supportsPasskeys() && <button
-              type="button"
-              className="sidebar-footer-btn"
-              disabled={bindingPasskey}
-              onClick={async () => {
-                setBindingPasskey(true)
-                try {
-                  await registerPasskey()
-                  showToast('通行密钥已绑定，下次可直接使用它登录')
-                } catch (error) {
-                  showToast(passkeyError(error), 'error')
-                } finally {
-                  setBindingPasskey(false)
-                }
-              }}
-            >
-              <Fingerprint size={16} />
-              <span>{bindingPasskey ? '正在绑定…' : '绑定通行密钥'}</span>
-            </button>}
-            <button 
-              className="sidebar-footer-btn destructive"
-              onClick={async () => {
-                try {
-                  await disablePush()
-                  await apiFetch('/api/logout', { method: 'POST' })
-                  window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
-                } catch {
-                  showToast('退出失败，请稍后重试。', 'error')
-                }
-              }}
-              title="退出登录"
-            >
-              <LogOut size={16} />
-              <span>退出系统</span>
+            <button type="button" className="sidebar-footer-btn sidebar-command-btn" onClick={() => setIsCmdPaletteOpen(true)}>
+              <Command size={16} /><span>搜索与快捷指令</span><kbd>⌘K</kbd>
+            </button>
+            <button type="button" className="sidebar-footer-btn sidebar-settings-btn" onClick={() => openSettings()}>
+              <Settings size={16} /><span>设置</span><ChevronRight size={14} />
             </button>
           </div>
           </motion.div>
       )}
-      <MobileBottomSheet
-        open={contextConv !== null}
-        onClose={() => setContextConv(null)}
-        title={contextConv?.name ?? '项目操作'}
-        className="project-actions-sheet"
-        backdropClassName="project-actions-backdrop"
-        role="menu"
-      >
-        {contextConv && (
-          <>
-            <button type="button" role="menuitem" onClick={() => {
-              void updateConversation(contextConv.id, { is_pinned: !contextConv.is_pinned })
-              haptic('selection')
-              setContextConv(null)
-            }}><Star size={17} fill={contextConv.is_pinned ? 'currentColor' : 'none'} />{contextConv.is_pinned ? '取消星标' : '星标置顶'}</button>
-            <button type="button" role="menuitem" onClick={() => {
-              setEditingConvId(contextConv.id)
-              setEditingConvName(contextConv.name)
-              setContextConv(null)
-            }}><Pencil size={17} />重命名项目</button>
-            <button type="button" role="menuitem" onClick={() => {
-              void updateConversation(contextConv.id, { is_archived: !contextConv.is_archived }).then(() => {
-                void loadConversations(false)
-              })
-              setContextConv(null)
-            }}><Archive size={17} />{contextConv.is_archived ? '恢复项目' : '归档项目'}</button>
-            <button type="button" role="menuitem" className="destructive" onClick={event => {
-              deleteConversation(event, contextConv.id)
-              haptic('warning')
-              setContextConv(null)
-            }}><Trash2 size={17} />删除项目</button>
-          </>
-        )}
+      {contextConv && !isPhone && <div ref={menuRef} className="project-actions-popover" role="menu" aria-label="项目操作"
+        style={{ top: menuPosition.top, left: menuPosition.left }} onKeyDown={event => {
+          if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+          event.preventDefault()
+          const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button'))
+          const current = buttons.indexOf(document.activeElement as HTMLButtonElement)
+          const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
+            : (current + (event.key === 'ArrowUp' ? -1 : 1) + buttons.length) % buttons.length
+          buttons[next]?.focus()
+        }}>{projectActions}</div>}
+      <MobileBottomSheet open={contextConv !== null && isPhone} onClose={() => setContextConv(null)}
+        title={contextConv?.name ?? '项目操作'} className="project-actions-sheet" backdropClassName="project-actions-backdrop" role="menu">
+        {projectActions}
       </MobileBottomSheet>
     </>
   )

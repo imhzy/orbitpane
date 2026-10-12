@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Archive,
-  Bell,
-  BellRing,
   Bot,
   CheckCircle2,
   ChevronDown,
@@ -14,9 +11,7 @@ import {
   Loader2,
   Pencil,
   Save,
-  ShieldAlert,
   ShieldCheck,
-  Star,
   X,
 } from 'lucide-react'
 import { apiFetch } from '../lib/api'
@@ -73,8 +68,8 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
     activeConv,
     isConnected,
     isReconnecting,
-    updateConversation,
-    loadConversations,
+    openSettings,
+    settingsSection,
     showToast,
   } = useAppContext()
   const initialPanel = new URLSearchParams(window.location.search).get('panel')
@@ -87,9 +82,6 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
   const [loading, setLoading] = useState(false)
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
   const [taskContent, setTaskContent] = useState('')
-  const [notificationsEnabled, setNotificationsEnabled] = useState(() => (
-    typeof Notification !== 'undefined' && Notification.permission === 'granted'
-  ))
   const inspectorRequestRef = useRef(0)
 
   const activeConversationId = activeConv?.id ?? null
@@ -207,7 +199,7 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
     return () => query.removeEventListener('change', sync)
   }, [])
 
-  const isOverlay = overlayOpen && !isDocked
+  const isOverlay = overlayOpen && !isDocked && !settingsSection
   const panelRef = useFocusTrap<HTMLElement>(isOverlay)
 
   // Only the topmost overlay reacts to Escape; the stack decides who that is.
@@ -233,29 +225,6 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
     100,
     Math.round((stats.context_chars / Math.max(1, stats.context_limit || 120_000)) * 100),
   )
-
-  const requestNotifications = async () => {
-    if (typeof Notification === 'undefined') {
-      showToast('当前浏览器不支持系统通知', 'warning')
-      return
-    }
-    const permission = await Notification.requestPermission()
-    setNotificationsEnabled(permission === 'granted')
-    showToast(
-      permission === 'granted' ? '任务完成通知已开启' : '未获得通知权限',
-      permission === 'granted' ? 'success' : 'warning',
-    )
-  }
-
-  const setPermissionMode = (permissionMode: 'workspace' | 'unrestricted') => {
-    if (!activeConv || activeConv.permission_mode === permissionMode) return
-    void updateConversation(activeConv.id, { permission_mode: permissionMode })
-      .then(updated => {
-        if (updated) {
-          showToast(permissionMode === 'workspace' ? '已启用受限工作区' : '已启用完全访问', permissionMode === 'workspace' ? 'success' : 'warning')
-        }
-      })
-  }
 
   const cancelTask = (task: TaskRecord) => {
     void apiFetch(`/api/conversations/${task.conversation_id}/queue/${task.run_id}`, {
@@ -334,14 +303,6 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
           <h2>任务与上下文</h2>
         </div>
         <div className="inspector-header-actions">
-          <button
-            className={`icon-btn ${notificationsEnabled ? 'notification-enabled' : ''}`}
-            onClick={requestNotifications}
-            title="任务完成通知"
-            aria-label="设置任务完成通知"
-          >
-            {notificationsEnabled ? <BellRing size={15} /> : <Bell size={15} />}
-          </button>
           <button className="icon-btn inspector-mobile-close" onClick={closeOverlay} aria-label="关闭任务面板">
             <X size={16} />
           </button>
@@ -383,39 +344,9 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
                 <>
                   <strong className="mission-project-name">{activeConv.name}</strong>
                   <span className="mission-project-path">{activeConv.path}</span>
-                  <div className="project-organize-row">
-                    <button
-                      className={activeConv.is_pinned ? 'active' : ''}
-                      onClick={() => void updateConversation(activeConv.id, { is_pinned: !activeConv.is_pinned })}
-                    ><Star size={12} fill={activeConv.is_pinned ? 'currentColor' : 'none'} />星标</button>
-                    <button
-                      onClick={() => void updateConversation(activeConv.id, { is_archived: true }).then(() => {
-                        void loadConversations(false)
-                      })}
-                    ><Archive size={12} />归档</button>
-                  </div>
-                  <div className="project-permission-setting">
-                    <span>文件系统权限</span>
-                    <div role="radiogroup" aria-label="当前项目文件系统权限">
-                      <button
-                        type="button"
-                        role="radio"
-                        aria-checked={activeConv.permission_mode === 'workspace'}
-                        className={activeConv.permission_mode === 'workspace' ? 'active' : ''}
-                        disabled={activeTasks.length > 0}
-                        onClick={() => setPermissionMode('workspace')}
-                      ><ShieldCheck size={11} />受限</button>
-                      <button
-                        type="button"
-                        role="radio"
-                        aria-checked={activeConv.permission_mode === 'unrestricted'}
-                        className={`danger ${activeConv.permission_mode === 'unrestricted' ? 'active' : ''}`}
-                        disabled={activeTasks.length > 0}
-                        onClick={() => setPermissionMode('unrestricted')}
-                      ><ShieldAlert size={11} />完全访问</button>
-                    </div>
-                    {activeTasks.length > 0 && <small>任务运行或排队时不能修改</small>}
-                  </div>
+                  <button type="button" className="inspector-project-settings" onClick={() => openSettings('project', activeConv.id)}>
+                    <ShieldCheck size={13} />{activeConv.permission_mode === 'workspace' ? '受限工作区' : '完全访问'}<span>项目设置 →</span>
+                  </button>
                 </>
               ) : <p className="inspector-empty">选择项目后显示上下文。</p>}
             </section>

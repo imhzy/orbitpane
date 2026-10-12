@@ -1,5 +1,42 @@
 /* OrbitPane workbench layer. New product surfaces live here so App.css can be
    retired incrementally without continuing its legacy cascade. */
+.app-workbench { display: contents; }
+.settings-loading { position: absolute; inset: 0; z-index: 700; display: grid; place-items: center; background: var(--bg-primary); }
+
+/* Global controls have one home; project actions share one menu. */
+.sidebar-footer { padding: 10px 12px; }
+.sidebar-footer-btn { justify-content: flex-start; min-height: 42px; padding: 10px 12px; font-size: var(--text-sm); }
+.sidebar-footer-btn > span { flex: 1; text-align: left; }
+.sidebar-footer-btn kbd { font: 11px var(--font-mono); color: var(--text-tertiary); }
+.sidebar-settings-btn { color: var(--text-primary); }
+.project-actions-popover { position: fixed; z-index: 560; width: 200px; padding: 6px; border: 1px solid var(--border-color); border-radius: var(--radius-lg); background: var(--bg-surface); box-shadow: var(--shadow-lg); }
+.project-actions-popover button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; padding: 10px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); font-size: var(--text-sm); text-align: left; cursor: pointer; }
+.project-actions-popover button:hover { color: var(--text-primary); background: var(--bg-surface-hover); }
+.project-actions-popover button.destructive { color: var(--danger-text); }
+.project-actions-popover button.destructive:hover { background: var(--danger-bg); }
+.cw-advanced-toggle { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 56px; padding: 12px; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-secondary); color: var(--text-secondary); text-align: left; font-size: var(--text-sm); cursor: pointer; }
+.cw-advanced-toggle > span { flex: 1; }
+.cw-advanced-toggle small { display: block; margin-top: 5px; color: var(--text-tertiary); font-size: var(--text-2xs); }
+.cw-advanced-toggle .open { transform: rotate(180deg); }
+.cw-default-note { margin: 0; color: var(--text-tertiary); font-size: var(--text-2xs); line-height: 1.8; }
+.cw-default-note button { margin: 0 3px; padding: 0; border: 0; background: transparent; color: var(--accent-text); cursor: pointer; }
+.cw-agent-select { width: 100%; min-width: 0; appearance: auto; background: transparent; }
+.cw-agent-select option { color: var(--text-primary); background: var(--bg-surface); }
+.actions-dropdown-divider { height: 1px; margin: 5px 8px; background: var(--border-color); }
+.header-connection .run-config-control { border: 0; background: transparent; }
+.header-connection .run-config-link { width: 30px; border-radius: var(--radius-md); }
+.model-selector-container.composer-model-selector { display: flex; }
+.input-capability-row { display: none !important; }
+.inspector-project-settings { display: flex; align-items: center; gap: 7px; width: 100%; margin-top: 14px; padding: 0; border: 0; background: transparent; color: var(--text-tertiary); font-size: var(--text-2xs); cursor: pointer; }
+.inspector-project-settings span { margin-left: auto; color: var(--accent-text); }
+
+@media (max-width: 768px) {
+  .project-actions-popover { display: none; }
+  .list-item .item-actions { display: flex !important; position: static; padding-left: 0; background: transparent; opacity: 1; pointer-events: auto; transform: none; }
+  .list-item .item-actions .icon-btn { width: 32px; height: 36px; }
+  .sidebar-command-btn kbd { display: none; }
+  .header-connection { display: none; }
+}
 
 /* App state banners */
 .offline-banner {
@@ -1023,8 +1060,8 @@
   .input-box:focus-within .input-reference-btn,
   .input-box.has-text .input-reference-btn { display: grid; }
 
-  /* Touch actions move into long-press sheets. */
-  .list-item .item-actions { display: none !important; }
+  /* One discoverable project menu also serves touch and keyboard users. */
+  .list-item .item-actions { display: flex !important; position: static; padding-left: 0; background: transparent; opacity: 1; pointer-events: auto; transform: none; }
   .message-toolbar .toolbar-btn,
   .user-copy-btn { display: none; }
   .message-row, .list-item { -webkit-touch-callout: none; }

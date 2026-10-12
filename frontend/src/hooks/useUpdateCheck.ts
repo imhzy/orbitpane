@@ -3,9 +3,7 @@ import { requestPwaUpdate } from '../lib/pwaUpdate'
 import type { ToastKind } from '../lib/types'
 
 /**
- * Manual "check for update", shared by the mobile action sheet and the command
- * palette. It used to live only in the mobile-only dropdown, which meant desktop
- * users had no way to pull a new build short of a hard refresh.
+ * Manual "check for update", shared by Settings and the command palette.
  */
 export function useUpdateCheck(showToast: (msg: string, kind?: ToastKind) => void) {
   const [isChecking, setIsChecking] = useState(false)

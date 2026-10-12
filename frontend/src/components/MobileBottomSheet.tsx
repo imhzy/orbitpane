@@ -1,6 +1,8 @@
+import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion, useDragControls } from 'framer-motion'
+import { useFocusTrap } from '../hooks/useFocusTrap'
 
 interface MobileBottomSheetProps {
   open: boolean
@@ -32,12 +34,20 @@ export function MobileBottomSheet({
   ariaLabel,
 }: MobileBottomSheetProps) {
   const dragControls = useDragControls()
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 768px)').matches)
+  const sheetRef = useFocusTrap<HTMLDivElement>(open && isMobile)
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 768px)')
+    const sync = () => setIsMobile(query.matches)
+    query.addEventListener('change', sync)
+    return () => query.removeEventListener('change', sync)
+  }, [])
 
   if (typeof document === 'undefined') return null
 
   return createPortal(
     <AnimatePresence>
-      {open && [
+      {open && isMobile && [
         <motion.button
           key="backdrop"
           type="button"
@@ -50,6 +60,7 @@ export function MobileBottomSheet({
         />,
         <motion.div
           key="sheet"
+          ref={sheetRef}
           className={`mobile-bottom-sheet ${className}`.trim()}
           role={role}
           aria-label={ariaLabel ?? title}

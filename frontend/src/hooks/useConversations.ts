@@ -3,6 +3,7 @@ import { apiFetch } from '../lib/api'
 import { formatModelName, rememberModelLabels } from '../lib/providers'
 import { pruneConversationKeys, readJson, writeJson } from '../lib/storage'
 import type { Conversation, DirItem, Provider, ModelOption, ModelsResponse, AgentsResponse, PermissionMode, ToastKind } from '../lib/types'
+import type { AppPreferences } from '../lib/preferences'
 
 const CONVERSATION_CACHE_KEY = 'orbitpane_conversations_cache_v2'
 const PROVIDER_CACHE_KEY = 'orbitpane_provider_cache_v2'
@@ -54,7 +55,7 @@ function normalizeConversations(value: unknown): Conversation[] {
     : []
 }
 
-export function useConversations(showToast: (msg: string, kind?: ToastKind) => void) {
+export function useConversations(showToast: (msg: string, kind?: ToastKind) => void, preferences: AppPreferences) {
   const [conversations, setConversations] = useState<Conversation[]>(() => (
     normalizeConversations(readCache<unknown>(CONVERSATION_CACHE_KEY, []))
   ))
@@ -77,7 +78,9 @@ export function useConversations(showToast: (msg: string, kind?: ToastKind) => v
       return Array.isArray(cached) ? cached as Provider[] : []
     })()
   ))
-  const [defaultProvider, setDefaultProvider] = useState<string>('antigravity')
+  const [serverDefaultProvider, setServerDefaultProvider] = useState<string>('antigravity')
+  const defaultProvider = providers.some(provider => provider.id === preferences.defaultProvider && provider.available)
+    ? preferences.defaultProvider : serverDefaultProvider
   const [models, setModels] = useState<ModelOption[]>([])
   const [selectedModel, setSelectedModelState] = useState<string>('')
   /**
@@ -95,7 +98,11 @@ export function useConversations(showToast: (msg: string, kind?: ToastKind) => v
   const modelsRequestRef = useRef(0)
 
   const [workspaceRoots, setWorkspaceRoots] = useState<string[]>([])
-  const [defaultWorkspaceRoot, setDefaultWorkspaceRoot] = useState<string>('')
+  const [serverWorkspaceRoot, setServerWorkspaceRoot] = useState<string>('')
+  const defaultWorkspaceRoot = workspaceRoots.includes(preferences.workspaceRoot)
+    ? preferences.workspaceRoot : serverWorkspaceRoot
+  const preferencesRef = useRef(preferences)
+  preferencesRef.current = preferences
   const [currentPath, setCurrentPath] = useState<string>('')
   const [items, setItems] = useState<DirItem[]>([])
   const [selectedDir, setSelectedDir] = useState<string>('')
@@ -105,14 +112,28 @@ export function useConversations(showToast: (msg: string, kind?: ToastKind) => v
 
   const [editingConvId, setEditingConvId] = useState<number | null>(null)
   const [editingConvName, setEditingConvName] = useState<string>('')
+  const previousDefaultsRef = useRef({ provider: defaultProvider, root: defaultWorkspaceRoot })
+
+  useEffect(() => {
+    const previous = previousDefaultsRef.current
+    // Adopt changed defaults only while the create form is still untouched.
+    if (!newConvName.trim()) {
+      setSelectedProvider(value => !value || value === previous.provider ? defaultProvider : value)
+      setSelectedDir(value => !value || value === previous.root ? defaultWorkspaceRoot : value)
+      setCurrentPath(value => !value || value === previous.root ? defaultWorkspaceRoot : value)
+    }
+    previousDefaultsRef.current = { provider: defaultProvider, root: defaultWorkspaceRoot }
+  }, [defaultProvider, defaultWorkspaceRoot, newConvName])
 
   const loadWorkspaceRoots = useCallback(() => {
     return apiFetch<{ roots: string[]; default_root: string }>('/api/workspace-roots')
       .then(data => {
         setWorkspaceRoots(data.roots)
-        setDefaultWorkspaceRoot(data.default_root)
-        setCurrentPath(previous => previous || data.default_root)
-        setSelectedDir(previous => previous || data.default_root)
+        setServerWorkspaceRoot(data.default_root)
+        const root = data.roots.includes(preferencesRef.current.workspaceRoot)
+          ? preferencesRef.current.workspaceRoot : data.default_root
+        setCurrentPath(previous => previous || root)
+        setSelectedDir(previous => previous || root)
         writeJson('orbitpane_workspace_roots', data)
         return data
       })
@@ -123,9 +144,11 @@ export function useConversations(showToast: (msg: string, kind?: ToastKind) => v
           { roots: [], default_root: '' },
         )
         setWorkspaceRoots(cached.roots)
-        setDefaultWorkspaceRoot(cached.default_root)
-        setCurrentPath(previous => previous || cached.default_root)
-        setSelectedDir(previous => previous || cached.default_root)
+        setServerWorkspaceRoot(cached.default_root)
+        const root = cached.roots.includes(preferencesRef.current.workspaceRoot)
+          ? preferencesRef.current.workspaceRoot : cached.default_root
+        setCurrentPath(previous => previous || root)
+        setSelectedDir(previous => previous || root)
         return cached
       })
   }, [])
@@ -138,8 +161,11 @@ export function useConversations(showToast: (msg: string, kind?: ToastKind) => v
           writeJson(PROVIDER_CACHE_KEY, data.providers)
         }
         if (data.default_provider) {
-          setDefaultProvider(data.default_provider)
-          setSelectedProvider(previous => previous || data.default_provider)
+          setServerDefaultProvider(data.default_provider)
+          const preferred = preferencesRef.current.defaultProvider
+          const provider = data.providers?.some(item => item.id === preferred && item.available)
+            ? preferred : data.default_provider
+          setSelectedProvider(previous => previous || provider)
         }
       })
       .catch(console.error)
@@ -348,6 +374,7 @@ export function useConversations(showToast: (msg: string, kind?: ToastKind) => v
     activeConvRef,
     providers,
     defaultProvider,
+    serverDefaultProvider,
     models,
     selectedModel,
     setSelectedModel,

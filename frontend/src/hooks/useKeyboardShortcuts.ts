@@ -6,6 +6,7 @@ interface KeyboardShortcutHandlers {
   onToggleSidebar?: () => void
   onNewWorkspace?: () => void
   onInterrupt?: () => void
+  onOpenSettings?: () => void
 }
 
 function isTextEntry(target: EventTarget | null): boolean {
@@ -38,6 +39,7 @@ export function useKeyboardShortcuts(handlers: KeyboardShortcutHandlers) {
         onToggleSidebar,
         onNewWorkspace,
         onInterrupt,
+        onOpenSettings,
       } = handlersRef.current
 
       const withModifier = event.metaKey || event.ctrlKey
@@ -47,6 +49,9 @@ export function useKeyboardShortcuts(handlers: KeyboardShortcutHandlers) {
       if (key === 'k') {
         event.preventDefault()
         onCmdPalette?.()
+      } else if (key === ',') {
+        event.preventDefault()
+        onOpenSettings?.()
       } else if (key === 'b') {
         event.preventDefault()
         onToggleSidebar?.()

@@ -4,6 +4,7 @@ import type {
 } from '../lib/types';
 import type { Message } from '../lib/types';
 import type { ShowToastOptions } from '../hooks/useToasts';
+import type { AppPreferences, SettingsSection } from '../lib/preferences';
 
 /** A queued confirmation. `id` de-duplicates repeated requests. */
 export interface ConfirmRequest {
@@ -21,6 +22,13 @@ export interface AppContextType {
   // Theme
   theme: 'dark' | 'light';
   toggleTheme: () => void;
+  preferences: AppPreferences;
+  updatePreferences: (patch: Partial<AppPreferences>) => void;
+  settingsSection: SettingsSection | null;
+  settingsProjectId: number | null;
+  openSettings: (section?: SettingsSection, projectId?: number) => void;
+  closeSettings: () => void;
+  pushNotifications: { enabled: boolean; busy: boolean; toggle: () => Promise<void> };
 
   // Toast
   showToast: (msg: string, kind?: ToastKind, options?: ShowToastOptions) => void;
@@ -68,6 +76,7 @@ export interface AppContextType {
   // Providers & Models
   providers: Provider[];
   defaultProvider: string;
+  serverDefaultProvider: string;
   selectedProvider: string;
   setSelectedProvider: (provider: string) => void;
   selectedPermissionMode: PermissionMode;

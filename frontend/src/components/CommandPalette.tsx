@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Search, Plus, Sun, Moon, RefreshCw, Square,
+  Search, Plus, Sun, Moon, RefreshCw, Square, Settings,
   Eraser, Download, HelpCircle, MessageSquare, Terminal, Keyboard, FileText, Loader2, Share2
 } from 'lucide-react'
 import { apiFetch, describeApiError } from '../lib/api'
@@ -16,6 +16,7 @@ interface CommandPaletteProps {
   onClose: () => void
   onNewWorkspace: () => void
   onToggleTheme: () => void
+  onOpenSettings?: () => void
   theme: 'dark' | 'light'
   onClearMessages: () => void
   onExportImage: () => void
@@ -30,6 +31,7 @@ export function CommandPalette({
   onClose,
   onNewWorkspace,
   onToggleTheme,
+  onOpenSettings,
   theme,
   onClearMessages,
   onExportImage,
@@ -142,6 +144,7 @@ export function CommandPalette({
           isDanger: true,
         }]
       : []),
+    ...(onOpenSettings ? [{ type: 'settings', label: '打开设置', icon: Settings, action: onOpenSettings, kbd: '⌘ ,' }] : []),
     { type: 'theme', label: `切换至${theme === 'dark' ? '明亮' : '暗夜'}主题`, icon: theme === 'dark' ? Sun : Moon, action: onToggleTheme },
     { type: 'share', label: '分享当前对话（生成只读链接）', icon: Share2, action: () => window.dispatchEvent(new CustomEvent(OPEN_SHARE_EVENT)) },
     { type: 'export', label: '导出当前对话为 PNG 图片', icon: Download, action: onExportImage },

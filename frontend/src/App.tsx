@@ -5,6 +5,9 @@ import { useWebSocket } from './hooks/useWebSocket'
 import { useToasts } from './hooks/useToasts'
 import { useDrawerGesture } from './hooks/useDrawerGesture'
 import { useEventCallback } from './hooks/useEventCallback'
+import { useAppPreferences } from './hooks/useAppPreferences'
+import { useSettingsNavigation } from './hooks/useSettingsNavigation'
+import { usePushNotifications } from './hooks/usePushNotifications'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ArrowDown, WifiOff, RefreshCw } from 'lucide-react'
 import './App.css'
@@ -25,8 +28,9 @@ import {
 } from './lib/appEvents'
 import { formatModelName, getProviderBadge } from './lib/providers'
 import { nextLocalId } from './lib/messageIdentity'
-import { forgetConversation, readJson, readText, remove, writeText } from './lib/storage'
-import type { Conversation, MessageFeedback } from './lib/types'
+import { forgetConversation, readJson, remove, writeText } from './lib/storage'
+import type { Conversation, MessageFeedback, ModelOption } from './lib/types'
+import type { SettingsSection } from './lib/preferences'
 
 import { Login } from './components/Login'
 import { ConfirmDialog } from './components/ConfirmDialog'
@@ -43,6 +47,7 @@ import { haptic, updateAppBadge } from './lib/nativeFeedback'
 const CommandPalette = lazy(() => import('./components/CommandPalette').then(module => ({ default: module.CommandPalette })))
 const WorkspaceInspector = lazy(() => import('./components/WorkspaceInspector').then(module => ({ default: module.WorkspaceInspector })))
 const PwaInstallPrompt = lazy(() => import('./components/PwaInstallPrompt').then(module => ({ default: module.PwaInstallPrompt })))
+const SettingsPage = lazy(() => import('./components/SettingsPage').then(module => ({ default: module.SettingsPage })))
 
 
 function formatTimestamp(ts?: string | number) {
@@ -53,29 +58,14 @@ function formatTimestamp(ts?: string | number) {
 }
 
 export default function App() {
-  const [theme, setTheme] = useState<'dark' | 'light'>(() => (
-    readText('theme') === 'light' ? 'light' : 'dark'
-  ))
-
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme)
-    writeText('theme', theme)
-    const metaThemeColors = document.querySelectorAll('meta[name="theme-color"]')
-    metaThemeColors.forEach(metaThemeColor => {
-      // Use #ffffff for light mode to seamlessly blend with the white header
-      // and #09090b for dark mode.
-      metaThemeColor.setAttribute('content', theme === 'dark' ? '#09090b' : '#ffffff')
-    })
-  }, [theme])
-
-  const toggleTheme = () => {
-    setTheme(prev => (prev === 'dark' ? 'light' : 'dark'))
-  }
+  const { preferences, updatePreferences, theme, toggleTheme } = useAppPreferences()
+  const { settingsSection, settingsProjectId, openSettings: navigateSettings, closeSettings } = useSettingsNavigation()
 
   const { toasts, showToast, dismissToast, runWithUndo } = useToasts()
 
   // Login State
   const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null)
+  const pushNotifications = usePushNotifications(isLoggedIn === true, showToast)
 
   // Custom Hooks
   const {
@@ -86,6 +76,7 @@ export default function App() {
     activeConvRef,
     providers,
     defaultProvider,
+    serverDefaultProvider,
     models,
     selectedModel,
     setSelectedModel,
@@ -114,7 +105,7 @@ export default function App() {
     updateConversation,
     startEditingConv,
     saveConvName,
-  } = useConversations(showToast)
+  } = useConversations(showToast, preferences)
   const activeConversationId = activeConv?.id ?? null
   const activeConversationDraft = activeConv?.draft ?? ''
 
@@ -180,7 +171,7 @@ export default function App() {
     loadHistory,
     connectWebSocket,
     disconnectCurrentSocket,
-  } = useWebSocket(activeConvRef, showToast, loadConversations)
+  } = useWebSocket(activeConvRef, showToast, loadConversations, preferences.desktopNotifications)
 
   // Drawer state
   const isDesktopRef = useRef(window.innerWidth >= 1024)
@@ -205,6 +196,11 @@ export default function App() {
 
   // Command Palette State
   const [isCmdPaletteOpen, setIsCmdPaletteOpen] = useState(false)
+  const openSettings = useCallback((section: SettingsSection = 'general', projectId?: number) => {
+    setIsCmdPaletteOpen(false)
+    window.dispatchEvent(new CustomEvent(CLOSE_INSPECTOR_EVENT))
+    navigateSettings(section, projectId)
+  }, [navigateSettings])
 
   /**
    * One dialog at a time, queued.
@@ -410,18 +406,24 @@ export default function App() {
     // Interrupting is destructive, so it gets its own deliberate chord.
     onInterrupt: interruptAgent,
     onFocusInput: () => {
+      if (settingsSection || activeConfirm) return
       textareaRef.current?.focus()
     },
     onCmdPalette: () => {
+      if (settingsSection || activeConfirm) return
       setIsCmdPaletteOpen(prev => !prev)
     },
     onToggleSidebar: () => {
+      if (settingsSection || activeConfirm) return
       setIsDrawerOpen(prev => !prev)
     },
     onNewWorkspace: () => {
+      if (activeConfirm) return
+      if (settingsSection) closeSettings()
       setIsDrawerOpen(true)
       setDrawerMode('create')
-    }
+    },
+    onOpenSettings: () => { if (!activeConfirm) openSettings() },
   })
 
   const triggerVibration = () => haptic('light')
@@ -798,13 +800,20 @@ export default function App() {
   const createConversation = () => {
     triggerVibration()
     if (!selectedDir || !newConvName.trim()) return
+    const providerId = selectedProvider || defaultProvider
+    const defaultModel = preferences.defaultModels[providerId] || ''
+    const cachedModels = readJson<ModelOption[]>(`orbitpane_models_${providerId}`, [])
+    const availableModels = Array.isArray(cachedModels) && cachedModels.length > 0
+      ? cachedModels : providers.find(provider => provider.id === providerId)?.models || []
+    const supportedModel = availableModels.some(model => model?.id === defaultModel)
     apiFetch<Conversation>('/api/conversations', {
       method: 'POST',
       body: JSON.stringify({
         name: newConvName,
         path: selectedDir,
-        provider: selectedProvider || defaultProvider,
+        provider: providerId,
         permission_mode: selectedPermissionMode,
+        preferred_model: supportedModel ? defaultModel : '',
       })
     })
       .then(data => {
@@ -1373,7 +1382,9 @@ export default function App() {
   }
 
   const contextValue: AppContextType = {
-    theme, toggleTheme, showToast, requestConfirm, isDrawerOpen, setIsDrawerOpen,
+    theme, toggleTheme, preferences, updatePreferences,
+    settingsSection, settingsProjectId, openSettings, closeSettings, pushNotifications,
+    showToast, requestConfirm, isDrawerOpen, setIsDrawerOpen,
     drawerMode, setDrawerMode, showProjectHome, requestCloseDrawer,
     activeTaskCount: mobileTaskCount,
     isCmdPaletteOpen, setIsCmdPaletteOpen,
@@ -1382,7 +1393,7 @@ export default function App() {
     deleteConversation, createConversation, loadConversations, selectConversation,
     updateConversation,
     editingConvId, setEditingConvId, editingConvName, setEditingConvName,
-    startEditingConv, saveConvName, providers, defaultProvider,
+    startEditingConv, saveConvName, providers, defaultProvider, serverDefaultProvider,
     selectedProvider, setSelectedProvider, models, selectedModel,
     selectedPermissionMode, setSelectedPermissionMode,
     setSelectedModel, loadModels, loadProviders, getProviderBadge,
@@ -1399,6 +1410,7 @@ export default function App() {
   return (
     <AppContext.Provider value={contextValue}>
       <div className="app-container">
+      <div className="app-workbench" inert={settingsSection !== null} aria-hidden={settingsSection ? true : undefined}>
       {/* One hit region owns both the drawer and its scrim. Pointer capture
           therefore remains on the same element when a swipe crosses their
           visual boundary in either direction. */}
@@ -1493,6 +1505,7 @@ export default function App() {
                 setDrawerMode={setDrawerMode}
                 conversations={visibleConversations}
                 selectConversation={selectConversation}
+                onOpenArchived={() => openSettings('data')}
                 onUseStarter={applyStarterPrompt}
               />
             ) : (
@@ -1564,6 +1577,13 @@ export default function App() {
           onActiveTaskCountChange={setMobileTaskCount}
         />
       </Suspense>
+      </div>
+
+      {settingsSection && (
+        <Suspense fallback={<div className="settings-loading" role="status">正在打开设置…</div>}>
+          <SettingsPage />
+        </Suspense>
+      )}
 
       {/* Command Palette */}
       <Suspense fallback={null}>
@@ -1575,6 +1595,7 @@ export default function App() {
             setDrawerMode('create')
           }}
           onToggleTheme={toggleTheme}
+          onOpenSettings={() => openSettings()}
           theme={theme}
           onClearMessages={clearMessages}
           onExportImage={exportConversationAsImage}
@@ -1605,7 +1626,7 @@ export default function App() {
 
       {/* PWA Mobile Install Prompt */}
       <Suspense fallback={null}>
-        <PwaInstallPrompt showToast={showToast} />
+        <PwaInstallPrompt showToast={showToast} suppressed={settingsSection !== null} />
       </Suspense>
 
       <ToastStack toasts={toasts} onDismiss={dismissToast} />

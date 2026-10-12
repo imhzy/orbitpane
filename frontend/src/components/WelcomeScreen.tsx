@@ -1,4 +1,4 @@
-import { Plus, FolderGit2, Folder, AtSign, GitBranch, ListChecks } from 'lucide-react'
+import { Plus, FolderGit2, Folder, AtSign, GitBranch, ListChecks, Archive } from 'lucide-react'
 import type { Conversation, Message } from '../lib/types'
 import { MissionControl } from './MissionControl'
 
@@ -9,6 +9,7 @@ interface WelcomeScreenProps {
   setDrawerMode?: (mode: 'sessions' | 'create') => void
   conversations?: Conversation[]
   selectConversation?: (conv: Conversation) => void
+  onOpenArchived?: () => void
   /** Puts a suggestion in the composer so the user can edit before sending. */
   onUseStarter?: (prompt: string) => void
 }
@@ -50,8 +51,11 @@ export function WelcomeScreen({
   setDrawerMode,
   conversations = [],
   selectConversation,
+  onOpenArchived,
   onUseStarter,
 }: WelcomeScreenProps) {
+  const projects = conversations.filter(conversation => !conversation.is_archived)
+  const hasArchivedProjects = conversations.some(conversation => conversation.is_archived)
   const openCreateDrawer = () => {
     setIsDrawerOpen(true)
     if (setDrawerMode) setDrawerMode('create')
@@ -64,19 +68,20 @@ export function WelcomeScreen({
           tool never has to introduce itself to its only user. */}
       {!activeConv && (
         <div className="welcome-container">
-          {conversations.length > 0 && selectConversation ? (
+          {projects.length > 0 && selectConversation ? (
             <MissionControl
-              conversations={conversations}
+              conversations={projects}
               onSelect={selectConversation}
               onCreate={openCreateDrawer}
             />
           ) : (
             <div className="welcome-empty">
-              <p>还没有项目。选一个服务器上的目录，就能在里面运行 agent。</p>
+              <p>{hasArchivedProjects ? '所有项目都已归档。恢复已有项目，或新建项目继续。' : '还没有项目。选一个服务器上的目录，就能在里面运行 agent。'}</p>
               <button className="cw-create-btn" onClick={openCreateDrawer} aria-label="新建项目">
                 <Plus size={15} strokeWidth={2} className="btn-icon" />
                 <span>新建项目</span>
               </button>
+              {hasArchivedProjects && onOpenArchived && <button type="button" className="ui-btn ghost" onClick={onOpenArchived}><Archive size={15} />管理已归档项目</button>}
             </div>
           )}
         </div>

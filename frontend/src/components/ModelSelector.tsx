@@ -59,7 +59,7 @@ export function ModelSelector({ selectedModel, setSelectedModel, models, positio
 
   return (
     <div
-      className={`model-selector-container ${isInput ? 'input-position mobile-only-model-selector' : 'header-position desktop-only-model-selector'}`}
+      className={`model-selector-container ${isInput ? 'input-position composer-model-selector' : 'header-position desktop-only-model-selector'}`}
       ref={dropdownRef}
     >
       <button

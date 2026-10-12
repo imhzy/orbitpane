@@ -12,9 +12,10 @@ import './PwaInstallPrompt.css'
 
 interface PwaInstallPromptProps {
   showToast?: (msg: string, kind?: 'success' | 'error' | 'warning' | 'info') => void
+  suppressed?: boolean
 }
 
-export function PwaInstallPrompt({ showToast }: PwaInstallPromptProps) {
+export function PwaInstallPrompt({ showToast, suppressed = false }: PwaInstallPromptProps) {
   const [deferredPrompt, setDeferredPrompt] = useState<PwaInstallPromptEvent | null>(getPwaInstallPrompt)
   const [isStandalone, setIsStandalone] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false
@@ -125,7 +126,7 @@ export function PwaInstallPrompt({ showToast }: PwaInstallPromptProps) {
     }
   }
 
-  if (isStandalone) {
+  if (isStandalone || suppressed) {
     return null
   }
 

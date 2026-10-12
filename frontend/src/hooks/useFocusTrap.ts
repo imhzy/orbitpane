@@ -29,6 +29,10 @@ interface FocusTrapOptions {
   trapTab?: boolean
 }
 
+// A confirmation can open above a drawer or settings page. Only its trap
+// handles Tab; the underlying trap resumes when the confirmation closes.
+const focusTrapStack: Array<{ container: HTMLElement }> = []
+
 /**
  * Confine Tab to `active` overlays and hand focus back to whatever opened them.
  *
@@ -50,9 +54,12 @@ export function useFocusTrap<T extends HTMLElement>(
     const container = containerRef.current
     if (!container) return
 
+    const entry = { container }
+    if (trapTab) focusTrapStack.push(entry)
     const previouslyFocused = document.activeElement as HTMLElement | null
 
     const focusInitialTarget = () => {
+      if (trapTab && focusTrapStack[focusTrapStack.length - 1] !== entry) return true
       const target = initialFocusRef.current?.() ?? focusableWithin(container)[0] ?? container
       if (target === container && !container.hasAttribute('tabindex')) {
         container.setAttribute('tabindex', '-1')
@@ -73,6 +80,7 @@ export function useFocusTrap<T extends HTMLElement>(
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Tab' || !trapTab) return
+      if (focusTrapStack[focusTrapStack.length - 1] !== entry) return
       const focusable = focusableWithin(container)
       if (focusable.length === 0) {
         event.preventDefault()
@@ -100,6 +108,8 @@ export function useFocusTrap<T extends HTMLElement>(
     return () => {
       if (retry !== undefined) window.clearTimeout(retry)
       document.removeEventListener('keydown', handleKeyDown, true)
+      const index = focusTrapStack.indexOf(entry)
+      if (index >= 0) focusTrapStack.splice(index, 1)
       // Only restore if focus is still inside (or was lost to the body); if the
       // user has already clicked elsewhere, leave their choice alone.
       const activeElement = document.activeElement

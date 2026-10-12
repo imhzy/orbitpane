@@ -482,8 +482,11 @@ export function useWebSocket(
    */
   activeConvRef: React.MutableRefObject<Conversation | null>,
   showToast: (msg: string) => void,
-  loadConversations: (isInitial?: boolean) => void
+  loadConversations: (isInitial?: boolean) => void,
+  desktopNotifications = true,
 ) {
+  const desktopNotificationsRef = useRef(desktopNotifications)
+  desktopNotificationsRef.current = desktopNotifications
   const [messages, setMessages] = useState<Message[]>([])
   const [isHistoryLoading, setIsHistoryLoading] = useState(false)
   const [isConnected, setIsConnected] = useState(false)
@@ -899,7 +902,8 @@ export function useWebSocket(
             loadHistory(conv.id, true, true)
             emitTaskChange()
             if (
-              document.visibilityState !== 'visible'
+              desktopNotificationsRef.current
+              && document.visibilityState !== 'visible'
               && typeof Notification !== 'undefined'
               && Notification.permission === 'granted'
             ) {

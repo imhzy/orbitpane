@@ -1,12 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
-import { Menu, ChevronLeft, Pencil, Sun, Moon, Eraser, Download, Command, FileText, MoreVertical, WifiOff, Loader2, ListChecks, RefreshCw, Share2 } from 'lucide-react'
+import { Menu, ChevronLeft, Pencil, Eraser, Download, FileText, MoreVertical, WifiOff, Loader2, ListChecks, Share2, Settings } from 'lucide-react'
 import { LogoIcon } from '../LogoIcon'
-import { ModelSelector } from './ModelSelector'
 import { ShareDialog } from './ShareDialog'
 import { hasProviderChoice } from '../lib/providers'
 import { haptic } from '../lib/nativeFeedback'
 import { OPEN_INSPECTOR_EVENT, OPEN_SHARE_EVENT } from '../lib/appEvents'
-import { useUpdateCheck } from '../hooks/useUpdateCheck'
 import { useEscapeLayer } from '../hooks/useEscapeLayer'
 import { MobileBottomSheet } from './MobileBottomSheet'
 
@@ -22,10 +20,9 @@ export function ChatHeader(_props: ChatHeaderProps) {
   const {
     activeConv, editingConvId, editingConvName, setEditingConvName, saveConvName,
     startEditingConv, setEditingConvId, getProviderBadge, providers, isDrawerOpen,
-    setIsDrawerOpen, selectedModel, setSelectedModel, models,
-    loadModels, theme, toggleTheme, setIsCmdPaletteOpen,
+    setIsDrawerOpen, openSettings,
     isExporting, exportConversationAsImage, messages, clearMessages, summarizeMessages,
-    isConnected, isReconnecting, connectWebSocket, showToast, showProjectHome, activeTaskCount
+    isConnected, isReconnecting, connectWebSocket, showProjectHome, activeTaskCount
   } = useAppContext()
 
   const connectionState = !activeConv
@@ -35,14 +32,10 @@ export function ChatHeader(_props: ChatHeaderProps) {
       : isReconnecting
         ? 'connecting'
         : 'offline'
-  
-  const onOpenCmdPalette = () => setIsCmdPaletteOpen(true)
-
   const showProviderTags = hasProviderChoice(providers)
 
   const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false)
   const [isShareOpen, setIsShareOpen] = useState(false)
-  const { isChecking: isCheckingForUpdate, checkForUpdate } = useUpdateCheck(showToast)
   const actionsMenuRef = useRef<HTMLDivElement>(null)
   const isCancelingRef = useRef(false)
 
@@ -92,41 +85,15 @@ export function ChatHeader(_props: ChatHeaderProps) {
 
   const actionMenuItems = (
     <>
-      <button
-        className="actions-dropdown-item"
-        onClick={() => {
-          onOpenCmdPalette()
-          setIsActionsMenuOpen(false)
-        }}
-      >
-        <Command size={14} />
-        <span>快捷指令</span>
-      </button>
-      <button
-        className="actions-dropdown-item"
-        onClick={() => {
-          toggleTheme()
-          setIsActionsMenuOpen(false)
-        }}
-      >
-        {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
-        <span>切换主题</span>
-      </button>
-      <button
-        className="actions-dropdown-item"
-        disabled={isCheckingForUpdate}
-        onClick={() => {
-          setIsActionsMenuOpen(false)
-          void checkForUpdate()
-        }}
-      >
-        <RefreshCw size={14} className={isCheckingForUpdate ? 'animate-spin' : ''} />
-        <span>{isCheckingForUpdate ? '正在更新…' : '检查更新'}</span>
-      </button>
+      <button type="button" role="menuitem" className="actions-dropdown-item" onClick={() => {
+        openSettings('project', activeConv?.id)
+        setIsActionsMenuOpen(false)
+      }}><Settings size={14} /><span>项目设置</span></button>
+      <div className="actions-dropdown-divider" />
       {activeConv && (
         <>
           <button
-            className="actions-dropdown-item"
+            role="menuitem" className="actions-dropdown-item"
             disabled={!messages.some(message => message.role !== 'system')}
             onClick={() => {
               setIsShareOpen(true)
@@ -137,7 +104,7 @@ export function ChatHeader(_props: ChatHeaderProps) {
             <span>分享</span>
           </button>
           <button
-            className="actions-dropdown-item"
+            role="menuitem" className="actions-dropdown-item"
             disabled={isExporting || !messages.some(message => message.role !== 'system')}
             onClick={() => {
               exportConversationAsImage()
@@ -145,10 +112,10 @@ export function ChatHeader(_props: ChatHeaderProps) {
             }}
           >
             <Download size={14} className={isExporting ? 'animate-pulse' : ''} />
-            <span>导出</span>
+            <span>导出图片</span>
           </button>
           <button
-            className="actions-dropdown-item"
+            role="menuitem" className="actions-dropdown-item"
             disabled={!messages.some(message => message.role !== 'system')}
             onClick={() => {
               summarizeMessages()
@@ -156,17 +123,17 @@ export function ChatHeader(_props: ChatHeaderProps) {
             }}
           >
             <FileText size={14} />
-            <span>总结</span>
+            <span>总结对话</span>
           </button>
           <button
-            className="actions-dropdown-item"
+            role="menuitem" className="actions-dropdown-item"
             onClick={() => {
               clearMessages()
               setIsActionsMenuOpen(false)
             }}
           >
             <Eraser size={14} />
-            <span>清空</span>
+            <span>清空对话</span>
           </button>
         </>
       )}
@@ -217,11 +184,6 @@ export function ChatHeader(_props: ChatHeaderProps) {
               ) : (
                 <>
                   <span className="active-conv-title-text">{activeConv.name}</span>
-                  {/* The agent is named once on this screen, by the run
-                      control on the right. It used to also be a bordered
-                      accent pill wedged between the project name and its
-                      rename button, so the widest, loudest element in the
-                      title row was the one word that never changes. */}
                   <button
                     className="icon-btn edit-title-btn"
                     title="重命名项目"
@@ -249,19 +211,10 @@ export function ChatHeader(_props: ChatHeaderProps) {
         </div>
       </div>
 
-      {/* Three clusters, left to right: what this run is configured to use,
-          app-level chrome, this project's panel. They used to be one
-          undifferentiated run of six icons and two pills; the count is the
-          same only because the run configuration absorbed the connection
-          pill and three one-a-session actions moved into the overflow. */}
+      {/* The header contains connection state and conversation actions. */}
       <div className="header-actions">
         {activeConv && (
-          <div className="desktop-only-action">
-            {/* Model, agent and link state are one fact — "what is about to
-                run, and can it" — so they are one control. The connection
-                used to be a separate pill that said 已连接 in green at all
-                times, which spent the most prominent colour on the screen on
-                the least surprising thing on it. */}
+          <div className="header-connection">
             <div className="run-config-control">
               <button
                 type="button"
@@ -279,36 +232,9 @@ export function ChatHeader(_props: ChatHeaderProps) {
                     ? <WifiOff size={12} />
                     : <span className={`provider-orbit-mark ${showProviderTags ? getProviderBadge(activeConv.provider, providers).className : 'badge-default'}`} />}
               </button>
-              <ModelSelector
-                selectedModel={selectedModel}
-                setSelectedModel={setSelectedModel}
-                models={models}
-                position="header"
-                onOpen={loadModels}
-              />
             </div>
           </div>
         )}
-
-        <div className="header-tool-group desktop-only-action">
-          <button
-            className="icon-btn cmd-trigger-btn"
-            onClick={onOpenCmdPalette}
-            title="快捷指令 (⌘K)"
-          >
-            <Command size={14} />
-            <span className="cmd-btn-label hide-on-mobile">⌘K</span>
-          </button>
-
-          <button
-            className="icon-btn theme-toggle-btn"
-            onClick={toggleTheme}
-            title={theme === 'dark' ? '切换至明亮模式' : '切换至暗夜模式'}
-            aria-label={theme === 'dark' ? '切换至明亮模式' : '切换至暗夜模式'}
-          >
-            {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
-          </button>
-        </div>
 
         {activeConv && (
           <button
@@ -332,10 +258,11 @@ export function ChatHeader(_props: ChatHeaderProps) {
         {/* Overflow: everything used once a session. On a phone it is the
             bottom sheet it always was; on a pointer device it is an anchored
             popover rather than three permanent buttons in the bar. */}
-        <div className="actions-dropdown-wrapper" ref={actionsMenuRef}>
+        {activeConv ? <div className="actions-dropdown-wrapper" ref={actionsMenuRef}>
           <button 
             className="icon-btn"
-            title="更多选项"
+            title="会话操作"
+            aria-label="会话操作"
             aria-expanded={isActionsMenuOpen}
             aria-haspopup="menu"
             onClick={() => {
@@ -360,11 +287,11 @@ export function ChatHeader(_props: ChatHeaderProps) {
               </motion.div>
             )}
           </AnimatePresence>
-        </div>
+        </div> : <button type="button" className="icon-btn" aria-label="打开设置" title="设置" onClick={() => openSettings()}><Settings size={17} /></button>}
         <MobileBottomSheet
           open={isActionsMenuOpen && isMobileViewport}
           onClose={() => setIsActionsMenuOpen(false)}
-          title="更多操作"
+          title="会话操作"
           className="actions-sheet-surface mobile-actions-sheet"
           backdropClassName="actions-sheet-backdrop"
           role="menu"
