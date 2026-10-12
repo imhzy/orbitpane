@@ -19,9 +19,12 @@ export interface FileSearchResponse {
 
 export type MessageFeedback = 'up' | 'down' | ''
 
-export type HealthStatus = 'active' | 'retrying' | 'slow' | 'stalled'
+export type HealthStatus = 'active' | 'compacting' | 'retrying' | 'slow' | 'stalled'
 
 export interface Message {
+  schedule_id?: number | null
+  schedule_name?: string
+  scheduled_for?: string
   request_id?: string
   deliveryFailed?: boolean
   id?: number
@@ -128,6 +131,10 @@ export interface ToastMessage {
 }
 
 export interface TaskRecord {
+  schedule_id?: number | null
+  schedule_name?: string
+  scheduled_for?: string
+  compact_before?: boolean
   run_id: string
   conversation_id: number
   conversation_name: string
@@ -145,6 +152,36 @@ export interface TaskRecord {
   context_chars: number
   error: string
   position?: number
+}
+
+export interface ScheduleSpec {
+  kind: 'interval' | 'daily' | 'weekly'
+  timezone: string
+  interval?: number | null
+  unit?: 'minutes' | 'hours' | null
+  times: string[]
+  weekdays: number[]
+}
+
+export interface ScheduleRecord {
+  id: number
+  conversation_id: number
+  conversation_name: string
+  name: string
+  prompt: string
+  spec: ScheduleSpec
+  enabled: boolean
+  compact_before: boolean
+  next_run_at: string | null
+  version: number
+  created_at: string
+  updated_at: string
+  last_run_id: string | null
+  last_status: TaskRecord['status'] | null
+  last_error: string | null
+  last_run_at: string | null
+  last_completed_at: string | null
+  pending_count: number
 }
 
 export interface ConversationStats {

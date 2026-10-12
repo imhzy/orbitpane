@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Annotated, Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from urllib.parse import urlsplit
 import base64
 import binascii
 
 from cryptography.hazmat.primitives.asymmetric import ec
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class PushEndpoint(BaseModel):
@@ -92,6 +93,11 @@ class Message:
     output_chars: int = 0
     context_chars: int = 0
     feedback: str = ""
+    schedule_id: int | None = None
+    schedule_name: str = ""
+    scheduled_for: str = ""
+    is_error: bool = False
+    error_code: str = ""
 
 
 class LoginRequest(BaseModel):
@@ -159,3 +165,100 @@ class ShareCreate(BaseModel):
 class MessageFeedbackUpdate(BaseModel):
     #: Empty string clears an existing rating.
     feedback: Literal["up", "down", ""]
+
+
+class ScheduleSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["interval", "daily", "weekly"]
+    timezone: str = Field(default="Asia/Shanghai", min_length=1, max_length=100)
+    interval: int | None = Field(default=None, ge=1, le=525600, strict=True)
+    unit: Literal["minutes", "hours"] | None = None
+    times: list[str] = Field(default_factory=list, max_length=24)
+    weekdays: list[Annotated[int, Field(ge=0, le=6, strict=True)]] = Field(
+        default_factory=list, max_length=7
+    )
+
+    @field_validator("timezone")
+    @classmethod
+    def valid_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ValueError, ZoneInfoNotFoundError):
+            raise ValueError("请选择有效的 IANA 时区，例如 Asia/Shanghai") from None
+        return value
+
+    @field_validator("times")
+    @classmethod
+    def valid_times(cls, values: list[str]) -> list[str]:
+        import re
+
+        if any(not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", value) for value in values):
+            raise ValueError("执行时间须为 HH:mm 格式")
+        if len(set(values)) != len(values):
+            raise ValueError("执行时间不能重复")
+        return sorted(values)
+
+    @model_validator(mode="after")
+    def valid_rule(self):
+        if self.kind == "interval":
+            if self.interval is None or self.unit is None or self.times or self.weekdays:
+                raise ValueError("间隔任务须指定间隔与单位")
+            if self.unit == "hours" and self.interval > 8760:
+                raise ValueError("间隔不能超过一年")
+        else:
+            if not self.times or self.interval is not None or self.unit is not None:
+                raise ValueError("每日和每周任务须指定执行时间")
+            if self.kind == "weekly" and not self.weekdays:
+                raise ValueError("每周任务须选择至少一天")
+            if self.kind == "daily" and self.weekdays:
+                raise ValueError("每日任务无需指定星期")
+        if len(set(self.weekdays)) != len(self.weekdays):
+            raise ValueError("星期不能重复")
+        self.weekdays = sorted(self.weekdays)
+        return self
+
+
+class ScheduleCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)
+    prompt: str = Field(min_length=1, max_length=200_000)
+    spec: ScheduleSpec
+    compact_before: bool = False
+    enabled: bool = True
+
+    @field_validator("name", "prompt")
+    @classmethod
+    def nonempty_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("任务名称和命令不能为空")
+        return value
+
+
+class ScheduleUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    prompt: str | None = Field(default=None, min_length=1, max_length=200_000)
+    spec: ScheduleSpec | None = None
+    compact_before: bool | None = None
+    enabled: bool | None = None
+    version: int | None = Field(default=None, ge=1)
+
+    @field_validator("name", "prompt")
+    @classmethod
+    def nonempty_text(cls, value: str | None) -> str | None:
+        return ScheduleCreate.nonempty_text(value) if value is not None else None
+
+    @model_validator(mode="after")
+    def no_null_updates(self):
+        if any(getattr(self, key) is None for key in self.model_fields_set):
+            raise ValueError("任务字段不能设为 null")
+        return self
+
+
+class ScheduleRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    request_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")

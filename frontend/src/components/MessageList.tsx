@@ -6,7 +6,8 @@ import { AgentExecutionTimeline } from './AgentExecutionTimeline'
 import type { Message } from '../lib/types'
 import { haptic } from '../lib/nativeFeedback'
 import { messageKey } from '../lib/messageIdentity'
-import { OPEN_INSPECTOR_EVENT } from '../lib/appEvents'
+import { OPEN_INSPECTOR_EVENT, openInspectorPanel } from '../lib/appEvents'
+import './SchedulePanel.css'
 import { formatModelName } from '../lib/providers'
 import { VirtualMessage } from './VirtualMessage'
 import { MobileBottomSheet } from './MobileBottomSheet'
@@ -53,6 +54,17 @@ const ERROR_TITLES: Record<string, string> = {
   busy: '当前项目有任务正在执行',
   internal_error: '服务内部错误',
   provider_error: 'Agent 执行失败',
+  schedule_failed: '定时任务执行失败',
+  compaction_failed: '上下文压缩失败，定时命令未执行',
+}
+
+function ScheduleBadge({ message }: { message: Message }) {
+  if (!message.schedule_name) return null
+  return <button type="button" className="schedule-message-badge"
+    title={message.scheduled_for ? `计划触发：${new Date(message.scheduled_for).toLocaleString('zh-CN')}` : '查看定时任务'}
+    onClick={() => openInspectorPanel('schedules')}>
+    <Clock size={12} aria-hidden="true" /><span>定时 · {message.schedule_name}</span>
+  </button>
 }
 
 /**
@@ -70,6 +82,7 @@ function SystemErrorNotice({ message }: { message: Message }) {
     <div className="system-error" role="alert">
       <AlertCircle size={15} aria-hidden="true" />
       <div className="system-error-body">
+        <ScheduleBadge message={message} />
         <strong>{ERROR_TITLES[code] || ERROR_TITLES.provider_error}</strong>
         <p>{message.content}</p>
         {message.errorDetail && (
@@ -125,7 +138,7 @@ const MessageRow = React.memo(function MessageRow({
       initial={animateEntry ? { opacity: 0, y: 6 } : false}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2 }}
-      className={`message-row ${message.role}`}
+      className={`message-row ${message.role}${message.schedule_name ? ' scheduled-message' : ''}`}
       data-message-id={message.id}
       onPointerDown={event => onLongPressStart(event, rowKey)}
       onPointerMove={onLongPressMove}
@@ -160,6 +173,7 @@ const MessageRow = React.memo(function MessageRow({
       )}
 
       <div className="message-bubble">
+        <ScheduleBadge message={message} />
         {isAgentLike ? (
           <div className="agent-container">
             {message.isQueued && (
@@ -483,6 +497,7 @@ export function MessageList({
                   <Sparkles size={16} />
                 </div>
                 <div className="summary-boundary-copy">
+                  <ScheduleBadge message={m} />
                   <strong>{isLatestSummary ? '此前对话已总结' : '历史总结检查点'}</strong>
                   <span>
                     {isLatestSummary

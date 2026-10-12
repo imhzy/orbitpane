@@ -191,7 +191,9 @@ export function AgentExecutionTimeline({
           
           <span className={`execution-title ${isThinking && healthStatus ? healthStatus : ''}`}>
             {isThinking 
-              ? (healthStatus === 'retrying'
+              ? (healthStatus === 'compacting'
+                  ? (statusMessage || '正在压缩上下文…')
+                  : healthStatus === 'retrying'
                   ? (statusMessage || '模型服务繁忙，重试中…')
                   : healthStatus === 'stalled'
                     ? '长时间无输出（疑似卡住）'

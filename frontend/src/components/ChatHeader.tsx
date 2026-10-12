@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
-import { Menu, ChevronLeft, Pencil, Eraser, Download, FileText, MoreVertical, WifiOff, Loader2, ListChecks, Share2, Settings } from 'lucide-react'
+import { Menu, ChevronLeft, Pencil, Eraser, Download, FileText, MoreVertical, WifiOff, Loader2, ListChecks, Share2, Settings, Clock } from 'lucide-react'
 import { LogoIcon } from '../LogoIcon'
 import { ShareDialog } from './ShareDialog'
 import { hasProviderChoice } from '../lib/providers'
 import { haptic } from '../lib/nativeFeedback'
-import { OPEN_INSPECTOR_EVENT, OPEN_SHARE_EVENT } from '../lib/appEvents'
+import { openInspectorPanel, OPEN_SHARE_EVENT } from '../lib/appEvents'
 import { useEscapeLayer } from '../hooks/useEscapeLayer'
 import { MobileBottomSheet } from './MobileBottomSheet'
 
@@ -92,6 +92,10 @@ export function ChatHeader(_props: ChatHeaderProps) {
       <div className="actions-dropdown-divider" />
       {activeConv && (
         <>
+          <button type="button" role="menuitem" className="actions-dropdown-item" onClick={() => {
+            openInspectorPanel('schedules')
+            setIsActionsMenuOpen(false)
+          }}><Clock size={14} /><span>定时任务</span></button>
           <button
             role="menuitem" className="actions-dropdown-item"
             disabled={!messages.some(message => message.role !== 'system')}
@@ -244,10 +248,7 @@ export function ChatHeader(_props: ChatHeaderProps) {
             title="任务与上下文"
             onClick={() => {
               haptic('selection')
-              const url = new URL(window.location.href)
-              url.searchParams.set('panel', 'tasks')
-              window.history.pushState({ ...window.history.state, orbitpanePanel: 'tasks' }, '', url.toString())
-              window.dispatchEvent(new CustomEvent(OPEN_INSPECTOR_EVENT, { detail: 'tasks' }))
+              openInspectorPanel('tasks')
             }}
           >
             <ListChecks size={16} />

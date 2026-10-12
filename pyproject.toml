@@ -12,6 +12,7 @@ dependencies = [
   "cryptography>=42,<50",
   "fastapi>=0.115,<1",
   "pydantic>=2.10,<3",
+  "tzdata>=2025.1",
   "pywebpush>=2.0,<3",
   "uvicorn[standard]>=0.34,<1",
   "webauthn>=2.7,<3",

@@ -39,7 +39,7 @@ from webauthn.helpers.structs import (
     ResidentKeyRequirement, UserVerificationRequirement,
 )
 
-from .agents.base import ProviderError
+from .agents.base import ProviderError, SUMMARY_PROMPT
 from .agents.registry import ProviderRegistry
 from .config import Settings
 from .database import Database
@@ -58,9 +58,13 @@ from .models import (
     QueueUpdate,
     ShareCreate,
     SummaryUpdate,
+    ScheduleCreate,
+    ScheduleUpdate,
+    ScheduleRunRequest,
 )
 from .realtime import AgentCoordinator, ConnectionHub
 from .notifications import PushNotifications
+from .scheduler import ScheduleService
 from .security import (
     LoginRateLimiter,
     SESSION_COOKIE_NAME,
@@ -385,7 +389,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     database = Database(resolved_settings.database_path)
     providers = ProviderRegistry(resolved_settings, store=database)
     hub = ConnectionHub()
-    coordinator = AgentCoordinator(database, providers, hub)
+    coordinator = AgentCoordinator(database, providers, hub, resolved_settings)
+    scheduler = ScheduleService(database, coordinator, hub)
     notifications = PushNotifications(resolved_settings, database)
     # Walking a large workspace is CPU-bound Python holding the GIL, so running
     # many at once slows the event loop's own thread down, not just the walks.
@@ -424,6 +429,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         )
         database.migrate()
+        await scheduler.prepare()
+        schedule_worker = asyncio.create_task(scheduler.run(), name="schedule-worker")
         sweeper = asyncio.create_task(sweep_dead_shares())
         push_worker = asyncio.create_task(notifications.run())
         # Discovering models means shelling out to each agent CLI, so it runs
@@ -435,6 +442,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         yield
         prewarm.cancel()
         sweeper.cancel()
+        schedule_worker.cancel()
+        await asyncio.gather(schedule_worker, return_exceptions=True)
         await coordinator.shutdown()
         push_worker.cancel()
         await asyncio.gather(push_worker, return_exceptions=True)
@@ -451,6 +460,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.providers = providers
     app.state.hub = hub
     app.state.coordinator = coordinator
+    app.state.scheduler = scheduler
     app.state.notifications = notifications
     app.state.tokens = TokenService(
         resolved_settings.auth_pin,
@@ -798,8 +808,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         dependencies=[Depends(require_auth)],
     )
     async def delete_conversation(conversation_id: int):
-        await coordinator.cancel(conversation_id)
-        deleted = await asyncio.to_thread(database.delete_conversation, conversation_id)
+        async with scheduler.lock:
+            await coordinator.cancel(conversation_id)
+            deleted = await asyncio.to_thread(database.delete_conversation, conversation_id)
         if not deleted:
             raise HTTPException(status_code=404, detail="Conversation not found")
         return {"status": "ok"}
@@ -832,7 +843,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def clear_history(conversation_id: int):
         if await asyncio.to_thread(database.get_conversation, conversation_id) is None:
             raise HTTPException(status_code=404, detail="Conversation not found")
-        await coordinator.clear_history(conversation_id)
+        async with scheduler.lock:
+            await coordinator.clear_history(conversation_id)
+            await scheduler.changed(conversation_id)
         return {"status": "ok"}
 
     @app.patch(
@@ -860,7 +873,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             task = await coordinator.submit(
                 conversation,
-                content="Please summarize the conversation history so far into a concise 'Current Context / State' document. This summary will be used as the sole memory for our future turns. Include key technical decisions, current progress, and pending tasks. Start directly with the summary content and reply in the same language as the conversation.",
+                content=SUMMARY_PROMPT,
                 model=None,
                 provider_id=None,
                 is_summary=True,
@@ -1025,6 +1038,71 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/tasks", dependencies=[Depends(require_auth)])
     async def list_tasks(limit: int = Query(default=100, ge=1, le=200)):
         return {"items": await coordinator.task_catalog(limit=limit)}
+
+    @app.get("/api/schedules", dependencies=[Depends(require_auth)])
+    async def all_schedules():
+        return {"items": await asyncio.to_thread(database.list_schedules)}
+
+    @app.get("/api/conversations/{conversation_id}/schedules", dependencies=[Depends(require_auth)])
+    async def conversation_schedules(conversation_id: int):
+        if await asyncio.to_thread(database.get_conversation, conversation_id) is None:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        return {"items": await asyncio.to_thread(database.list_schedules, conversation_id)}
+
+    @app.post("/api/conversations/{conversation_id}/schedules", status_code=201,
+              dependencies=[Depends(require_auth)])
+    async def create_schedule(conversation_id: int, request: ScheduleCreate):
+        async with scheduler.lock:
+            conversation = await asyncio.to_thread(database.get_conversation, conversation_id)
+            if conversation is None:
+                raise HTTPException(status_code=404, detail="Conversation not found")
+            try:
+                resolved_settings.resolve_allowed_path(conversation.path)
+                result = await asyncio.to_thread(database.create_schedule, conversation_id, **request.model_dump())
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            await scheduler.changed(conversation_id)
+            return result
+
+    @app.patch("/api/conversations/{conversation_id}/schedules/{schedule_id}",
+               dependencies=[Depends(require_auth)])
+    async def update_schedule(conversation_id: int, schedule_id: int, request: ScheduleUpdate):
+        async with scheduler.lock:
+            try:
+                result = await asyncio.to_thread(database.update_schedule, conversation_id, schedule_id,
+                                                request.model_dump(exclude_unset=True))
+            except ValueError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            if result is None:
+                raise HTTPException(status_code=404, detail="Schedule not found")
+            await scheduler.changed(conversation_id)
+            return result
+
+    @app.delete("/api/conversations/{conversation_id}/schedules/{schedule_id}",
+                dependencies=[Depends(require_auth)])
+    async def delete_schedule(conversation_id: int, schedule_id: int):
+        async with scheduler.lock:
+            if await asyncio.to_thread(database.get_schedule, conversation_id, schedule_id) is None:
+                raise HTTPException(status_code=404, detail="Schedule not found")
+            await coordinator.cancel_scheduled_queue(conversation_id, schedule_id)
+            await asyncio.to_thread(database.delete_schedule, conversation_id, schedule_id)
+            await scheduler.changed(conversation_id)
+        return {"status": "ok"}
+
+    @app.post("/api/conversations/{conversation_id}/schedules/{schedule_id}/run",
+              dependencies=[Depends(require_auth)])
+    async def run_schedule(conversation_id: int, schedule_id: int, request: ScheduleRunRequest):
+        async with scheduler.lock:
+            try:
+                run_id = await asyncio.to_thread(database.create_schedule_run, conversation_id, schedule_id,
+                                                request.request_id)
+            except ValueError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            if run_id is None:
+                raise HTTPException(status_code=404, detail="Schedule not found")
+            result = await coordinator.submit_scheduled_run(run_id)
+            await scheduler.changed(conversation_id)
+            return result
 
     @app.get(
         "/api/conversations/{conversation_id}/tasks",

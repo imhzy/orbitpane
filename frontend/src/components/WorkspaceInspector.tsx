@@ -13,6 +13,7 @@ import {
   Save,
   ShieldCheck,
   X,
+  Clock,
 } from 'lucide-react'
 import { apiFetch } from '../lib/api'
 import {
@@ -30,8 +31,9 @@ import type {
   WorkspaceStatus,
 } from '../lib/types'
 import { useAppContext } from '../contexts/AppContext'
+import { SchedulePanel } from './SchedulePanel'
 
-type InspectorTab = 'mission' | 'tasks'
+type InspectorTab = 'mission' | 'tasks' | 'schedules'
 
 /** Below this width the inspector is an overlay rather than a docked column. */
 const DOCKED_BREAKPOINT = 1280
@@ -73,8 +75,8 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
     showToast,
   } = useAppContext()
   const initialPanel = new URLSearchParams(window.location.search).get('panel')
-  const [tab, setTab] = useState<InspectorTab>(initialPanel === 'tasks' ? 'tasks' : 'mission')
-  const [overlayOpen, setOverlayOpen] = useState(initialPanel === 'tasks')
+  const [tab, setTab] = useState<InspectorTab>(initialPanel === 'schedules' ? 'schedules' : initialPanel === 'tasks' ? 'tasks' : 'mission')
+  const [overlayOpen, setOverlayOpen] = useState(initialPanel === 'tasks' || initialPanel === 'schedules')
   const [stats, setStats] = useState<ConversationStats>(EMPTY_STATS)
   /** `null` until this project's git status has answered. */
   const [workspace, setWorkspace] = useState<WorkspaceStatus | null>(null)
@@ -146,7 +148,7 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
   useEffect(() => {
     const openInspector = (event: Event) => {
       const requestedTab = (event as CustomEvent<InspectorTab>).detail
-      if (requestedTab === 'mission' || requestedTab === 'tasks') {
+      if (requestedTab === 'mission' || requestedTab === 'tasks' || requestedTab === 'schedules') {
         setTab(requestedTab)
       }
       setOverlayOpen(true)
@@ -165,8 +167,8 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
   useEffect(() => {
     const syncPanelFromHistory = () => {
       const requestedPanel = new URLSearchParams(window.location.search).get('panel')
-      if (requestedPanel === 'tasks') {
-        setTab('tasks')
+      if (requestedPanel === 'tasks' || requestedPanel === 'schedules' || requestedPanel === 'mission') {
+        setTab(requestedPanel)
         setOverlayOpen(true)
       } else if (window.innerWidth < DOCKED_BREAKPOINT) {
         setOverlayOpen(false)
@@ -178,7 +180,7 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
 
   const closeOverlay = useCallback(() => {
     setOverlayOpen(false)
-    if (window.history.state?.orbitpanePanel === 'tasks') {
+    if (['tasks', 'schedules', 'mission'].includes(window.history.state?.orbitpanePanel)) {
       window.history.back()
       return
     }
@@ -186,6 +188,15 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
     url.searchParams.delete('panel')
     window.history.replaceState({}, '', url.toString())
   }, [])
+
+  const selectTab = (next: InspectorTab) => {
+    setTab(next)
+    const url = new URL(window.location.href)
+    if (url.searchParams.has('panel')) {
+      url.searchParams.set('panel', next)
+      window.history.replaceState(window.history.state, '', url.toString())
+    }
+  }
 
   /* Docked at wide widths, an overlay below that. Tracking the viewport rather
      than assuming "mobile" is what closes the 769-1279px gap where the panel
@@ -314,7 +325,7 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
           role="tab"
           aria-selected={tab === 'mission'}
           className={tab === 'mission' ? 'active' : ''}
-          onClick={() => setTab('mission')}
+          onClick={() => selectTab('mission')}
         >
           <CircleDot size={13} />概览
         </button>
@@ -322,14 +333,18 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
           role="tab"
           aria-selected={tab === 'tasks'}
           className={tab === 'tasks' ? 'active' : ''}
-          onClick={() => setTab('tasks')}
+          onClick={() => selectTab('tasks')}
         >
           <ListChecks size={13} />队列{activeTasks.length > 0 && <b>{activeTasks.length}</b>}
         </button>
+        <button role="tab" aria-selected={tab === 'schedules'} className={tab === 'schedules' ? 'active' : ''}
+          onClick={() => selectTab('schedules')}><Clock size={13} />定时</button>
       </div>
 
       <div className="inspector-body">
-        {loading && <div className="inspector-loading"><Loader2 className="animate-spin" size={18} />同步任务状态…</div>}
+        {loading && tab !== 'schedules' && <div className="inspector-loading"><Loader2 className="animate-spin" size={18} />同步任务状态…</div>}
+
+        {tab === 'schedules' && (activeConv ? <SchedulePanel key={activeConv.id} conversationId={activeConv.id} /> : <p className="inspector-empty">选择聊天后管理它的定时任务。</p>)}
 
         {!loading && tab === 'mission' && (
           <>
@@ -429,7 +444,7 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
                       onChange={event => setTaskContent(event.target.value)}
                       aria-label="编辑排队任务"
                     />
-                  ) : <p>{task.is_summary ? '生成对话总结' : task.prompt}</p>}
+                  ) : <p>{task.schedule_name && <span className="schedule-message-badge"><Clock size={11} />{task.schedule_name}</span>}{task.is_summary ? '生成对话总结' : task.prompt}</p>}
                   <small>{task.model} · {task.duration ? `${task.duration.toFixed(1)} 秒` : '等待执行'}</small>
                 </div>
                 {task.status === 'queued' && (

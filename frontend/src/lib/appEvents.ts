@@ -26,6 +26,15 @@ export function emitTaskChange(): void {
   window.dispatchEvent(new CustomEvent(TASK_CHANGE_EVENT))
 }
 
+export function openInspectorPanel(tab: 'mission' | 'tasks' | 'schedules'): void {
+  const url = new URL(window.location.href)
+  if (url.searchParams.get('panel') !== tab) {
+    url.searchParams.set('panel', tab)
+    window.history.pushState({ ...window.history.state, orbitpanePanel: tab }, '', url.toString())
+  }
+  window.dispatchEvent(new CustomEvent(OPEN_INSPECTOR_EVENT, { detail: tab }))
+}
+
 export function emitConversationsChanged(): void {
   window.dispatchEvent(new CustomEvent(CONVERSATIONS_CHANGED_EVENT))
 }

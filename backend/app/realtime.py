@@ -5,7 +5,7 @@ import json
 import logging
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -15,6 +15,7 @@ from .agents.base import AgentEvent, AgentRequest, AgentResult, ProviderError
 from .agents.registry import ProviderRegistry
 from .database import Database
 from .models import Conversation, Message
+from .config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,10 @@ class QueueItem:
     covered_through_id: int = 0
     queued_at: str = field(default_factory=_utc_now)
     request_id: str | None = None
+    schedule_id: int | None = None
+    schedule_name: str = ""
+    scheduled_for: str = ""
+    compact_before: bool = False
 
     def as_dict(self, position: int) -> dict[str, object]:
         return {
@@ -112,6 +117,10 @@ class QueueItem:
             "is_summary": self.is_summary,
             "queued_at": self.queued_at,
             "position": position,
+            "schedule_id": self.schedule_id,
+            "schedule_name": self.schedule_name,
+            "scheduled_for": self.scheduled_for,
+            "compact_before": self.compact_before,
         }
 
 
@@ -133,17 +142,24 @@ class TaskState:
     thought: str = ""
     sequence: int = 0
     duration: float | None = None
+    schedule_id: int | None = None
+    schedule_name: str = ""
+    scheduled_for: str = ""
+    compact_before: bool = False
+    is_compacting: bool = False
 
 
 class AgentCoordinator:
     ELAPSED_UPDATE_INTERVAL_SECONDS = 0.25
 
     def __init__(
-        self, database: Database, providers: ProviderRegistry, hub: ConnectionHub
+        self, database: Database, providers: ProviderRegistry, hub: ConnectionHub,
+        settings: Settings | None = None,
     ) -> None:
         self.database = database
         self.providers = providers
         self.hub = hub
+        self.settings = settings
         self._tasks: dict[int, asyncio.Task[None]] = {}
         self._states: dict[int, TaskState] = {}
         self._queues: dict[int, list[QueueItem]] = {}
@@ -238,6 +254,56 @@ class AgentCoordinator:
         await self._broadcast_queue(conversation.id, item.run_id)
         return result
 
+    async def submit_scheduled_run(self, run_id: str) -> dict[str, object]:
+        """Attach an atomically claimed, persisted trigger to the ordinary FIFO."""
+        async with self._lock:
+            record = await asyncio.to_thread(self.database.get_run, run_id)
+            if record is None:
+                raise ValueError("定时执行记录不存在")
+            conversation_id = int(record["conversation_id"])
+            live = self._states.get(conversation_id)
+            if (record["status"] != "queued" or (live and live.run_id == run_id)
+                    or any(item.run_id == run_id for item in self._queues.get(conversation_id, []))):
+                return record
+            try:
+                conversation = await asyncio.to_thread(self.database.get_conversation, conversation_id)
+                if conversation is None:
+                    raise ValueError("聊天已删除")
+                item = self._build_queue_item(conversation, content=str(record["prompt"]),
+                    model=str(record["model"]) or None, provider_id=str(record["provider"]), is_summary=False)
+                item.run_id = run_id
+                item.queued_at = str(record["queued_at"])
+                item.schedule_id = record["schedule_id"]
+                item.schedule_name = str(record["schedule_name"])
+                item.scheduled_for = str(record["scheduled_for"])
+                item.compact_before = bool(record["compact_before"])
+                await asyncio.to_thread(self.database.update_run, run_id, model=item.model)
+                existing = self._tasks.get(conversation_id)
+                if existing and not existing.done():
+                    queue = self._queues.setdefault(conversation_id, [])
+                    queue.append(item)
+                    result = item.as_dict(len(queue))
+                else:
+                    await self._start_locked(item)
+                    result = {**item.as_dict(0), "status": "running"}
+            except Exception as exc:
+                if conversation_id not in self._tasks:
+                    self._states.pop(conversation_id, None)
+                await self._fail_to_start(record, exc)
+                result = {**record, "status": "failed", "error": str(exc)}
+        await self._broadcast_queue(conversation_id, run_id)
+        return result
+
+    async def _fail_to_start(self, record: dict, exc: Exception) -> None:
+        conversation_id = int(record["conversation_id"])
+        message = f"定时任务未能开始：{exc}" if record.get("schedule_name") else f"任务未能开始：{exc}"
+        await asyncio.to_thread(self.database.update_run, str(record["run_id"]),
+            status="failed", completed_at=_utc_now(), error=message)
+        if record.get("schedule_name"):
+            await asyncio.to_thread(self.database.record_scheduled_failure,
+                                    str(record["run_id"]), message, "schedule_failed")
+        await self.hub.broadcast(conversation_id, {"type": "schedules_changed", "conversation_id": conversation_id})
+
     async def start(
         self,
         conversation: Conversation,
@@ -283,7 +349,15 @@ class AgentCoordinator:
         request and every stream in the process, not just this one.
         """
         conversation = item.conversation
+        if self.settings is not None:
+            workspace = self.settings.resolve_allowed_path(conversation.path)
+            if not workspace.is_dir():
+                raise ValueError("工作目录不存在")
+            conversation = replace(conversation, path=str(workspace))
+            item.conversation = conversation
         if item.is_summary:
+            item.covered_through_id = self.database.max_message_id(conversation.id)
+        elif item.compact_before:
             item.covered_through_id = self.database.max_message_id(conversation.id)
         history_all = tuple(self.database.list_messages(conversation.id))
         active_summary_message_id = self.database.active_summary_message_id(
@@ -299,7 +373,7 @@ class AgentCoordinator:
             else history_all
         )
 
-        if not item.is_summary:
+        if not item.is_summary and not item.compact_before:
             self.database.add_message(
                 conversation.id,
                 "user",
@@ -307,6 +381,9 @@ class AgentCoordinator:
                 provider=item.provider,
                 run_id=item.run_id,
                 input_chars=len(item.content),
+                schedule_id=item.schedule_id,
+                schedule_name=item.schedule_name,
+                scheduled_for=item.scheduled_for,
             )
         augmented_prompt = self._augment_prompt(
             conversation.path, item.content, conversation.permission_mode
@@ -319,6 +396,7 @@ class AgentCoordinator:
         self._starting.add(conversation.id)
         try:
             history, augmented_prompt = await asyncio.to_thread(self._prepare_run, item)
+            conversation = item.conversation
 
             context_chars = sum(len(message.content) for message in history)
             state = TaskState(
@@ -331,6 +409,10 @@ class AgentCoordinator:
                 summary_covered_through_id=item.covered_through_id,
                 input_chars=len(item.content),
                 context_chars=context_chars,
+                schedule_id=item.schedule_id,
+                schedule_name=item.schedule_name,
+                scheduled_for=item.scheduled_for,
+                compact_before=item.compact_before,
             )
             self._states[conversation.id] = state
 
@@ -407,6 +489,8 @@ class AgentCoordinator:
 
     @staticmethod
     def _health_status(state: TaskState) -> str:
+        if state.is_compacting:
+            return "compacting"
         if state.status_message:
             return "retrying"
         inactive = time.monotonic() - state.last_activity_time
@@ -439,8 +523,54 @@ class AgentCoordinator:
             "input_chars": state.input_chars,
             "output_chars": len(state.content),
             "context_chars": state.context_chars,
+            **self._schedule_values(state),
             **values,
         }
+
+    @staticmethod
+    def _schedule_values(state: TaskState) -> dict[str, object]:
+        return {"schedule_id": state.schedule_id, "schedule_name": state.schedule_name,
+                "scheduled_for": state.scheduled_for}
+
+    async def _compact_before_run(self, provider, request: AgentRequest, state: TaskState) -> AgentRequest:
+        if request.history:
+            state.is_compacting = True
+            state.status_message = "正在压缩上下文，完成后执行定时命令"
+            state.sequence += 1
+            await self.hub.broadcast(request.conversation_id,
+                self._state_message(request.conversation_id, state, "status"))
+            started = time.monotonic()
+
+            async def compact_emit(event: AgentEvent) -> None:
+                # Keep the heartbeat alive without mixing the checkpoint's
+                # text/thoughts into the scheduled command's reply.
+                state.last_activity_time = time.monotonic()
+
+            try:
+                async with asyncio.timeout(300):
+                    result = await provider.compact(replace(request, run_id=request.run_id + "-compact"), compact_emit)
+                if result.interrupted or not result.content.strip():
+                    raise ProviderError("上下文压缩未完成")
+                checkpoint = await asyncio.to_thread(self.database.save_compaction_checkpoint, state.run_id,
+                    content=result.content, thought=result.thought, duration=time.monotonic() - started,
+                    covered_through_id=state.summary_covered_through_id)
+            except Exception as exc:
+                raise ProviderError("上下文压缩失败，本次定时命令未执行。",
+                                    code="compaction_failed", detail=str(exc)) from exc
+            request = replace(request, history=(checkpoint,))
+            state.context_chars = len(checkpoint.content)
+            await asyncio.to_thread(self.database.update_run, state.run_id, context_chars=state.context_chars)
+            await self.hub.broadcast(request.conversation_id,
+                {"type": "checkpoint_created", "conversation_id": request.conversation_id})
+        await asyncio.to_thread(self.database.add_message, request.conversation_id, "user", state.user_content,
+            provider=state.provider, run_id=state.run_id, input_chars=state.input_chars,
+            **self._schedule_values(state))
+        state.status_message = ""
+        state.is_compacting = False
+        state.sequence += 1
+        await self.hub.broadcast(request.conversation_id,
+            self._state_message(request.conversation_id, state, "status"))
+        return request
 
     async def _broadcast_elapsed(
         self, conversation_id: int, state: TaskState
@@ -496,7 +626,10 @@ class AgentCoordinator:
 
         final_status = "completed"
         error_message = ""
+        error_code = "schedule_failed"
         try:
+            if state.compact_before:
+                request = await self._compact_before_run(provider, request, state)
             result = await provider.run(request, emit)
             state.content = result.content
             state.thought = result.thought
@@ -519,6 +652,7 @@ class AgentCoordinator:
         except ProviderError as exc:
             final_status = "failed"
             error_message = str(exc)
+            error_code = exc.code
             logger.error("Provider error: %s", exc)
             await self.hub.broadcast(
                 conversation_id,
@@ -546,10 +680,12 @@ class AgentCoordinator:
                     input_chars=state.input_chars,
                     output_chars=len(state.content),
                     context_chars=state.context_chars,
+                    **self._schedule_values(state),
                 )
         except Exception as exc:
             final_status = "failed"
             error_message = "Agent execution failed unexpectedly"
+            error_code = "internal_error"
             logger.exception(
                 "Unexpected error during agent execution for conversation %s: %s",
                 conversation_id,
@@ -579,6 +715,9 @@ class AgentCoordinator:
                 output_chars=len(state.content),
                 error=error_message,
             )
+            if final_status == "failed" and state.schedule_name:
+                await asyncio.to_thread(self.database.record_scheduled_failure,
+                                        state.run_id, error_message, error_code)
             await self.hub.broadcast(
                 conversation_id,
                 self._state_message(
@@ -594,13 +733,23 @@ class AgentCoordinator:
             async with self._lock:
                 self._tasks.pop(conversation_id, None)
                 self._states.pop(conversation_id, None)
-                queue = self._queues.get(conversation_id, [])
-                next_item = queue.pop(0) if queue else None
-                if not queue:
-                    self._queues.pop(conversation_id, None)
-                if next_item is not None:
-                    await self._start_locked(next_item)
+                await self._start_next_locked(conversation_id)
             await self._broadcast_queue(conversation_id, state.run_id)
+
+    async def _start_next_locked(self, conversation_id: int) -> None:
+        queue = self._queues.get(conversation_id, [])
+        while queue:
+            next_item = queue.pop(0)
+            try:
+                await self._start_locked(next_item)
+                break
+            except Exception as exc:
+                self._states.pop(conversation_id, None)
+                record = await asyncio.to_thread(self.database.get_run, next_item.run_id)
+                if record:
+                    await self._fail_to_start(record, exc)
+        if not queue:
+            self._queues.pop(conversation_id, None)
 
     def _persist_answer(
         self, conversation_id: int, role: str, state: TaskState, result: AgentResult
@@ -618,6 +767,7 @@ class AgentCoordinator:
             input_chars=state.input_chars,
             output_chars=len(result.content),
             context_chars=state.context_chars,
+            **self._schedule_values(state),
         )
         if state.is_summary:
             self.database.create_summary_checkpoint(
@@ -650,6 +800,11 @@ class AgentCoordinator:
             item.as_dict(index + 1)
             for index, item in enumerate(self._queues.get(conversation_id, ()))
         ]
+
+    def attached_run_ids(self) -> set[str]:
+        return {state.run_id for state in self._states.values()} | {
+            item.run_id for queue in self._queues.values() for item in queue
+        }
 
     async def update_queued(
         self,
@@ -708,11 +863,16 @@ class AgentCoordinator:
         async with self._lock:
             queue = self._queues.get(conversation_id, [])
             by_id = {item.run_id: item for item in queue}
-            if set(run_ids) != set(by_id):
+            if len(run_ids) != len(queue) or set(run_ids) != set(by_id):
                 raise ValueError("Queue order must include every queued run exactly once")
             self._queues[conversation_id] = [by_id[run_id] for run_id in run_ids]
         await self._broadcast_queue(conversation_id)
         return self.queue_items(conversation_id)
+
+    async def cancel_scheduled_queue(self, conversation_id: int, schedule_id: int) -> None:
+        for item in tuple(self._queues.get(conversation_id, [])):
+            if item.schedule_id == schedule_id:
+                await self.cancel_queued(conversation_id, item.run_id)
 
     async def interrupt(self, conversation_id: int) -> bool:
         async with self._lock:
@@ -803,6 +963,7 @@ class AgentCoordinator:
             "output_chars": len(state.content),
             "context_chars": state.context_chars,
             "queue": self.queue_items(conversation_id),
+            **self._schedule_values(state),
         }
 
     async def task_catalog(

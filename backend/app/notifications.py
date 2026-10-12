@@ -66,8 +66,8 @@ class PushNotifications:
                         "p256dh": delivery["p256dh"], "auth": delivery["auth"],
                     }},
                     data=json.dumps({
-                        "title": "OrbitPane · 任务完成",
-                        "body": "任务已完成，点击查看结果。",
+                        "title": "OrbitPane · 定时任务失败" if delivery.get("status") == "failed" else "OrbitPane · 任务完成",
+                        "body": "任务执行失败，点击查看详情。" if delivery.get("status") == "failed" else "任务已完成，点击查看结果。",
                         "url": f"/?id={delivery['conversation_id']}",
                         "tag": f"orbitpane-{delivery['run_id']}",
                     }, ensure_ascii=False),

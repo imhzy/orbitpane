@@ -3,11 +3,13 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .models import Conversation, Message
+from .models import Conversation, Message, ScheduleSpec
+from .schedule_rules import next_fire_time, parse_time, utc_iso
 
 DEFAULT_PROVIDER_ID = "antigravity"
 _LEGACY_PROVIDER_ID = "".join(("a", "g", "y"))
@@ -193,6 +195,20 @@ class Database:
                     FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
                 );
 
+                CREATE TABLE IF NOT EXISTS schedules (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+                    name TEXT NOT NULL,
+                    prompt TEXT NOT NULL,
+                    spec TEXT NOT NULL,
+                    compact_before INTEGER NOT NULL DEFAULT 0,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    next_run_at TEXT,
+                    version INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS runs (
                     run_id TEXT PRIMARY KEY,
                     conversation_id INTEGER NOT NULL,
@@ -249,6 +265,14 @@ class Database:
                     ON summary_checkpoints(conversation_id, id DESC);
                 CREATE INDEX IF NOT EXISTS idx_shares_conversation
                     ON shares(conversation_id, id DESC);
+                CREATE INDEX IF NOT EXISTS idx_schedules_due
+                    ON schedules(enabled, next_run_at);
+                CREATE INDEX IF NOT EXISTS idx_schedules_conversation
+                    ON schedules(conversation_id, id);
+                CREATE INDEX IF NOT EXISTS idx_runs_schedule
+                    ON runs(schedule_id, queued_at DESC);
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_runs_schedule_slot
+                    ON runs(schedule_id, scheduled_for) WHERE schedule_id IS NOT NULL;
                 """
             )
             # SQLite enforces foreign keys *per connection*, and `shares`
@@ -297,6 +321,17 @@ class Database:
             "output_chars": "INTEGER NOT NULL DEFAULT 0",
             "context_chars": "INTEGER NOT NULL DEFAULT 0",
             "feedback": "TEXT NOT NULL DEFAULT ''",
+            "schedule_id": "INTEGER",
+            "schedule_name": "TEXT NOT NULL DEFAULT ''",
+            "scheduled_for": "TEXT NOT NULL DEFAULT ''",
+            "is_error": "INTEGER NOT NULL DEFAULT 0",
+            "error_code": "TEXT NOT NULL DEFAULT ''",
+        }
+        run_columns = {
+            "schedule_id": "INTEGER REFERENCES schedules(id) ON DELETE SET NULL",
+            "schedule_name": "TEXT NOT NULL DEFAULT ''",
+            "scheduled_for": "TEXT NOT NULL DEFAULT ''",
+            "compact_before": "INTEGER NOT NULL DEFAULT 0",
         }
         # Links created before the token was kept stay listed and revocable;
         # they simply have nothing to show.
@@ -307,6 +342,8 @@ class Database:
             self._add_column(connection, "messages", name, definition)
         for name, definition in share_columns.items():
             self._add_column(connection, "shares", name, definition)
+        for name, definition in run_columns.items():
+            self._add_column(connection, "runs", name, definition)
 
     @staticmethod
     def _conversation(row: sqlite3.Row) -> Conversation:
@@ -348,6 +385,11 @@ class Database:
             output_chars=int(row["output_chars"] or 0),
             context_chars=int(row["context_chars"] or 0),
             feedback=str(row["feedback"] or ""),
+            schedule_id=row["schedule_id"],
+            schedule_name=str(row["schedule_name"] or ""),
+            scheduled_for=str(row["scheduled_for"] or ""),
+            is_error=bool(row["is_error"]),
+            error_code=str(row["error_code"] or ""),
         )
 
     def list_conversations(self, *, include_archived: bool = False) -> list[Conversation]:
@@ -504,12 +546,18 @@ class Database:
         input_chars: int = 0,
         output_chars: int = 0,
         context_chars: int = 0,
+        schedule_id: int | None = None,
+        schedule_name: str = "",
+        scheduled_for: str = "",
+        is_error: bool = False,
+        error_code: str = "",
     ) -> int:
         with self.connect() as connection:
             cursor = connection.execute(
                 "INSERT INTO messages(conversation_id, role, content, thought, duration, "
-                "model, provider, run_id, input_chars, output_chars, context_chars) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "model, provider, run_id, input_chars, output_chars, context_chars, "
+                "schedule_id, schedule_name, scheduled_for, is_error, error_code) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     conversation_id,
                     role,
@@ -522,6 +570,11 @@ class Database:
                     input_chars,
                     output_chars,
                     context_chars,
+                    schedule_id,
+                    schedule_name,
+                    scheduled_for,
+                    int(is_error),
+                    error_code,
                 ),
             )
             return int(cursor.lastrowid)
@@ -688,6 +741,226 @@ class Database:
             ).fetchone()
         return int(row["message_id"]) if row else None
 
+    def save_compaction_checkpoint(self, run_id: str, *, content: str, thought: str,
+                                   duration: float, covered_through_id: int) -> Message:
+        """Publish the summary and activate its checkpoint in one transaction."""
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            run = connection.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+            if run is None:
+                raise ValueError("执行记录不存在")
+            cursor = connection.execute(
+                "INSERT INTO messages(conversation_id, role, content, thought, duration, model, "
+                "provider, run_id, output_chars, schedule_id, schedule_name, scheduled_for) "
+                "VALUES (?, 'summary', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (run["conversation_id"], content, thought, duration, run["model"], run["provider"],
+                 run_id + "-compact", len(content), run["schedule_id"], run["schedule_name"], run["scheduled_for"]),
+            )
+            message_id = int(cursor.lastrowid)
+            checkpoint = connection.execute(
+                "INSERT INTO summary_checkpoints(conversation_id, message_id, covered_through_id, "
+                "title, content) VALUES (?, ?, ?, ?, ?)",
+                (run["conversation_id"], message_id, covered_through_id,
+                 f"上下文检查点 · 消息 {covered_through_id}", content),
+            )
+            connection.execute("UPDATE conversations SET active_summary_id = ? WHERE id = ?",
+                               (checkpoint.lastrowid, run["conversation_id"]))
+            return self._message(connection.execute("SELECT * FROM messages WHERE id = ?", (message_id,)).fetchone())
+
+    _SCHEDULE_SELECT = (
+        "SELECT s.*, c.name AS conversation_name, "
+        "r.run_id AS last_run_id, r.status AS last_status, r.error AS last_error, "
+        "r.queued_at AS last_run_at, r.completed_at AS last_completed_at, "
+        "(SELECT COUNT(*) FROM runs q WHERE q.schedule_id = s.id "
+        "AND q.status IN ('queued', 'starting')) AS pending_count "
+        "FROM schedules s JOIN conversations c ON c.id = s.conversation_id "
+        "LEFT JOIN runs r ON r.run_id = (SELECT x.run_id FROM runs x "
+        "WHERE x.schedule_id = s.id ORDER BY x.rowid DESC LIMIT 1) "
+    )
+
+    @staticmethod
+    def _schedule(row: sqlite3.Row) -> dict[str, Any]:
+        return {**dict(row), "spec": json.loads(row["spec"]),
+                "enabled": bool(row["enabled"]), "compact_before": bool(row["compact_before"])}
+
+    def list_schedules(self, conversation_id: int | None = None) -> list[dict[str, Any]]:
+        where = "WHERE s.conversation_id = ? " if conversation_id is not None else ""
+        with self.connect() as connection:
+            rows = connection.execute(
+                self._SCHEDULE_SELECT + where + "ORDER BY s.enabled DESC, s.next_run_at, s.id",
+                (conversation_id,) if conversation_id is not None else (),
+            ).fetchall()
+        return [self._schedule(row) for row in rows]
+
+    def get_schedule(self, conversation_id: int, schedule_id: int) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                self._SCHEDULE_SELECT + "WHERE s.conversation_id = ? AND s.id = ?",
+                (conversation_id, schedule_id),
+            ).fetchone()
+        return self._schedule(row) if row else None
+
+    def create_schedule(self, conversation_id: int, *, name: str, prompt: str,
+                        spec: dict, compact_before: bool, enabled: bool,
+                        now: datetime | None = None) -> dict[str, Any]:
+        now = now or datetime.now(timezone.utc)
+        rule = ScheduleSpec.model_validate(spec)
+        next_at = utc_iso(next_fire_time(rule, now)) if enabled else None
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if connection.execute(
+                "SELECT COUNT(*) FROM schedules WHERE conversation_id = ?", (conversation_id,)
+            ).fetchone()[0] >= 100:
+                raise ValueError("每个聊天最多可创建 100 个定时任务")
+            cursor = connection.execute(
+                "INSERT INTO schedules(conversation_id, name, prompt, spec, compact_before, "
+                "enabled, next_run_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (conversation_id, name, prompt, rule.model_dump_json(), int(compact_before),
+                 int(enabled), next_at, utc_iso(now), utc_iso(now)),
+            )
+            schedule_id = int(cursor.lastrowid)
+        return self.get_schedule(conversation_id, schedule_id)  # type: ignore[return-value]
+
+    def update_schedule(self, conversation_id: int, schedule_id: int, values: dict,
+                        *, now: datetime | None = None) -> dict[str, Any] | None:
+        now = now or datetime.now(timezone.utc)
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM schedules WHERE conversation_id = ? AND id = ?",
+                (conversation_id, schedule_id),
+            ).fetchone()
+            if row is None:
+                return None
+            if "version" in values and values["version"] != row["version"]:
+                raise ValueError("任务已在其他窗口修改，请刷新后重试")
+            changed = {key: value for key, value in values.items()
+                       if key in {"name", "prompt", "spec", "compact_before", "enabled"}}
+            spec = ScheduleSpec.model_validate(changed.get("spec", json.loads(row["spec"])))
+            enabled = changed.get("enabled", bool(row["enabled"]))
+            rule_changed = spec.model_dump() != ScheduleSpec.model_validate_json(row["spec"]).model_dump()
+            if rule_changed or (enabled and not row["enabled"]):
+                changed["next_run_at"] = utc_iso(next_fire_time(spec, now)) if enabled else None
+            elif not enabled:
+                changed["next_run_at"] = None
+            if "spec" in changed:
+                changed["spec"] = spec.model_dump_json()
+            if changed:
+                changed["updated_at"] = utc_iso(now)
+                connection.execute(
+                    f"UPDATE schedules SET {', '.join(f'{key} = ?' for key in changed)}, "
+                    "version = version + 1 WHERE id = ?",
+                    [*changed.values(), schedule_id],
+                )
+        return self.get_schedule(conversation_id, schedule_id)
+
+    def delete_schedule(self, conversation_id: int, schedule_id: int) -> bool:
+        with self.connect() as connection:
+            return connection.execute(
+                "DELETE FROM schedules WHERE conversation_id = ? AND id = ?",
+                (conversation_id, schedule_id),
+            ).rowcount == 1
+
+    def claim_due_schedules(self, now: datetime, *, skip_all: bool = False) -> list[dict[str, Any]]:
+        """Atomically advance due rules and persist each accepted execution.
+
+        Startup advances every old slot without running it. During normal
+        operation a five-second polling tolerance absorbs event-loop jitter;
+        older slots are skipped. Busy agents do not affect this deadline: each
+        accepted slot is queued separately and may wait as long as necessary.
+        """
+        claimed = []
+        now_text = utc_iso(now)
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            rows = connection.execute(
+                "SELECT s.*, c.provider, c.preferred_model FROM schedules s "
+                "JOIN conversations c ON c.id = s.conversation_id "
+                "WHERE s.enabled = 1 AND s.next_run_at <= ? ORDER BY s.next_run_at, s.id",
+                (now_text,),
+            ).fetchall()
+            for row in rows:
+                due = parse_time(row["next_run_at"])
+                rule = ScheduleSpec.model_validate_json(row["spec"])
+                next_at = utc_iso(next_fire_time(rule, now, anchor=due))
+                connection.execute("UPDATE schedules SET next_run_at = ? WHERE id = ?", (next_at, row["id"]))
+                if skip_all or (now - due).total_seconds() > 5:
+                    continue
+                run_id = f"{row['conversation_id']}-{uuid.uuid4().hex}"
+                connection.execute(
+                    "INSERT INTO runs(run_id, conversation_id, status, prompt, model, provider, "
+                    "schedule_id, schedule_name, scheduled_for, compact_before, queued_at) "
+                    "VALUES (?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (run_id, row["conversation_id"], row["prompt"], row["preferred_model"],
+                     row["provider"], row["id"], row["name"], row["next_run_at"],
+                     row["compact_before"], now_text),
+                )
+                claimed.append({"run_id": run_id, "conversation_id": row["conversation_id"]})
+        return claimed
+
+    def create_schedule_run(self, conversation_id: int, schedule_id: int,
+                            request_id: str) -> str | None:
+        """Run-now is retry-safe, without moving the recurring trigger."""
+        run_id = f"{conversation_id}-{uuid.uuid5(uuid.NAMESPACE_URL, 'schedule-' + request_id).hex}"
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT s.*, c.provider, c.preferred_model FROM schedules s "
+                "JOIN conversations c ON c.id = s.conversation_id "
+                "WHERE s.conversation_id = ? AND s.id = ?", (conversation_id, schedule_id),
+            ).fetchone()
+            if row is None:
+                return None
+            previous = connection.execute("SELECT schedule_id FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+            if previous:
+                if previous["schedule_id"] != schedule_id:
+                    raise ValueError("请求标识已用于其他定时任务")
+                return run_id
+            connection.execute(
+                "INSERT INTO runs(run_id, conversation_id, status, prompt, model, provider, "
+                "schedule_id, schedule_name, scheduled_for, compact_before) "
+                "VALUES (?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?)",
+                (run_id, conversation_id, row["prompt"], row["preferred_model"], row["provider"],
+                 schedule_id, row["name"], _utc_iso(), row["compact_before"]),
+            )
+        return run_id
+
+    def pending_schedule_runs(self) -> list[dict[str, Any]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT run_id, conversation_id FROM runs WHERE status = 'queued' "
+                "AND schedule_name != '' ORDER BY queued_at, rowid",
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def record_scheduled_failure(self, run_id: str, error: str, error_code: str) -> None:
+        """Keep the attempted prompt and failure visible after a reconnect.
+
+        A preflight failure can happen before the user turn was persisted.
+        Both inserts are idempotent and preserve the trigger's immutable source
+        metadata, even if its schedule was subsequently edited or removed.
+        """
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                "INSERT INTO messages(conversation_id, role, content, provider, run_id, input_chars, "
+                "schedule_id, schedule_name, scheduled_for) "
+                "SELECT r.conversation_id, 'user', r.prompt, r.provider, r.run_id, LENGTH(r.prompt), "
+                "r.schedule_id, r.schedule_name, r.scheduled_for FROM runs r "
+                "WHERE r.run_id = ? AND r.schedule_name != '' AND NOT EXISTS "
+                "(SELECT 1 FROM messages m WHERE m.conversation_id = r.conversation_id AND m.run_id = r.run_id AND m.role = 'user')",
+                (run_id,),
+            )
+            connection.execute(
+                "INSERT INTO messages(conversation_id, role, content, provider, run_id, "
+                "schedule_id, schedule_name, scheduled_for, is_error, error_code) "
+                "SELECT r.conversation_id, 'system', ?, r.provider, r.run_id, r.schedule_id, "
+                "r.schedule_name, r.scheduled_for, 1, ? FROM runs r "
+                "WHERE r.run_id = ? AND r.schedule_name != '' AND NOT EXISTS "
+                "(SELECT 1 FROM messages m WHERE m.conversation_id = r.conversation_id AND m.run_id = r.run_id AND m.role = 'system' AND m.is_error = 1)",
+                (error, error_code, run_id),
+            )
+
     def create_run(
         self,
         run_id: str,
@@ -744,12 +1017,13 @@ class Database:
             # Persist notification work in the same transaction as completion.
             # Repeated completion writes, reconnects and request retries cannot
             # enqueue the same run twice, even after delivery has been removed.
-            if values.get("status") == "completed":
+            if values.get("status") in {"completed", "failed"}:
                 connection.execute(
                     "INSERT OR IGNORE INTO push_deliveries(run_id, endpoint, created_at) "
                     "SELECT r.run_id, s.endpoint, ? FROM runs r CROSS JOIN push_subscriptions s "
-                    "WHERE r.run_id = ? AND r.status != 'completed'",
-                    (time.time(), run_id),
+                    "WHERE r.run_id = ? AND r.status NOT IN ('completed', 'failed', 'interrupted', 'canceled') "
+                    "AND (? = 'completed' OR r.schedule_name != '')",
+                    (time.time(), run_id, values["status"]),
                 )
             connection.execute(
                 f"UPDATE runs SET {', '.join(f'{key} = ?' for key, _ in updates)} "
@@ -784,7 +1058,7 @@ class Database:
             # Key rotation invalidates the old browser subscriptions.
             connection.execute("DELETE FROM push_subscriptions WHERE application_server_key != ?", (public_key,))
             rows = connection.execute(
-                "SELECT d.*, s.p256dh, s.auth, r.conversation_id FROM push_deliveries d "
+                "SELECT d.*, s.p256dh, s.auth, r.conversation_id, r.status, r.schedule_name FROM push_deliveries d "
                 "JOIN push_subscriptions s ON s.endpoint = d.endpoint "
                 "JOIN runs r ON r.run_id = d.run_id "
                 "WHERE d.next_attempt <= ? ORDER BY d.next_attempt, d.created_at LIMIT 10",

@@ -5,9 +5,12 @@ import { bindRunLocalId, ensureLocalId, ensureLocalIds } from '../lib/messageIde
 import { asOptionalText, asText, normalizeMessages } from '../lib/normalize'
 import { cacheHistory, readCachedHistory, remove } from '../lib/storage'
 import { broadcast, emitTaskChange } from '../lib/appEvents'
-import type { Conversation, Message, TaskRecord } from '../lib/types'
+import type { Conversation, HealthStatus, Message, TaskRecord } from '../lib/types'
 
 export interface RealtimeEvent {
+  schedule_id?: number | null
+  schedule_name?: string
+  scheduled_for?: string
   type: string
   request_id?: string
   conversation_id?: number
@@ -21,7 +24,7 @@ export interface RealtimeEvent {
   elapsed?: number
   duration?: number
   inactive_seconds?: number
-  health_status?: 'active' | 'retrying' | 'slow' | 'stalled'
+  health_status?: HealthStatus
   status_message?: string
   model?: string
   provider?: string
@@ -34,6 +37,14 @@ export interface RealtimeEvent {
   context_chars?: number
   task?: TaskRecord
   queue?: TaskRecord[]
+}
+
+function scheduleMetadata(value: RealtimeEvent | TaskRecord): Partial<Message> {
+  return value.schedule_name ? {
+    schedule_id: value.schedule_id,
+    schedule_name: value.schedule_name,
+    scheduled_for: value.scheduled_for,
+  } : {}
 }
 
 function isFiniteNumber(value: unknown): value is number {
@@ -70,7 +81,7 @@ export function applySubmittedTask(messages: Message[], task: TaskRecord, reques
     message.role === 'user' && message.run_id === task.run_id
   ))
 
-  if (userIndex < 0 && !requestId) {
+  if (userIndex < 0 && !requestId && !task.schedule_name) {
     const optimisticUserIndexes = next.flatMap((message, index) => (
       message.role === 'user' && message.isOptimistic && !message.run_id
         ? [index]
@@ -92,10 +103,10 @@ export function applySubmittedTask(messages: Message[], task: TaskRecord, reques
     }
   }
 
-  if (userIndex < 0 && requestId) {
+  if (userIndex < 0 && (requestId || task.schedule_name)) {
     userIndex = next.length
-    next.push(ensureLocalId({ role: 'user', content: task.prompt, request_id: requestId, run_id: task.run_id }))
-    next.push(ensureLocalId({ role: 'agent', content: '', request_id: requestId, run_id: task.run_id, isOptimistic: true }))
+    next.push(ensureLocalId({ role: 'user', content: task.prompt, request_id: requestId, run_id: task.run_id, ...scheduleMetadata(task) }))
+    next.push(ensureLocalId({ role: 'agent', content: '', request_id: requestId, run_id: task.run_id, isOptimistic: true, ...scheduleMetadata(task) }))
   }
   if (userIndex >= 0 && requestId) {
     const user = next[userIndex]
@@ -168,6 +179,7 @@ function ensureRunAgent(
       if (
         message.role === 'user'
         && !message.run_id
+        && !event.schedule_name
         && (event.request_id ? message.request_id === event.request_id : message.content === event.user_content)
       ) {
         userIndex = index
@@ -184,6 +196,7 @@ function ensureRunAgent(
         timestamp: new Date().toISOString(),
         provider: event.provider,
         run_id: runId,
+        ...scheduleMetadata(event),
       })
       if (existingAgentIndex >= 0) {
         userIndex = existingAgentIndex
@@ -239,6 +252,7 @@ function ensureRunAgent(
       provider: event.provider,
       run_id: runId,
       streamSequence: -1,
+      ...scheduleMetadata(event),
     })
     // A response belongs immediately after its user prompt. Appending it to
     // the whole list puts reconnect/sync replies below turns that were queued
@@ -270,6 +284,7 @@ export function applyRealtimeEvent(
     ? Math.max(current.elapsedSoFar ?? 0, event.elapsed)
     : current.elapsedSoFar
   const common = {
+    ...scheduleMetadata(event),
     ...(event.run_id ? { run_id: event.run_id } : {}),
     ...(event.model ? { model: event.model } : {}),
     ...(event.provider ? { provider: event.provider } : {}),
@@ -421,8 +436,13 @@ export function mergeHistoryWithTransientMessages(
     || message.deliveryFailed
     || message.role === 'system'
   ))
+  const failedScheduledRuns = new Set(history.filter(message => (
+    message.role === 'system' && message.isError && message.schedule_name && message.run_id
+  )).map(message => message.run_id))
 
   for (const message of transient) {
+    if (message.role === 'agent' && failedScheduledRuns.has(message.run_id)
+      && !message.content && !message.isThinking && !message.isQueued) continue
     let matchingIndex = -1
     if (message.run_id) {
       matchingIndex = merged.findIndex(candidate => (
@@ -820,7 +840,15 @@ export function useWebSocket(
 
         if (data.type === 'queue_changed') {
           const positions = new Map((data.queue || []).map(task => [task.run_id, task.position]))
-          setMessages(previous => previous.map(message => {
+          setMessages(previous => {
+            let next = previous
+            for (const task of data.queue || []) {
+              if (task.schedule_name) next = applySubmittedTask(next, task)
+            }
+            const removedScheduled = new Set(next.filter(message => (
+              message.schedule_name && message.isQueued && message.run_id && !positions.has(message.run_id)
+            )).map(message => message.run_id))
+            return next.filter(message => !removedScheduled.has(message.run_id)).map(message => {
             if (!message.run_id || !message.isQueued) return message
             const position = positions.get(message.run_id)
             return position
@@ -834,9 +862,22 @@ export function useWebSocket(
                   // token events get discarded as stale.
                   streamFinished: false,
                 }
-          }))
+            })
+          })
           emitTaskChange()
           return
+        }
+
+        if (data.type === 'schedules_changed' || data.type === 'checkpoint_created') {
+          emitTaskChange()
+          loadHistory(conv.id, true, true)
+          return
+        }
+
+        if (data.type === 'sync_state' && data.queue) {
+          setMessages(previous => data.queue!.reduce((current, task) => (
+            task.schedule_name ? applySubmittedTask(current, task) : current
+          ), previous))
         }
 
         if (data.type === 'history_cleared') {
@@ -907,7 +948,7 @@ export function useWebSocket(
               && typeof Notification !== 'undefined'
               && Notification.permission === 'granted'
             ) {
-              const notification = new Notification(`${conv.name} · 任务已完成`, {
+              const notification = new Notification(`${conv.name} · ${data.status === 'failed' ? '任务失败' : '任务完成'}`, {
                 body: data.status === 'failed'
                   ? 'Agent 执行失败，点击查看详情'
                   : `已生成 ${data.output_chars ?? 0} 个字符的结果`,
@@ -957,6 +998,7 @@ export function useWebSocket(
               errorCode: asText(data.code) || 'provider_error',
               errorDetail: asText(data.detail),
               isError: true,
+              ...(data.schedule_name ? { run_id: data.run_id, ...scheduleMetadata(data) } : {}),
             })
             if (requestRejected) {
               isAgentThinkingRef.current = next.some(message => (

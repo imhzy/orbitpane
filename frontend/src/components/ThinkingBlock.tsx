@@ -78,7 +78,9 @@ export function ThinkingBlock({
           )}
           <span className="thinking-label">
             {isThinking 
-              ? (healthStatus === 'retrying'
+              ? (healthStatus === 'compacting'
+                  ? (statusMessage || '正在压缩上下文…')
+                  : healthStatus === 'retrying'
                   ? (statusMessage || '模型重试中…')
                   : healthStatus === 'stalled'
                     ? '疑似卡住'

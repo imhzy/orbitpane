@@ -7,6 +7,54 @@ realtime execution and reconnect support without coupling the UI
 protocol to a specific agent provider. Google Antigravity is the default
 provider, with OpenAI Codex available behind a feature flag.
 
+## Scheduled agent commands
+
+Open a conversation and choose **定时任务** in its action menu, or the **定时**
+tab in the task/context panel. Existing conversations can have multiple tasks,
+each with its own prompt, recurrence, IANA timezone (default `Asia/Shanghai`),
+and optional context compression. Supported rules are every N minutes/hours,
+daily at one or more times, and weekly on selected weekdays at one or more
+times. The panel supports editing, pausing, resuming, deleting and running now,
+and shows the next trigger, latest result, failures and pending execution count.
+Scheduled prompts and replies appear in the normal transcript with a clock
+badge; their source name and planned trigger time survive edits and deletion.
+
+The backend runs schedules while the browser is closed. Each accepted trigger
+is persisted atomically and joins the existing per-conversation FIFO, including
+every occurrence of a busy recurring task. Different conversations can run
+concurrently. There is no coalescing and no automatic retry of agent commands.
+Run-now requests are idempotent and do not move the next recurring trigger.
+Rules survive restarts, but missed triggers are skipped. Existing queued or
+running commands are marked interrupted on restart and are not resumed.
+The poller tolerates five seconds of normal runtime jitter; older slots are
+skipped. Intervals keep their original cadence; editing only a name or prompt
+does not reset it. Creating, changing the recurrence or resuming an interval
+waits a full period before the first trigger.
+
+Calendar rules use local wall time and store instants in UTC. A nonexistent
+daylight-saving time is skipped; a repeated time runs once at its first
+occurrence. These policies follow the distinction between scheduling deadlines
+and execution concurrency in the [APScheduler user guide](https://apscheduler.readthedocs.io/en/3.x/userguide.html)
+and use Python's [IANA timezone support](https://docs.python.org/3/library/zoneinfo.html).
+
+Compression runs when the command reaches the front of the queue, using the
+latest conversation context and the provider's checkpoint capability. The
+current stateless CLI adapters generate a summary checkpoint, retain the
+original messages, and use the summary for subsequent turns. A failed or
+interrupted compression stops the scheduled command and records its reason.
+Commands inherit the conversation's agent, model and filesystem permissions;
+scheduling never grants additional permissions. Completed commands and failed
+scheduled commands use the existing opt-in browser/Web Push notifications.
+
+Pausing stops future triggers while accepted queue items remain. Deleting a
+schedule cancels its pending items and lets its running command finish.
+Deleting a conversation removes its schedules; clearing its history cancels
+accepted commands and removes execution history while retaining the recurrence
+rules. Authenticated schedule APIs live under `/api/conversations/{id}/schedules`;
+`GET /api/schedules` lists the owner's schedules. Use one backend process, as
+with the existing PM2 fork deployment: conversation execution queues belong to
+that process. Tests use isolated databases and fake agents.
+
 ## Task-completion push notifications
 
 iOS/iPadOS 16.4+ supports notifications for HTTPS PWAs installed on the Home
@@ -35,7 +83,8 @@ subscription. Browser permission denial must be changed in system settings.
 
 Each successfully completed task, including queued tasks and summaries,
 notifies subscribed devices even when the app is closed. Failed or interrupted
-tasks do not send a success notification. Notifications contain only a generic
+tasks do not send a success notification. Failed scheduled commands send a
+generic failure notification. Notifications contain only a generic
 completion message, and tapping one opens the corresponding conversation
 (`/?id=…`), with login required when the session has expired.
 
@@ -135,7 +184,7 @@ Useful security settings:
 - `ORBITPANE_DATABASE_PATH`: SQLite database location. Tests always use an
   isolated temporary database and never share production persistence.
 - Agent filesystem permissions are selected per project. New projects default to
-  unrestricted mode; workspace-restricted mode can be selected explicitly.
+  workspace-restricted mode; unrestricted mode requires an explicit choice.
 
 In development, an unset PIN and signing secret are replaced with process-local
 random values, so login credentials and sessions do not survive a restart.
