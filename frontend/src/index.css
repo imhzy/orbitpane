@@ -309,6 +309,7 @@ html {
   padding: 0;
   overflow: hidden;
   overscroll-behavior: none;
+  background-color: var(--bg-primary);
   -webkit-text-size-adjust: 100%;
 }
 
