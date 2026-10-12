@@ -902,8 +902,8 @@
 }
 
 .chat-header {
-  height: 60px;
-  padding: 0 var(--space-6);
+  height: calc(60px + var(--sat));
+  padding: var(--sat) var(--space-6) 0 var(--space-6);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -913,7 +913,7 @@
   -webkit-backdrop-filter: var(--glass-blur);
   z-index: 20;
   flex-shrink: 0;
-  padding-top: var(--sat);
+  box-sizing: border-box;
 
   transition: background-color 0.25s ease, border-color 0.25s ease;
 }

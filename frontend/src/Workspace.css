@@ -1012,7 +1012,10 @@
 
 @media (max-width: 768px) {
   /* Mobile navigation bar: one title and one trailing action. */
-  .chat-header { padding-inline: var(--space-2-5); }
+  .chat-header {
+    padding-left: var(--space-2-5);
+    padding-right: var(--space-2-5);
+  }
   .chat-header .edit-title-btn,
   .chat-header .new-ws-header-btn { display: none !important; }
   .chat-header .header-title-wrapper {
