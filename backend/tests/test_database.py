@@ -16,6 +16,54 @@ class DatabaseTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
 
+    def test_conversation_order_persists_and_hidden_rows_keep_their_slots(self) -> None:
+        items = [self.database.create_conversation(str(i), self.temp_dir.name, "fake") for i in range(5)]
+        first, hidden, third, fourth, starred = items
+        self.database.update_conversation(starred.id, is_pinned=True)
+        self.database.update_conversation(hidden.id, is_archived=True)
+        self.database.add_message(first.id, "user", "history stays intact")
+        self.database.reorder_conversations([first.id, fourth.id])
+        expected = [starred.id, first.id, third.id, hidden.id, fourth.id]
+        self.assertEqual([item.id for item in self.database.list_conversations(include_archived=True)], expected)
+        # Neither migration nor unrelated changes reset the saved order.
+        self.database.migrate()
+        self.database.update_conversation(third.id, name="Renamed")
+        self.assertEqual([item.id for item in self.database.list_conversations(include_archived=True)], expected)
+        self.assertEqual(self.database.list_messages(first.id)[0].content, "history stays intact")
+        newest = self.database.create_conversation("New", self.temp_dir.name, "fake")
+        self.assertEqual([item.id for item in self.database.list_conversations()], [starred.id, newest.id, first.id, third.id, fourth.id])
+
+    def test_invalid_conversation_reorders_are_atomic(self) -> None:
+        normal = self.database.create_conversation("Normal", self.temp_dir.name, "fake")
+        second = self.database.create_conversation("Second", self.temp_dir.name, "fake")
+        starred = self.database.create_conversation("Starred", self.temp_dir.name, "fake")
+        archived = self.database.create_conversation("Archived", self.temp_dir.name, "fake")
+        self.database.update_conversation(starred.id, is_pinned=True)
+        self.database.update_conversation(archived.id, is_archived=True)
+        before = self.database.list_conversations(include_archived=True)
+        for ids in ([], [normal.id], [normal.id, normal.id], [normal.id, 999999],
+                    [normal.id, starred.id], [normal.id, archived.id]):
+            with self.subTest(ids=ids), self.assertRaises(ValueError):
+                self.database.reorder_conversations(ids)
+            self.assertEqual(self.database.list_conversations(include_archived=True), before)
+        self.database.reorder_conversations([normal.id, second.id])
+        self.database.update_conversation(starred.id, is_pinned=False)
+        self.database.delete_conversation(normal.id)
+        self.assertEqual({item.id for item in self.database.list_conversations()}, {second.id, starred.id})
+
+    def test_legacy_conversation_order_migrates_once(self) -> None:
+        database = Database(Path(self.temp_dir.name) / "legacy-order.db")
+        with database.connect() as connection:
+            connection.execute("CREATE TABLE conversations (id INTEGER PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL, created_at TEXT NOT NULL)")
+            connection.executemany("INSERT INTO conversations VALUES (?, ?, ?, ?)", [
+                (i, str(i), self.temp_dir.name, "2026-01-01T00:00:00Z") for i in range(1, 4)
+            ])
+        database.migrate()
+        self.assertEqual([item.id for item in database.list_conversations()], [3, 2, 1])
+        database.reorder_conversations([1, 2, 3])
+        database.migrate()
+        self.assertEqual([item.id for item in database.list_conversations()], [1, 2, 3])
+
     def test_history_pages_and_incremental_cursor_are_scoped(self) -> None:
         conversation = self.database.create_conversation("Pages", self.temp_dir.name, "fake")
         other = self.database.create_conversation("Other", self.temp_dir.name, "fake")

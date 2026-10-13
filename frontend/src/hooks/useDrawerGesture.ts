@@ -336,6 +336,7 @@ export function useDrawerGesture({
     // A sheet or confirmation displayed over the drawer owns its own gesture.
     if (!isOwnDescendant(event)) return
     const target = event.target instanceof Element ? event.target : null
+    if (target?.closest('[data-drawer-swipe-ignore]')) return
     const modal = target?.closest<HTMLElement>('[aria-modal="true"]')
     if (modal && !modal.classList.contains('drawer')) return
 

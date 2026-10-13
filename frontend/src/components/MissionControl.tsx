@@ -235,6 +235,8 @@ export function MissionControl({ conversations, onSelect, onCreate }: MissionCon
         {visibleProjects.map(conversation => {
           const task = recentTasks.get(conversation.id)
           const status = task?.status
+          const badge = getProviderBadge(conversation.provider, providers)
+          const ProviderIcon = badge.Icon
           return (
             <button
               type="button"
@@ -246,6 +248,7 @@ export function MissionControl({ conversations, onSelect, onCreate }: MissionCon
               <span className="mission-row-status" aria-hidden="true">{statusIcon(status)}</span>
               <span className="mission-row-identity">
                 <span className="mission-row-name">
+                  <span className="mission-project-provider" role="img" aria-label={badge.text} title={badge.text}><ProviderIcon size={18} /></span>
                   <strong>{conversation.name}</strong>
                   {conversation.is_pinned && <Pin size={11} aria-label="已置顶" />}
                 </span>

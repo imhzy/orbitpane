@@ -143,7 +143,8 @@ class Database:
                     preferred_model TEXT NOT NULL DEFAULT '',
                     permission_mode TEXT NOT NULL DEFAULT 'workspace',
                     draft TEXT NOT NULL DEFAULT '',
-                    active_summary_id INTEGER
+                    active_summary_id INTEGER,
+                    sort_order INTEGER NOT NULL DEFAULT 0
                 );
 
                 CREATE TABLE IF NOT EXISTS messages (
@@ -300,6 +301,11 @@ class Database:
             connection.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
 
     def _migrate_legacy_columns(self, connection: sqlite3.Connection) -> None:
+        # Preserve newest-first order on upgrade, then leave user ordering alone.
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(conversations)")}
+        if "sort_order" not in columns:
+            self._add_column(connection, "conversations", "sort_order", "INTEGER NOT NULL DEFAULT 0")
+            connection.execute("UPDATE conversations SET sort_order = -id")
         conversation_columns = {
             "provider": "TEXT NOT NULL DEFAULT 'antigravity'",
             "is_pinned": "INTEGER NOT NULL DEFAULT 0",
@@ -367,6 +373,7 @@ class Database:
                 if row["active_summary_id"] is not None
                 else None
             ),
+            sort_order=int(row["sort_order"]),
         )
 
     @staticmethod
@@ -397,7 +404,7 @@ class Database:
         with self.connect() as connection:
             rows = connection.execute(
                 "SELECT * FROM conversations " + where +
-                " ORDER BY is_pinned DESC, id DESC"
+                " ORDER BY is_pinned DESC, sort_order ASC, id DESC"
             ).fetchall()
         return [self._conversation(row) for row in rows]
 
@@ -421,8 +428,8 @@ class Database:
         with self.connect() as connection:
             cursor = connection.execute(
                 "INSERT INTO conversations"
-                "(name, path, provider, preferred_model, permission_mode) "
-                "VALUES (?, ?, ?, ?, ?)",
+                "(name, path, provider, preferred_model, permission_mode, sort_order) "
+                "VALUES (?, ?, ?, ?, ?, (SELECT COALESCE(MIN(sort_order), 0) - 1 FROM conversations))",
                 (name, path, provider, preferred_model, permission_mode),
             )
             conversation_id = int(cursor.lastrowid)
@@ -430,6 +437,36 @@ class Database:
         if conversation is None:
             raise RuntimeError("Conversation was not created")
         return conversation
+
+    def reorder_conversations(self, conversation_ids: list[int]) -> list[Conversation]:
+        """Reorder one visible group atomically, preserving omitted rows' slots."""
+        if len(conversation_ids) < 2 or len(set(conversation_ids)) != len(conversation_ids):
+            raise ValueError("Provide at least two distinct conversation ids")
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            rows = connection.execute(
+                "SELECT * FROM conversations ORDER BY is_pinned DESC, sort_order ASC, id DESC"
+            ).fetchall()
+            by_id = {int(row["id"]): row for row in rows}
+            selected = [by_id.get(conversation_id) for conversation_id in conversation_ids]
+            if any(row is None or row["is_archived"] for row in selected):
+                raise ValueError("Only existing, unarchived conversations can be reordered")
+            if len({row["is_pinned"] for row in selected}) != 1:
+                raise ValueError("Reorder starred and unstarred conversations separately")
+            # Normalize ranks in the same transaction, including rows omitted by
+            # a filter or a pending deletion. This also resolves legacy rank ties.
+            ordered_ids = [int(row["id"]) for row in rows]
+            requested = iter(conversation_ids)
+            selected_ids = set(conversation_ids)
+            ordered_ids = [next(requested) if cid in selected_ids else cid for cid in ordered_ids]
+            connection.executemany(
+                "UPDATE conversations SET sort_order = ? WHERE id = ?",
+                enumerate(ordered_ids),
+            )
+            ordered = connection.execute(
+                "SELECT * FROM conversations ORDER BY is_pinned DESC, sort_order ASC, id DESC"
+            ).fetchall()
+            return [self._conversation(row) for row in ordered]
 
     def update_conversation(
         self,

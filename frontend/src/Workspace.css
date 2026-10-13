@@ -14,6 +14,50 @@
 .project-actions-popover button:hover { color: var(--text-primary); background: var(--bg-surface-hover); }
 .project-actions-popover button.destructive { color: var(--danger-text); }
 .project-actions-popover button.destructive:hover { background: var(--danger-bg); }
+.project-actions-popover button:disabled,
+.project-actions-sheet button:disabled { opacity: .4; cursor: default; }
+
+/* Project identity uses the provider's actual mark in both themes. */
+.provider-logo { display: block; flex: none; object-fit: contain; user-select: none; }
+[data-theme='dark'] .provider-logo-codex { filter: invert(1); }
+.list-item .item-icon.codex,
+.list-item.selected .item-icon.codex { color: var(--text-primary); background: var(--bg-surface-hover); }
+.list-item .item-icon.gemini,
+.list-item.selected .item-icon.gemini { background: var(--bg-surface-hover); }
+.header-provider-icon { display: grid; place-items: center; flex: none; width: 28px; height: 28px; }
+.mission-project-provider { display: grid; place-items: center; flex: none; }
+.item-provider-name { flex: none; max-width: 90px; overflow: hidden; text-overflow: ellipsis; color: var(--text-secondary); }
+.item-provider-name + .item-meta-path::before { content: '· '; color: var(--text-tertiary); }
+
+.conv-title-trigger { display: inline-flex; align-items: center; gap: 7px; min-width: 0; min-height: 32px; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.conv-title-trigger .active-conv-title-text { min-width: 0; }
+.edit-title-icon { flex: none; color: var(--text-tertiary); opacity: .5; }
+.conv-title-trigger:hover .edit-title-icon,
+.conv-title-trigger:focus-visible .edit-title-icon { color: var(--accent-text); opacity: 1; }
+.conv-title-trigger:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 3px; }
+.header-title .conv-title-input { width: min(260px, 100%); min-width: 0; }
+
+/* Only the handle owns dragging; the rest of each row keeps native scrolling. */
+.sidebar-sort-hint { display: flex; align-items: center; gap: 5px; margin: 0 4px 10px; font-size: 10px; line-height: 1.5; color: var(--text-tertiary); }
+.sidebar-sort-hint svg { flex: none; }
+.sortable-conversation { position: relative; }
+.sortable-conversation.is-dragging { opacity: .3; }
+.conversation-drag-handle { display: grid; place-items: center; width: 24px; min-width: 24px; height: 32px; padding: 0; flex: none; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-tertiary); cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.conversation-drag-handle:hover { background: var(--bg-surface-hover); color: var(--text-secondary); }
+.conversation-drag-handle:active { cursor: grabbing; }
+.conversation-drag-handle[aria-disabled='true'] { opacity: .25; cursor: default; }
+.conversation-drag-handle:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 1px; }
+.conversation-sort-group .list-item { gap: 7px; padding-left: 4px; }
+.conversation-drag-overlay { box-sizing: border-box; margin: 0; border: 1px solid var(--accent-border); background: var(--bg-surface); box-shadow: var(--shadow-lg); cursor: grabbing; }
+.conversation-drag-overlay .item-content { overflow: hidden; }
+
+@media (max-width: 768px), (pointer: coarse) {
+  .conversation-drag-handle { width: 44px; min-width: 44px; height: 44px; }
+  .conversation-sort-group .list-item { gap: 5px; padding: 4px 4px 4px 0; }
+  .conversation-sort-group .item-actions .project-menu-trigger { min-width: 44px; width: 44px; height: 44px; }
+  .conv-title-trigger { min-height: 44px; }
+  .header-title .conv-title-input { font-size: 16px; }
+}
 .cw-advanced-toggle { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 56px; padding: 12px; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-secondary); color: var(--text-secondary); text-align: left; font-size: var(--text-sm); cursor: pointer; }
 .cw-advanced-toggle > span { flex: 1; }
 .cw-advanced-toggle small { display: block; margin-top: 5px; color: var(--text-tertiary); font-size: var(--text-2xs); }

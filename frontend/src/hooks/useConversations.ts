@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { apiFetch } from '../lib/api'
 import { formatModelName, rememberModelLabels } from '../lib/providers'
 import { pruneConversationKeys, readJson, writeJson } from '../lib/storage'
+import { reorderConversationSubset, sortConversations } from '../lib/conversationOrder'
 import type { Conversation, DirItem, Provider, ModelOption, ModelsResponse, AgentsResponse, PermissionMode, ToastKind } from '../lib/types'
 import type { AppPreferences } from '../lib/preferences'
 
@@ -46,12 +47,13 @@ function normalizeConversation(value: unknown): Conversation | null {
     permission_mode: raw.permission_mode === 'unrestricted' ? 'unrestricted' : 'workspace',
     draft: typeof raw.draft === 'string' ? raw.draft : '',
     active_summary_id: typeof raw.active_summary_id === 'number' ? raw.active_summary_id : null,
+    sort_order: typeof raw.sort_order === 'number' ? raw.sort_order : -raw.id,
   }
 }
 
 function normalizeConversations(value: unknown): Conversation[] {
   return Array.isArray(value)
-    ? value.map(normalizeConversation).filter((item): item is Conversation => item !== null)
+    ? sortConversations(value.map(normalizeConversation).filter((item): item is Conversation => item !== null))
     : []
 }
 
@@ -60,6 +62,9 @@ export function useConversations(showToast: (msg: string, kind?: ToastKind) => v
     normalizeConversations(readCache<unknown>(CONVERSATION_CACHE_KEY, []))
   ))
   const conversationsRef = useRef(conversations)
+  const [isReorderingConversations, setIsReorderingConversations] = useState(false)
+  const reorderingRef = useRef(false)
+  const orderRevisionRef = useRef(0)
   const [isConversationsLoading, setIsConversationsLoading] = useState(true)
   const [activeConv, setActiveConv] = useState<Conversation | null>(null)
   const activeConvRef = useRef<Conversation | null>(activeConv)
@@ -110,7 +115,13 @@ export function useConversations(showToast: (msg: string, kind?: ToastKind) => v
   const [selectedProvider, setSelectedProvider] = useState<string>('')
   const [selectedPermissionMode, setSelectedPermissionMode] = useState<PermissionMode>('workspace')
 
-  const [editingConvId, setEditingConvId] = useState<number | null>(null)
+  const [editingConvId, setEditingConvIdState] = useState<number | null>(null)
+  const editingConvIdRef = useRef<number | null>(null)
+  const setEditingConvId = useCallback((id: number | null) => {
+    editingConvIdRef.current = id
+    setEditingConvIdState(id)
+  }, [])
+  const [editingConvSurface, setEditingConvSurface] = useState<'header' | 'sidebar'>('header')
   const [editingConvName, setEditingConvName] = useState<string>('')
   const previousDefaultsRef = useRef({ provider: defaultProvider, root: defaultWorkspaceRoot })
 
@@ -219,9 +230,16 @@ export function useConversations(showToast: (msg: string, kind?: ToastKind) => v
 
   const loadConversations = useCallback((isInitial = false) => {
     if (isInitial) setIsConversationsLoading(true)
+    const orderRevision = orderRevisionRef.current
     return apiFetch<Conversation[]>('/api/conversations?include_archived=true')
       .then(data => {
-        const normalized = normalizeConversations(data)
+        let normalized = normalizeConversations(data)
+        if (reorderingRef.current || orderRevision !== orderRevisionRef.current) {
+          const ranks = new Map(conversationsRef.current.map(item => [item.id, item.sort_order]))
+          normalized = sortConversations(normalized.map(item => ({
+            ...item, sort_order: ranks.get(item.id) ?? item.sort_order,
+          })))
+        }
         conversationsRef.current = normalized
         setConversations(normalized)
         writeJson(CONVERSATION_CACHE_KEY, normalized)
@@ -267,6 +285,47 @@ export function useConversations(showToast: (msg: string, kind?: ToastKind) => v
       .finally(() => setIsConversationsLoading(false))
   }, [applySelectedModel, loadModels])
 
+  const reorderConversations = useCallback(async (conversationIds: number[]) => {
+    if (reorderingRef.current || conversationIds.length < 2) return false
+    const before = conversationsRef.current
+    const selected = before.filter(item => conversationIds.includes(item.id))
+    if (selected.length !== conversationIds.length || selected.some(item => item.is_archived)
+      || selected.some(item => item.is_pinned !== selected[0].is_pinned)) return false
+    if (selected.every((item, index) => item.id === conversationIds[index])) return true
+    const previousRanks = new Map(before.map(item => [item.id, item.sort_order]))
+    const applyRanks = (ranks: Map<number, number>) => {
+      const next = sortConversations(conversationsRef.current.map(item => ({
+        ...item, sort_order: ranks.get(item.id) ?? item.sort_order,
+      })))
+      conversationsRef.current = next
+      setConversations(next)
+      writeJson(CONVERSATION_CACHE_KEY, next)
+    }
+    reorderingRef.current = true
+    orderRevisionRef.current += 1
+    setIsReorderingConversations(true)
+    const optimistic = reorderConversationSubset(before, conversationIds)
+    conversationsRef.current = optimistic
+    setConversations(optimistic)
+    writeJson(CONVERSATION_CACHE_KEY, optimistic)
+    try {
+      const saved = await apiFetch<Conversation[]>('/api/conversations/reorder', {
+        method: 'POST', body: JSON.stringify({ conversation_ids: conversationIds }),
+      })
+      applyRanks(new Map(saved.map(item => [item.id, item.sort_order])))
+      return true
+    } catch (error) {
+      console.error(error)
+      applyRanks(previousRanks)
+      showToast('排序保存失败，已恢复原顺序', 'error')
+      return false
+    } finally {
+      orderRevisionRef.current += 1
+      reorderingRef.current = false
+      setIsReorderingConversations(false)
+    }
+  }, [showToast])
+
   const updateConversation = useCallback((
     conversationId: number,
     values: Partial<Pick<Conversation,
@@ -275,11 +334,13 @@ export function useConversations(showToast: (msg: string, kind?: ToastKind) => v
     options: { silent?: boolean } = {},
   ) => {
     const original = conversationsRef.current.find(conversation => conversation.id === conversationId)
-    const optimistic = conversationsRef.current.map(conversation => (
+    const orderRevision = orderRevisionRef.current
+    const optimistic = sortConversations(conversationsRef.current.map(conversation => (
       conversation.id === conversationId ? { ...conversation, ...values } : conversation
-    ))
+    )))
     conversationsRef.current = optimistic
     setConversations(optimistic)
+    writeJson(CONVERSATION_CACHE_KEY, optimistic)
     if (activeConvRef.current?.id === conversationId) {
       const updated = { ...activeConvRef.current, ...values }
       activeConvRef.current = updated
@@ -289,11 +350,16 @@ export function useConversations(showToast: (msg: string, kind?: ToastKind) => v
       method: 'PUT',
       body: JSON.stringify(values),
     }).then(updated => {
-      const committed = conversationsRef.current.map(conversation => (
+      updated = normalizeConversation(updated) ?? updated
+      if (reorderingRef.current || orderRevision !== orderRevisionRef.current) {
+        updated = { ...updated, sort_order: conversationsRef.current.find(item => item.id === conversationId)?.sort_order ?? updated.sort_order }
+      }
+      const committed = sortConversations(conversationsRef.current.map(conversation => (
         conversation.id === conversationId ? updated : conversation
-      ))
+      )))
       conversationsRef.current = committed
       setConversations(committed)
+      writeJson(CONVERSATION_CACHE_KEY, committed)
       if (activeConvRef.current?.id === conversationId) {
         activeConvRef.current = updated
         setActiveConv(updated)
@@ -302,11 +368,12 @@ export function useConversations(showToast: (msg: string, kind?: ToastKind) => v
     }).catch(error => {
       console.error(error)
       if (original) {
-        const rolledBack = conversationsRef.current.map(conversation => (
-          conversation.id === conversationId ? original : conversation
-        ))
+        const rolledBack = sortConversations(conversationsRef.current.map(conversation => (
+          conversation.id === conversationId ? { ...original, sort_order: conversation.sort_order } : conversation
+        )))
         conversationsRef.current = rolledBack
         setConversations(rolledBack)
+        writeJson(CONVERSATION_CACHE_KEY, rolledBack)
         if (activeConvRef.current?.id === conversationId) {
           activeConvRef.current = original
           setActiveConv(original)
@@ -345,30 +412,34 @@ export function useConversations(showToast: (msg: string, kind?: ToastKind) => v
       })
   }, [])
 
-  const startEditingConv = useCallback((event: React.MouseEvent, conversation: Conversation) => {
-    event.stopPropagation()
+  const startEditingConv = useCallback((conversation: Conversation, surface: 'header' | 'sidebar') => {
+    setEditingConvSurface(surface)
     setEditingConvId(conversation.id)
     setEditingConvName(conversation.name)
-  }, [])
+  }, [setEditingConvId])
 
-  const saveConvName = useCallback((conversationId: number) => {
-    const trimmed = editingConvName.trim()
-    const original = conversations.find(conversation => conversation.id === conversationId)
+  const saveConvName = useCallback((conversationId: number, name = editingConvName) => {
+    // Enter can also cause blur. Retire the editor synchronously so only the
+    // first event commits, and a cancelled or replaced editor cannot save.
+    if (editingConvIdRef.current !== conversationId) return
+    const trimmed = name.trim()
+    const original = conversationsRef.current.find(conversation => conversation.id === conversationId)
+    setEditingConvId(null)
     if (!trimmed || original?.name === trimmed) {
-      setEditingConvId(null)
       return
     }
     void updateConversation(conversationId, { name: trimmed })
       .then(updated => {
         if (updated) showToast('项目名称已更新')
       })
-      .finally(() => setEditingConvId(null))
-  }, [conversations, editingConvName, showToast, updateConversation])
+  }, [editingConvName, setEditingConvId, showToast, updateConversation])
 
   return {
     conversations,
     setConversations,
     isConversationsLoading,
+    isReorderingConversations,
+    reorderConversations,
     activeConv,
     setActiveConv,
     activeConvRef,
@@ -393,6 +464,7 @@ export function useConversations(showToast: (msg: string, kind?: ToastKind) => v
     selectedPermissionMode,
     setSelectedPermissionMode,
     editingConvId,
+    editingConvSurface,
     setEditingConvId,
     editingConvName,
     setEditingConvName,

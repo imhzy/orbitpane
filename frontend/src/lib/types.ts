@@ -84,6 +84,7 @@ export interface Conversation {
   permission_mode: PermissionMode
   draft: string
   active_summary_id?: number | null
+  sort_order: number
 }
 
 export type PermissionMode = 'workspace' | 'unrestricted'

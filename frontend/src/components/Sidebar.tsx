@@ -6,15 +6,18 @@ import {
   ChevronRight, Compass, FolderPlus,
   Check, Pencil, Layers, HardDrive, RefreshCw, Cpu,
   Search, Star, Settings, Command, MoreHorizontal, ChevronDown, Maximize2, Minimize2,
-  Archive, ShieldAlert, ShieldCheck
+  Archive, ShieldAlert, ShieldCheck, ArrowUp, ArrowDown, GripVertical
 } from 'lucide-react'
 import { LogoIcon } from '../LogoIcon'
 import type { Conversation } from '../lib/types'
 import { hasProviderChoice } from '../lib/providers'
+import { sortConversations } from '../lib/conversationOrder'
 import { haptic } from '../lib/nativeFeedback'
 import { useFocusTrap } from '../hooks/useFocusTrap'
 import { useEscapeLayer } from '../hooks/useEscapeLayer'
 import { MobileBottomSheet } from './MobileBottomSheet'
+import { ConversationNameInput } from './ConversationNameInput'
+import { SortableConversationGroup } from './SortableConversationGroup'
 
 import { useAppContext } from '../contexts/AppContext'
 
@@ -48,7 +51,7 @@ function projectMenuPosition(element: Element) {
   const trigger = element.querySelector<HTMLElement>('.project-menu-trigger') ?? element
   const rect = trigger.getBoundingClientRect()
   return {
-    top: Math.max(8, Math.min(rect.bottom + 5, window.innerHeight - 238)),
+    top: Math.max(8, Math.min(rect.bottom + 5, window.innerHeight - 304)),
     left: Math.max(8, Math.min(rect.left, window.innerWidth - 210)),
   }
 }
@@ -57,8 +60,8 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
   const {
     isDrawerOpen, drawerMode, setDrawerMode,
     conversations, isConversationsLoading, activeConv, selectConversation,
-    editingConvId, editingConvName, setEditingConvName, saveConvName,
-    setEditingConvId, deleteConversation, getProviderBadge,
+    editingConvId, editingConvSurface, saveConvName, startEditingConv,
+    deleteConversation, getProviderBadge, reorderConversations, isReorderingConversations,
     providers, newConvName, setNewConvName, selectedDir, setSelectedDir,
     currentPath, setCurrentPath, selectedProvider, setSelectedProvider,
     selectedPermissionMode, setSelectedPermissionMode,
@@ -68,8 +71,8 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
   } = useAppContext()
 
   const [searchTerm, setSearchTerm] = useState('')
+  const [isSorting, setIsSorting] = useState(false)
   const [isDirectoryExpanded, setIsDirectoryExpanded] = useState(false)
-  const isCancelingRef = React.useRef(false)
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 })
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false)
   const [unrestrictedAcknowledged, setUnrestrictedAcknowledged] = useState(false)
@@ -111,13 +114,9 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
   const drawerRef = useFocusTrap<HTMLDivElement>(isDrawerOpen && isOverlayDrawer && !settingsSection, {
     initialFocus: (): HTMLElement | null => drawerRef.current,
   })
-  useEscapeLayer(isDrawerOpen && isOverlayDrawer && !settingsSection, requestCloseDrawer)
-  // Registered after the drawer layer, so cancelling a rename wins over
-  // closing the drawer for the same keypress.
-  useEscapeLayer(editingConvId !== null, () => {
-    isCancelingRef.current = true
-    setEditingConvId(null)
-  })
+  // While sorting, dnd-kit's sensor owns Escape; cancelling must leave the
+  // overlay drawer open, ready for the next keyboard operation.
+  useEscapeLayer(isDrawerOpen && isOverlayDrawer && !settingsSection && !isSorting, requestCloseDrawer)
   useEscapeLayer(contextConv !== null, () => setContextConv(null))
   const longPressRef = React.useRef<{ timer: number; x: number; y: number } | null>(null)
   const suppressClickRef = React.useRef(false)
@@ -129,6 +128,7 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
 
   const beginLongPress = (event: React.PointerEvent, conversation: Conversation) => {
     if (event.pointerType !== 'touch') return
+    if ((event.target as Element).closest('button, input')) return
     cancelLongPress()
     const position = projectMenuPosition(event.currentTarget)
     longPressRef.current = {
@@ -178,6 +178,25 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
     return () => document.removeEventListener('mousedown', close)
   }, [contextConv, menuRef])
 
+  const filteredConvs = sortConversations(conversations.filter(c =>
+    !c.is_archived && (
+      c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      c.path.toLowerCase().includes(searchTerm.toLowerCase())
+    )
+  ))
+  const sortingDisabled = isReorderingConversations || editingConvId !== null || Boolean(searchTerm.trim())
+  const contextGroup = filteredConvs.filter(item => item.is_pinned === contextConv?.is_pinned)
+  const contextIndex = contextGroup.findIndex(item => item.id === contextConv?.id)
+  const moveContextConversation = (direction: -1 | 1) => {
+    const target = contextIndex + direction
+    if (sortingDisabled || contextIndex < 0 || target < 0 || target >= contextGroup.length) return
+    const ids = contextGroup.map(item => item.id)
+    ;[ids[contextIndex], ids[target]] = [ids[target], ids[contextIndex]]
+    void reorderConversations(ids)
+    haptic('selection')
+    setContextConv(null)
+  }
+
   const projectActions = contextConv && <>
     <button type="button" role="menuitem" onClick={() => {
       openSettings('project', contextConv.id)
@@ -189,10 +208,13 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
       setContextConv(null)
     }}><Star size={16} fill={contextConv.is_pinned ? 'currentColor' : 'none'} />{contextConv.is_pinned ? '取消星标' : '星标置顶'}</button>
     <button type="button" role="menuitem" onClick={() => {
-      setEditingConvId(contextConv.id)
-      setEditingConvName(contextConv.name)
+      startEditingConv(contextConv, 'sidebar')
       setContextConv(null)
     }}><Pencil size={16} />重命名项目</button>
+    <button type="button" role="menuitem" disabled={sortingDisabled || contextIndex <= 0}
+      onClick={() => moveContextConversation(-1)}><ArrowUp size={16} />上移</button>
+    <button type="button" role="menuitem" disabled={sortingDisabled || contextIndex < 0 || contextIndex >= contextGroup.length - 1}
+      onClick={() => moveContextConversation(1)}><ArrowDown size={16} />下移</button>
     <button type="button" role="menuitem" onClick={() => {
       void updateConversation(contextConv.id, { is_archived: !contextConv.is_archived })
       setContextConv(null)
@@ -203,18 +225,6 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
       setContextConv(null)
     }}><Trash2 size={16} />删除项目</button>
   </>
-
-  // Filter & sort conversations (pinned top)
-  const filteredConvs = conversations.filter(c =>
-    !c.is_archived && (
-      c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.path.toLowerCase().includes(searchTerm.toLowerCase())
-    )
-  ).sort((a, b) => {
-    const aPin = a.is_pinned ? 1 : 0
-    const bPin = b.is_pinned ? 1 : 0
-    return bPin - aPin
-  })
 
   return (
     <>
@@ -323,6 +333,10 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
                   )}
                 </div>
               )}
+              {filteredConvs.length > 1 && <p className="sidebar-sort-hint">
+                <GripVertical size={12} aria-hidden="true" />
+                <span>{searchTerm.trim() ? '清空搜索后可调整顺序' : isReorderingConversations ? '正在保存顺序…' : '拖动手柄排序，也可在菜单中上移、下移'}</span>
+              </p>}
               {isConversationsLoading ? (
                 <div className="flex flex-col gap-2 p-2">
                   {[1, 2, 3].map(i => (
@@ -360,8 +374,8 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
                   const pinnedConvs = filteredConvs.filter(c => c.is_pinned)
                   const unpinnedConvs = filteredConvs.filter(c => !c.is_pinned)
 
-                  const renderConvItem = (conv: Conversation) => {
-                    const isEditing = editingConvId === conv.id
+                  const renderConvItem = (conv: Conversation, dragHandle: React.ReactNode) => {
+                    const isEditing = editingConvId === conv.id && editingConvSurface === 'sidebar'
                     const isPinned = conv.is_pinned
                     const badge = getProviderBadge(conv.provider, providers)
                     const ProviderIcon = badge.Icon
@@ -390,55 +404,22 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
                           haptic('light')
                         }}
                       >
-                        {/* Tinting by agent is only a distinction when the rows
-                            can differ. Otherwise the tile is neutral and the
-                            accent is left to mean "selected", which is the one
-                            thing the eye should find in this list. */}
-                        <div className={`item-icon ${showProviderTags ? badge.type : ''}`}>
-                          <ProviderIcon size={16} />
+                        {dragHandle}
+                        <div className={`item-icon ${badge.type}`} role="img" aria-label={badge.text} title={badge.text}>
+                          <ProviderIcon size={22} />
                         </div>
                         <div className="item-content">
                           {isEditing ? (
-                            <input
-                              type="text"
-                              className="cw-input conv-title-input"
-                              value={editingConvName}
-                              autoFocus
-                              onClick={e => e.stopPropagation()}
-                              onChange={e => setEditingConvName(e.target.value)}
-                              onKeyDown={e => {
-                                // Escape is handled by the layer stack above.
-                                if (e.key === 'Enter') saveConvName(conv.id)
-                              }}
-                              onBlur={() => {
-                                if (isCancelingRef.current) {
-                                  isCancelingRef.current = false
-                                  return
-                                }
-                                saveConvName(conv.id)
-                              }}
-                            />
+                            <ConversationNameInput conversationId={conv.id} />
                           ) : (
                             <>
                               <div className="item-title-row">
                                 <span className="item-title" title={conv.name}>{conv.name}</span>
                                 {isPinned && <Star size={11} className="pin-star-icon" fill="currentColor" />}
                               </div>
-                              {/* One metadata line, not three stacked blocks.
-                                  The agent used to be a bordered accent pill on
-                                  its own row — a label reading identically on
-                                  every row, drawn as emphatically as the only
-                                  thing on the row that differs. It is a colour
-                                  dot now, and the path gets the width it needs
-                                  to stay identifiable. */}
                               <span className="item-meta-row">
                                 {showProviderTags && (
-                                  <span
-                                    className={`provider-orbit-mark ${badge.className}`}
-                                    title={badge.text}
-                                    aria-label={badge.text}
-                                    role="img"
-                                  />
+                                  <span className="item-provider-name">{badge.text}</span>
                                 )}
                                 <span className="item-meta-path" title={conv.path}>{conv.path}</span>
                               </span>
@@ -450,6 +431,8 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
                             <button
                               className="icon-btn"
                               title="保存名称"
+                              aria-label="保存名称"
+                              onMouseDown={event => event.preventDefault()}
                               onClick={() => saveConvName(conv.id)}
                             >
                               <Check size={14} />
@@ -479,7 +462,7 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
                             <Star size={12} className="icon-warning" />
                             <span>星标置顶 ({pinnedConvs.length})</span>
                           </div>
-                          {pinnedConvs.map(renderConvItem)}
+                          <SortableConversationGroup conversations={pinnedConvs} label="星标项目" disabled={sortingDisabled} renderItem={renderConvItem} onSortingChange={setIsSorting} />
                         </div>
                       )}
 
@@ -490,7 +473,7 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
                               <span>所有项目 ({unpinnedConvs.length})</span>
                             </div>
                           )}
-                          {unpinnedConvs.map(renderConvItem)}
+                          <SortableConversationGroup conversations={unpinnedConvs} label="所有项目" disabled={sortingDisabled} renderItem={renderConvItem} onSortingChange={setIsSorting} />
                         </div>
                       )}
                     </div>

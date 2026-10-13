@@ -53,6 +53,8 @@ export interface AppContextType {
   // Conversations (from useConversations)
   conversations: Conversation[];
   isConversationsLoading: boolean;
+  isReorderingConversations: boolean;
+  reorderConversations: (ids: number[]) => Promise<boolean>;
   activeConv: Conversation | null;
   setActiveConv: (conv: Conversation | null) => void;
   deleteConversation: (e: React.MouseEvent, convId: number) => void;
@@ -67,11 +69,12 @@ export interface AppContextType {
 
   // Workspace editing
   editingConvId: number | null;
+  editingConvSurface: 'header' | 'sidebar';
   setEditingConvId: (id: number | null) => void;
   editingConvName: string;
   setEditingConvName: (name: string) => void;
-  startEditingConv: (e: React.MouseEvent, conv: Conversation) => void;
-  saveConvName: (convId: number) => void;
+  startEditingConv: (conv: Conversation, surface: 'header' | 'sidebar') => void;
+  saveConvName: (convId: number, name?: string) => void;
 
   // Providers & Models
   providers: Provider[];

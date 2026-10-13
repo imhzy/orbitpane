@@ -47,6 +47,7 @@ from .models import (
     ChatMessage,
     Conversation,
     ConversationCreate,
+    ConversationReorder,
     ConversationUpdate,
     LoginRequest,
     PasskeyResponse,
@@ -751,6 +752,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 permission_mode=request.permission_mode,
             )
         )
+
+    @app.post("/api/conversations/reorder", dependencies=[Depends(require_auth)])
+    def reorder_conversations(request: ConversationReorder):
+        try:
+            ordered = database.reorder_conversations(request.conversation_ids)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return [asdict(item) for item in ordered]
 
     @app.put(
         "/api/conversations/{conversation_id}",

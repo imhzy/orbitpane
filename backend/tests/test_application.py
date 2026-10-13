@@ -47,6 +47,25 @@ class ApplicationTests(IsolatedAsyncioTestCase):
         self.assertIn("orbitpane_session", response.cookies)
         return {}
 
+    async def test_conversation_reorder_is_authenticated_validated_and_persistent(self) -> None:
+        database = self.app.state.database
+        first = database.create_conversation("First", str(self.workspace), "antigravity")
+        second = database.create_conversation("Second", str(self.workspace), "antigravity")
+        third = database.create_conversation("Third", str(self.workspace), "antigravity")
+        url = "/api/conversations/reorder"
+        payload = {"conversation_ids": [first.id, second.id, third.id]}
+        self.assertEqual((await self.client.post(url, json=payload)).status_code, 401)
+        await self.login_headers()
+        response = await self.client.post(url, json=payload)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual([item["id"] for item in response.json()], payload["conversation_ids"])
+        self.assertEqual([item["id"] for item in (await self.client.get("/api/conversations")).json()], payload["conversation_ids"])
+        for ids, status in (([first.id], 422), ([True, second.id], 422), (["1", second.id], 422),
+                            ([0, second.id], 422), ([first.id, first.id], 400), ([first.id, 999999], 400)):
+            with self.subTest(ids=ids):
+                self.assertEqual((await self.client.post(url, json={"conversation_ids": ids})).status_code, status)
+                self.assertEqual([item.id for item in database.list_conversations()], payload["conversation_ids"])
+
     async def test_history_and_search_pagination_require_auth_and_preserve_legacy_history(self) -> None:
         database = self.app.state.database
         conversation = database.create_conversation("Pages", str(self.workspace), "antigravity")

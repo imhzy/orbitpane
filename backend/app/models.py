@@ -76,6 +76,7 @@ class Conversation:
     permission_mode: str = "workspace"
     draft: str = ""
     active_summary_id: int | None = None
+    sort_order: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,6 +128,12 @@ class ConversationUpdate(BaseModel):
     preferred_model: str | None = Field(default=None, max_length=120)
     permission_mode: Literal["workspace", "unrestricted"] | None = None
     draft: str | None = Field(default=None, max_length=200_000)
+
+
+class ConversationReorder(BaseModel):
+    conversation_ids: list[Annotated[int, Field(ge=1, strict=True)]] = Field(
+        min_length=2, max_length=10_000
+    )
 
 
 class ChatMessage(BaseModel):

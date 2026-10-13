@@ -7,6 +7,7 @@ import { haptic } from '../lib/nativeFeedback'
 import { openInspectorPanel, OPEN_SHARE_EVENT } from '../lib/appEvents'
 import { useEscapeLayer } from '../hooks/useEscapeLayer'
 import { MobileBottomSheet } from './MobileBottomSheet'
+import { ConversationNameInput } from './ConversationNameInput'
 
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -18,8 +19,8 @@ interface ChatHeaderProps {
 
 export function ChatHeader(_props: ChatHeaderProps) {
   const {
-    activeConv, editingConvId, editingConvName, setEditingConvName, saveConvName,
-    startEditingConv, setEditingConvId, getProviderBadge, providers, isDrawerOpen,
+    activeConv, editingConvId, editingConvSurface,
+    startEditingConv, getProviderBadge, providers, isDrawerOpen,
     setIsDrawerOpen, openSettings,
     isExporting, exportConversationAsImage, messages, clearMessages, summarizeMessages,
     isConnected, isReconnecting, connectWebSocket, showProjectHome, activeTaskCount
@@ -33,11 +34,12 @@ export function ChatHeader(_props: ChatHeaderProps) {
         ? 'connecting'
         : 'offline'
   const showProviderTags = hasProviderChoice(providers)
+  const providerBadge = getProviderBadge(activeConv?.provider, providers)
+  const ProviderIcon = providerBadge.Icon
 
   const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false)
   const [isShareOpen, setIsShareOpen] = useState(false)
   const actionsMenuRef = useRef<HTMLDivElement>(null)
-  const isCancelingRef = useRef(false)
 
   /* The same menu is a bottom sheet you can drag on a phone and an anchored
      popover under the trigger on a pointer device. It used to exist only on
@@ -54,10 +56,6 @@ export function ChatHeader(_props: ChatHeaderProps) {
   }, [])
 
   useEscapeLayer(isActionsMenuOpen, () => setIsActionsMenuOpen(false))
-  useEscapeLayer(editingConvId !== null, () => {
-    isCancelingRef.current = true
-    setEditingConvId(null)
-  })
 
   /* The overflow menu owns the dialog, so the command palette asks for it the
      same way the inspector is asked for rather than threading a callback
@@ -92,6 +90,10 @@ export function ChatHeader(_props: ChatHeaderProps) {
       <div className="actions-dropdown-divider" />
       {activeConv && (
         <>
+          <button type="button" role="menuitem" className="actions-dropdown-item" onClick={() => {
+            startEditingConv(activeConv, 'header')
+            setIsActionsMenuOpen(false)
+          }}><Pencil size={14} /><span>重命名项目</span></button>
           <button type="button" role="menuitem" className="actions-dropdown-item" onClick={() => {
             openInspectorPanel('schedules')
             setIsActionsMenuOpen(false)
@@ -162,44 +164,21 @@ export function ChatHeader(_props: ChatHeaderProps) {
             identifies the project — a second logo 500px from the first was the
             most visible thing wrong with this screen. */}
         {!activeConv && <LogoIcon size={22} className="header-app-mark" />}
+        {activeConv && <span className={`header-provider-icon ${providerBadge.type}`} role="img" aria-label={providerBadge.text} title={providerBadge.text}>
+          <ProviderIcon size={22} />
+        </span>}
 
         <div className="header-title-wrapper">
           <div className="header-title">
             {activeConv ? (
-              editingConvId === activeConv.id ? (
-                <input
-                  type="text"
-                  className="cw-input conv-title-input"
-                  value={editingConvName}
-                  autoFocus
-                  onChange={e => setEditingConvName(e.target.value)}
-                  onKeyDown={e => {
-                    // Escape is handled by the layer stack.
-                    if (e.key === 'Enter') saveConvName(activeConv.id)
-                  }}
-                  onBlur={() => {
-                    if (isCancelingRef.current) {
-                      isCancelingRef.current = false
-                      return
-                    }
-                    saveConvName(activeConv.id)
-                  }}
-                />
+              editingConvId === activeConv.id && editingConvSurface === 'header' ? (
+                <ConversationNameInput conversationId={activeConv.id} />
               ) : (
-                <>
-                  <span className="active-conv-title-text">{activeConv.name}</span>
-                  <button
-                    className="icon-btn edit-title-btn"
-                    title="重命名项目"
-                    aria-label="重命名项目"
-                    onMouseDown={(e) => {
-                      e.preventDefault()
-                      startEditingConv(e, activeConv)
-                    }}
-                  >
-                    <Pencil size={13} />
-                  </button>
-                </>
+                <button type="button" className="conv-title-trigger" title="重命名项目" aria-label={`重命名项目 ${activeConv.name}`}
+                  onClick={() => startEditingConv(activeConv, 'header')}>
+                  <span className="active-conv-title-text" title={activeConv.name}>{activeConv.name}</span>
+                  <Pencil size={13} className="edit-title-icon" aria-hidden="true" />
+                </button>
               )
             ) : (
               <div className="brand-title-group header-app-mark">

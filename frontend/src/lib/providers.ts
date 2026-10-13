@@ -1,6 +1,7 @@
 import { Cpu, MessageSquare } from 'lucide-react'
 import type { ModelOption, Provider, ProviderBadge } from './types'
 import { readJson, writeJson } from './storage'
+import { GeminiIcon, CodexIcon } from './providerIcons'
 
 const MODEL_LABEL_CACHE_KEY = 'orbitpane_model_labels_v1'
 
@@ -8,6 +9,10 @@ const TONE_CLASS: Record<string, string> = {
   gemini: 'badge-gemini',
   codex: 'badge-codex',
   default: 'badge-default',
+}
+const TONE_ICON: Record<string, ProviderBadge['Icon']> = {
+  gemini: GeminiIcon,
+  codex: CodexIcon,
 }
 
 /**
@@ -68,6 +73,6 @@ export function getProviderBadge(
     text: provider?.name || providerId || '未知 Agent',
     type: tone,
     className: TONE_CLASS[tone] || TONE_CLASS.default,
-    Icon: provider ? Cpu : MessageSquare,
+    Icon: TONE_ICON[tone] || (provider ? Cpu : MessageSquare),
   }
 }
