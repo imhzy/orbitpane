@@ -7,7 +7,10 @@ import os
 import re
 import shutil
 import subprocess
+import time
+import uuid
 from collections.abc import AsyncIterator
+from dataclasses import dataclass, field, replace
 
 from ..config import Settings
 from .base import (
@@ -26,6 +29,35 @@ from .base import (
 from .process import terminate_process
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _RecoveryState:
+    thread_id: str = ""
+    did_work: bool = False
+    emitted_message: bool = False
+    content: str = ""
+    thoughts: list[str] = field(default_factory=list)
+
+
+def _failure(message: str) -> ProviderError:
+    """Only explicitly transient model/transport failures may resume a turn."""
+    lowered = message.lower()
+    if any(word in lowered for word in (
+        "insufficient_quota", "usage limit", "usage_limit", "billing", "quota exceeded",
+        "unauthorized", "authentication", "invalid api key",
+    )):
+        return ProviderError(message)
+    if any(word in lowered for word in ("at capacity", "no capacity", "overloaded")):
+        return ProviderError(message, code="provider_busy")
+    if any(word in lowered for word in ("rate limit", "rate_limit", "too many requests")):
+        return ProviderError(message, code="provider_rate_limited")
+    if any(word in lowered for word in (
+        "service unavailable", "temporarily unavailable", "connection reset",
+        "stream disconnected", "connection closed before", "request timed out",
+    )):
+        return ProviderError(message, code="provider_unavailable")
+    return ProviderError(message)
 
 
 async def _output_lines(stream: asyncio.StreamReader) -> AsyncIterator[bytes]:
@@ -167,11 +199,16 @@ class CodexCliProvider(AgentProvider):
     display_name = "ChatGPT Codex"
     tone = "codex"
     _REASONING_SUMMARIES = frozenset({"auto", "concise", "detailed", "none"})
+    RETRY_DELAYS = (5, 15, 30)
+    RECOVERY_TIMEOUT = 120
+    EXIT_TIMEOUT = 10
+    _RETRYABLE_CODES = frozenset({"provider_busy", "provider_rate_limited", "provider_unavailable"})
 
     def __init__(self, settings: Settings, store: ModelCatalogStore | None = None):
         self.settings = settings
         self._processes: dict[int, asyncio.subprocess.Process] = {}
         self._interrupted: set[int] = set()
+        self._retry_stops: dict[int, asyncio.Event] = {}
         self._catalog = ModelCatalogCache(
             self.id,
             fetch=lambda: fetch_codex_models(self.settings.codex_command),
@@ -271,18 +308,73 @@ class CodexCliProvider(AgentProvider):
             )
         slug, effort = split_reasoning_effort(self.validate_model(request.model))
         prompt = self._build_prompt(request)
+        recovery = _RecoveryState()
+        stop = asyncio.Event()
+        self._retry_stops[request.conversation_id] = stop
+        try:
+            for attempt in range(len(self.RETRY_DELAYS) + 1):
+                if stop.is_set():
+                    return AgentResult(recovery.content, "".join(recovery.thoughts), interrupted=True)
+                command = self._command(request, slug, effort)
+                if recovery.thread_id:
+                    command.extend([
+                        "resume", recovery.thread_id,
+                        "Continue the unfinished task from this session after a transient model "
+                        "service failure. Inspect saved tool results and existing files first. "
+                        "Do not repeat completed actions or external side effects. Complete only "
+                        "the remaining work and provide the final answer in the user's language.",
+                    ])
+                else:
+                    command.append(prompt)
+                try:
+                    result = await self._run_once(request, emit, command, recovery)
+                    return replace(result, thought="".join(recovery.thoughts))
+                except ProviderError as exc:
+                    if stop.is_set():
+                        return AgentResult(recovery.content, "".join(recovery.thoughts), interrupted=True)
+                    if exc.code not in self._RETRYABLE_CODES:
+                        raise
+                    # Without a saved thread, replay is safe only before any
+                    # agent/tool work. Never silently restart work from scratch.
+                    if recovery.did_work and not recovery.thread_id:
+                        raise ProviderError(
+                            "模型服务暂时不可用，但缺少可恢复的会话标识；已保留进度，请稍后继续。",
+                            code=exc.code, detail=str(exc),
+                        ) from exc
+                    if attempt == len(self.RETRY_DELAYS):
+                        raise ProviderError(
+                            "模型服务仍不可用，自动恢复已达上限；已保留进度，请稍后继续或切换模型。",
+                            code=exc.code, detail=str(exc),
+                        ) from exc
+                    delay = self.RETRY_DELAYS[attempt]
+                    await emit(AgentEvent(
+                        "status", f"模型服务暂时繁忙，{delay} 秒后自动继续"
+                        f"（第 {attempt + 1}/{len(self.RETRY_DELAYS)} 次恢复）…",
+                    ))
+                    try:
+                        await asyncio.wait_for(stop.wait(), timeout=delay)
+                    except asyncio.TimeoutError:
+                        pass
+        finally:
+            self._retry_stops.pop(request.conversation_id, None)
+            self._interrupted.discard(request.conversation_id)
+
+    def _command(self, request: AgentRequest, slug: str, effort: str) -> list[str]:
         command = [
             self.settings.codex_command,
             "exec",
             "--json",
-            "--ephemeral",
             "--skip-git-repo-check",
             "--model",
             slug,
         ]
         command.extend(self._reasoning_args(effort))
         command.extend(self._permission_args(request.permission_mode))
-        command.append(prompt)
+        return command
+
+    async def _run_once(
+        self, request: AgentRequest, emit: EmitEvent, command: list[str], recovery: _RecoveryState,
+    ) -> AgentResult:
         process = await asyncio.create_subprocess_exec(
             *command,
             stdin=asyncio.subprocess.DEVNULL,
@@ -293,16 +385,37 @@ class CodexCliProvider(AgentProvider):
         )
         self._processes[request.conversation_id] = process
         final_content = ""
-        emitted_agent_message = False
-        thought_parts: list[str] = []
         stderr_task = asyncio.create_task(process.stderr.read())  # type: ignore[union-attr]
+        last_error = ""
+        terminal_error = ""
+        terminal_event = "eof"
+        completed = False
+        recovery_deadline: float | None = None
 
         seen_started: set[str] = set()
         seen_completed: set[str] = set()
 
         try:
+            if request.conversation_id in self._interrupted:
+                await terminate_process(process)
+                return AgentResult(recovery.content, interrupted=True)
             assert process.stdout is not None
-            async for raw_line in _output_lines(process.stdout):
+            lines = _output_lines(process.stdout)
+            while True:
+                try:
+                    if recovery_deadline is None:
+                        raw_line = await anext(lines)
+                    else:
+                        raw_line = await asyncio.wait_for(
+                            anext(lines), timeout=max(0, recovery_deadline - time.monotonic()),
+                        )
+                except StopAsyncIteration:
+                    break
+                except asyncio.TimeoutError:
+                    terminal_error = last_error
+                    terminal_event = "recovery_timeout"
+                    await terminate_process(process)
+                    break
                 try:
                     event = json.loads(raw_line)
                 except json.JSONDecodeError:
@@ -310,43 +423,77 @@ class CodexCliProvider(AgentProvider):
                 event_type = event.get("type", "")
                 item = event.get("item") or {}
                 item_type = item.get("type", "")
+                if event_type == "thread.started":
+                    # UUID validation also prevents a session id being treated
+                    # as a CLI flag. Never use --last on a multi-project host.
+                    try:
+                        recovery.thread_id = str(uuid.UUID(str(event.get("thread_id", ""))))
+                    except ValueError:
+                        pass
+                elif event_type == "error":
+                    last_error = self._event_error(event)
+                    if recovery_deadline is None:
+                        recovery_deadline = time.monotonic() + self.RECOVERY_TIMEOUT
+                    await emit(AgentEvent("status", "Codex 报告暂时异常，正在等待本轮恢复…"))
+                    continue
+                elif event_type == "turn.failed":
+                    terminal_error = self._event_error(event)
+                    terminal_event = event_type
+                    break
+                elif event_type == "turn.completed":
+                    completed = True
+                    terminal_event = event_type
+                    await emit(AgentEvent("status", ""))
+                    break
+                if event_type.startswith("item.") and item_type != "error":
+                    recovery.did_work = True
+                    if recovery_deadline is not None:
+                        recovery_deadline = None
+                        await emit(AgentEvent("status", ""))
                 if event_type == "item.completed" and item_type == "agent_message":
                     text = self._item_text(item.get("text", ""))
                     final_content = text
+                    recovery.content = text
                     if text:
                         # Codex can emit progress commentary before its final
                         # response. Stream all of it, with readable boundaries,
                         # but follow the SDK contract and retain the latest agent
                         # message as the completed turn's final response.
-                        streamed_text = f"\n\n{text}" if emitted_agent_message else text
-                        emitted_agent_message = True
+                        streamed_text = f"\n\n{text}" if recovery.emitted_message else text
+                        recovery.emitted_message = True
                         await emit(AgentEvent("token", streamed_text))
                 elif event_type.startswith("item."):
                     thought = self._format_thought(event_type, item, seen_started, seen_completed)
                     if thought:
-                        thought_parts.append(thought)
+                        recovery.thoughts.append(thought)
                         await emit(AgentEvent("thought", thought))
-                elif event_type in {"turn.failed", "error"}:
-                    raise ProviderError(
-                        event.get("message")
-                        or (event.get("error") or {}).get("message")
-                        or "Codex run failed"
-                    )
 
-            return_code = await process.wait()
+            try:
+                return_code = await asyncio.wait_for(process.wait(), timeout=self.EXIT_TIMEOUT)
+                await asyncio.wait_for(asyncio.shield(stderr_task), timeout=self.EXIT_TIMEOUT)
+            except asyncio.TimeoutError:
+                await terminate_process(process)
+                raise ProviderError("Codex 本轮结束后进程未正常退出")
             stderr = (await stderr_task).decode("utf-8", errors="replace").strip()
             interrupted = request.conversation_id in self._interrupted
+            logger.info(
+                "Codex run=%s thread=%s exit=%s terminal=%s error_notified=%s",
+                request.run_id, recovery.thread_id, return_code, terminal_event, bool(last_error),
+            )
+            if not interrupted and (terminal_error or (last_error and not completed)):
+                raise _failure(terminal_error or last_error)
             if return_code != 0 and not interrupted:
-                raise ProviderError(
+                raise _failure(
                     f"Codex exited with code {return_code}"
                     + (f": {stderr[-4000:]}" if stderr else "")
                 )
             if not final_content.strip() and not interrupted:
                 raise empty_output_error("Codex", stderr, request.permission_mode)
+            if not completed and not interrupted:
+                raise ProviderError("Codex 事件流提前结束，尚未确认任务完成")
 
             return AgentResult(
-                content=final_content,
-                thought="".join(thought_parts),
+                content=(final_content or recovery.content) if interrupted else final_content,
                 interrupted=interrupted,
             )
         finally:
@@ -356,10 +503,18 @@ class CodexCliProvider(AgentProvider):
                 stderr_task.cancel()
             await asyncio.gather(stderr_task, return_exceptions=True)
             self._processes.pop(request.conversation_id, None)
-            self._interrupted.discard(request.conversation_id)
+
+    @staticmethod
+    def _event_error(event: dict) -> str:
+        error = event.get("error")
+        return str(event.get("message") or (
+            error.get("message") if isinstance(error, dict) else error
+        ) or "Codex run failed")
 
     async def interrupt(self, conversation_id: int) -> None:
         self._interrupted.add(conversation_id)
+        if stop := self._retry_stops.get(conversation_id):
+            stop.set()
         await terminate_process(self._processes.get(conversation_id))
 
     def _build_prompt(self, request: AgentRequest) -> str:

@@ -116,6 +116,9 @@ class ApplicationTests(IsolatedAsyncioTestCase):
 
         # Empty the caches the way an expired TTL does, so the request has to
         # discover models rather than read what prewarm left behind.
+        # First drain startup discovery: an in-flight fallback probe could
+        # otherwise refill the cache after we clear it and bypass slow_probe.
+        await self.app.state.providers.prewarm()
         for provider in self.app.state.providers._providers.values():
             provider._catalog._models = None
 

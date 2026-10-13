@@ -294,6 +294,21 @@ Codex is disabled by default. The adapter uses the documented
 same authentication, workspace policy, task coordinator, history and
 WebSocket protocol as Antigravity.
 
+An `error` notification does not immediately stop a running Codex process:
+the adapter keeps listening for recovery and requires `turn.completed` before
+accepting an answer. An unresolved error without further work is allowed 120
+seconds to recover. Confirmed capacity, rate-limit, and recognized transient
+connection failures get up to three continuations after 5, 15, and 30 seconds.
+The UI shows the recovery status, and Stop also cancels a pending retry.
+
+Codex session files are now persisted by the CLI (no `--ephemeral`) so automatic
+recovery can use `exec resume` with the exact thread ID and the same model and
+permissions. Recovery asks the agent to check saved work and continue only
+unfinished actions. The original task is retried without a thread only if no
+agent/tool work has started. Authentication, quota, and other permanent errors
+are not automatically retried. This recovery applies within a running task;
+it does not resume tasks across a backend restart.
+
 ```bash
 export CODEX_ENABLED=true
 export CODEX_SANDBOX=workspace-write

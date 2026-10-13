@@ -13,7 +13,7 @@ from backend.app.agents.codex import (
     split_reasoning_effort,
     _output_lines,
 )
-from backend.app.agents.base import AgentRequest
+from backend.app.agents.base import AgentRequest, ProviderError
 from backend.app.config import Settings
 
 
@@ -337,16 +337,17 @@ class _FakeStream:
 
 
 class _FakeProcess:
-    def __init__(self, events: list[dict[str, object]]) -> None:
+    def __init__(self, events: list[dict[str, object]], exit_code: int = 0) -> None:
         self.stdout = _FakeStream(
             [(json.dumps(event) + "\n").encode() for event in events]
         )
         self.stderr = _FakeStream()
         self.returncode: int | None = None
+        self.exit_code = exit_code
 
     async def wait(self) -> int:
-        self.returncode = 0
-        return 0
+        self.returncode = self.exit_code
+        return self.exit_code
 
 
 class CodexRunTests(IsolatedAsyncioTestCase):
@@ -371,6 +372,7 @@ class CodexRunTests(IsolatedAsyncioTestCase):
             {"type": "item.completed", "item": {
                 "id": "final", "type": "agent_message", "text": "Done.",
             }},
+            {"type": "turn.completed"},
         ]:
             process.stdout.feed_data((json.dumps(event) + "\n").encode())
         process.stdout.feed_eof()
@@ -471,6 +473,7 @@ class CodexRunTests(IsolatedAsyncioTestCase):
                     "type": "item.completed",
                     "item": {"id": "item_0", "type": "agent_message", "text": "Done."},
                 },
+                {"type": "turn.completed"},
             ]
         )
 
@@ -500,6 +503,232 @@ class CodexRunTests(IsolatedAsyncioTestCase):
         self.assertEqual(command[command.index("--model") + 1], "gpt-test")
         self.assertIn('model_reasoning_effort="xhigh"', command)
         self.assertNotIn("gpt-test@xhigh", command)
+
+
+class CodexRecoveryTests(IsolatedAsyncioTestCase):
+    THREAD_ID = "12345678-1234-1234-1234-123456789abc"
+    CAPACITY = "Selected model is at capacity. Please try a different model."
+
+    def setUp(self) -> None:
+        self.provider = CodexCliProvider(replace(
+            Settings.from_env(), codex_enabled=True, codex_models=("gpt-test",),
+        ))
+        self.provider.RETRY_DELAYS = (0, 0, 0)
+        self.request = AgentRequest("recovery", 41, "/tmp", "original task", (), "gpt-test")
+        self.emit = AsyncMock()
+        self.create = AsyncMock()
+        self.terminate = AsyncMock(side_effect=self._terminate)
+        for name, value in (
+            ("shutil.which", lambda _: "/bin/codex"),
+            ("asyncio.create_subprocess_exec", self.create),
+            ("terminate_process", self.terminate),
+        ):
+            patcher = patch(f"backend.app.agents.codex.{name}", value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    async def _terminate(self, process) -> None:
+        if process is not None:
+            process.returncode = -15
+            if isinstance(process.stdout, asyncio.StreamReader):
+                process.stdout.feed_eof()
+
+    def _success(self) -> _FakeProcess:
+        return _FakeProcess([
+            {"type": "item.completed", "item": {
+                "type": "agent_message", "text": "Final answer.",
+            }},
+            {"type": "turn.completed"},
+        ])
+
+    def _failed(self, message: str | None = None, *, thread: bool = True, work: bool = True):
+        events = []
+        if thread:
+            events.append({"type": "thread.started", "thread_id": self.THREAD_ID})
+        if work:
+            events.extend([
+                {"type": "item.completed", "item": {
+                    "id": "tool", "type": "command_execution", "command": "fetch data",
+                    "aggregated_output": "saved data.json",
+                }},
+                {"type": "item.completed", "item": {
+                    "type": "agent_message", "text": "Data downloaded.",
+                }},
+            ])
+        events.append({"type": "turn.failed", "error": {"message": message or self.CAPACITY}})
+        return _FakeProcess(events, exit_code=1)
+
+    async def test_error_does_not_kill_running_cli_and_completion_clears_status(self):
+        process = self._success()
+        stream = asyncio.StreamReader()
+        process.stdout = stream
+        stream.feed_data((json.dumps({"type": "error", "message": self.CAPACITY}) + "\n").encode())
+        self.create.return_value = process
+        notified = asyncio.Event()
+
+        async def emit(event):
+            if event.type == "status" and event.content:
+                notified.set()
+            await self.emit(event)
+
+        task = asyncio.create_task(self.provider.run(self.request, emit))
+        try:
+            await asyncio.wait_for(notified.wait(), 1)
+            self.assertFalse(task.done())
+            self.terminate.assert_not_awaited()
+            stream.feed_data(await self._success().stdout.read())
+            stream.feed_eof()
+            result = await asyncio.wait_for(task, 1)
+        finally:
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+        self.assertEqual(result.content, "Final answer.")
+        self.create.assert_awaited_once()
+        self.terminate.assert_not_awaited()
+        self.assertEqual(self.emit.await_args.args[0].content, "")
+
+    async def test_terminal_capacity_failure_resumes_exact_thread_and_keeps_progress(self):
+        self.create.side_effect = [self._failed(), self._success()]
+        result = await self.provider.run(self.request, self.emit)
+        self.assertEqual(result.content, "Final answer.")
+        self.assertIn("saved data.json", result.thought)
+        first, second = [call.args for call in self.create.await_args_list]
+        self.assertNotIn("--ephemeral", first)
+        self.assertEqual(second[second.index("resume") + 1], self.THREAD_ID)
+        self.assertNotIn("--last", second)
+        self.assertIn("Do not repeat completed actions", second[-1])
+        self.assertIn("--sandbox", second)
+        self.assertNotIn("--dangerously-bypass-approvals-and-sandbox", second)
+        self.assertTrue(any(call.args[0].type == "status" and "自动继续" in call.args[0].content
+                            for call in self.emit.await_args_list))
+        self.assertFalse(self.provider._processes)
+        self.assertFalse(self.provider._retry_stops)
+
+    async def test_repeated_capacity_failures_stop_after_three_retries(self):
+        self.create.side_effect = [self._failed() for _ in range(4)]
+        with self.assertRaises(ProviderError) as caught:
+            await self.provider.run(self.request, self.emit)
+        self.assertEqual(caught.exception.code, "provider_busy")
+        self.assertIn("上限", str(caught.exception))
+        self.assertEqual(self.create.await_count, 4)
+
+    async def test_permanent_errors_and_changed_errors_are_not_retried(self):
+        for message in ("Unauthorized", "Usage limit exceeded", "insufficient_quota",
+                        "Invalid model", "Billing quota exceeded; rate limit"):
+            with self.subTest(message=message):
+                self.create.reset_mock()
+                self.create.side_effect = [self._failed(), self._failed(message)]
+                with self.assertRaises(ProviderError) as caught:
+                    await self.provider.run(self.request, self.emit)
+                self.assertEqual(str(caught.exception), message)
+                self.assertEqual(self.create.await_count, 2)
+
+    async def test_rate_limit_and_stream_disconnect_can_resume(self):
+        for message in ("Rate limit exceeded", "stream disconnected before completion"):
+            with self.subTest(message=message):
+                self.create.side_effect = [self._failed(message), self._success()]
+                result = await self.provider.run(self.request, self.emit)
+                self.assertEqual(result.content, "Final answer.")
+
+    async def test_no_thread_after_work_never_replays_original_task(self):
+        self.create.return_value = self._failed(thread=False)
+        with self.assertRaises(ProviderError) as caught:
+            await self.provider.run(self.request, self.emit)
+        self.assertIn("会话标识", str(caught.exception))
+        self.create.assert_awaited_once()
+
+    async def test_failure_before_any_work_can_retry_original_request(self):
+        self.create.side_effect = [self._failed(thread=False, work=False), self._success()]
+        await self.provider.run(self.request, self.emit)
+        self.assertEqual(self.create.await_args_list[0].args, self.create.await_args_list[1].args)
+
+    async def test_error_then_eof_is_not_success_even_with_partial_answer(self):
+        # A CLI may close without a turn.failed event and even exit zero.
+        events = [
+            {"type": "item.completed", "item": {"type": "agent_message", "text": "Working…"}},
+            {"type": "error", "message": self.CAPACITY},
+        ]
+        process = _FakeProcess(events)
+        self.create.return_value = process
+        with self.assertRaises(ProviderError):
+            await self.provider.run(self.request, self.emit)
+        self.create.assert_awaited_once()
+
+    async def test_partial_answer_without_completed_event_is_not_success(self):
+        self.create.return_value = _FakeProcess([
+            {"type": "item.completed", "item": {"type": "agent_message", "text": "Working…"}},
+        ])
+        with self.assertRaisesRegex(ProviderError, "尚未确认任务完成"):
+            await self.provider.run(self.request, self.emit)
+
+    async def test_interrupt_during_backoff_wakes_immediately_and_never_restarts(self):
+        self.provider.RETRY_DELAYS = (60,)
+        self.create.return_value = self._failed()
+
+        async def emit(event):
+            if event.type == "status" and "自动继续" in event.content:
+                await self.provider.interrupt(self.request.conversation_id)
+
+        result = await asyncio.wait_for(self.provider.run(self.request, emit), 1)
+        self.assertTrue(result.interrupted)
+        self.assertEqual(result.content, "Data downloaded.")
+        self.create.assert_awaited_once()
+        self.assertFalse(self.provider._interrupted)
+        self.assertFalse(self.provider._retry_stops)
+
+    async def test_interrupt_while_cli_is_recovering_does_not_retry(self):
+        process = _FakeProcess([])
+        process.stdout = asyncio.StreamReader()
+        process.stdout.feed_data((json.dumps({"type": "error", "message": self.CAPACITY}) + "\n").encode())
+        self.create.return_value = process
+
+        async def emit(event):
+            if event.type == "status" and event.content:
+                await self.provider.interrupt(self.request.conversation_id)
+
+        result = await asyncio.wait_for(self.provider.run(self.request, emit), 1)
+        self.assertTrue(result.interrupted)
+        self.create.assert_awaited_once()
+        self.assertFalse(self.provider._interrupted)
+
+    async def test_interrupt_while_child_is_starting_stops_new_process(self):
+        process = _FakeProcess([])
+
+        async def spawn(*args, **kwargs):
+            await self.provider.interrupt(self.request.conversation_id)
+            return process
+
+        self.create.side_effect = spawn
+        result = await asyncio.wait_for(self.provider.run(self.request, self.emit), 1)
+        self.assertTrue(result.interrupted)
+        self.terminate.assert_awaited_with(process)
+        self.create.assert_awaited_once()
+
+    async def test_unresolved_error_has_bounded_wait(self):
+        self.provider.RECOVERY_TIMEOUT = 0.01
+        self.provider.RETRY_DELAYS = ()
+        process = _FakeProcess([])
+        process.stdout = asyncio.StreamReader()
+        process.stdout.feed_data((json.dumps({"type": "error", "message": self.CAPACITY}) + "\n").encode())
+        self.create.return_value = process
+        with self.assertRaises(ProviderError) as caught:
+            await asyncio.wait_for(self.provider.run(self.request, self.emit), 1)
+        self.assertEqual(caught.exception.code, "provider_busy")
+        self.terminate.assert_awaited()
+
+    async def test_cancellation_cleans_up_live_process(self):
+        process = _FakeProcess([])
+        process.stdout = asyncio.StreamReader()
+        self.create.return_value = process
+        task = asyncio.create_task(self.provider.run(self.request, self.emit))
+        await asyncio.sleep(0)
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.terminate.assert_awaited_with(process)
+        self.assertFalse(self.provider._processes)
+        self.assertFalse(self.provider._retry_stops)
 
 
 class CodexAvailabilityTests(IsolatedAsyncioTestCase):
