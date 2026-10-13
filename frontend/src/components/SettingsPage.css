@@ -43,16 +43,13 @@
 .settings-row h3 { margin: 0; font-size: var(--text-base); font-weight: 500; line-height: 1.6; }
 .settings-row p { margin: 5px 0 0; max-width: 370px; color: var(--text-tertiary); font-size: var(--text-xs); line-height: 1.7; }
 .settings-row-control { display: flex; justify-content: flex-end; align-items: center; gap: 8px; min-width: 0; flex-shrink: 0; max-width: 52%; color: var(--text-secondary); }
-.settings-select,
-.settings-input { min-height: 38px; max-width: 100%; border: 1px solid var(--border-color); border-radius: var(--radius-md); color: var(--text-primary); background: var(--bg-surface); padding: 8px 11px; font: inherit; font-size: var(--text-sm); }
-.settings-select { width: 225px; cursor: pointer; text-overflow: ellipsis; }
+.settings-select { width: 225px; max-width: 100%; }
 .settings-input { min-width: 0; width: 180px; }
 .settings-button { display: inline-flex; justify-content: center; align-items: center; gap: 7px; min-height: 37px; padding: 8px 12px; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-surface); color: var(--text-primary); font-size: var(--text-sm); font-weight: 500; white-space: nowrap; cursor: pointer; }
 .settings-button:hover:not(:disabled) { background: var(--bg-surface-hover); border-color: var(--border-strong); }
 .settings-button.danger { color: var(--danger-text); border-color: var(--danger-border); background: var(--danger-bg); }
-.settings-page button:disabled,
-.settings-select:disabled { opacity: .5; cursor: not-allowed; }
-.settings-page :is(button, select, input):focus-visible { outline: 2px solid var(--accent-color); outline-offset: 3px; }
+.settings-page button:disabled { opacity: .5; cursor: not-allowed; }
+.settings-page button:not(.ui-select-trigger):focus-visible { outline: 2px solid var(--accent-color); outline-offset: 3px; }
 .settings-row kbd { padding: 5px 8px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-surface); color: var(--text-secondary); font: 12px var(--font-mono); white-space: nowrap; }
 .settings-footnote { margin: 6px 0; color: var(--text-tertiary); font-size: var(--text-xs); line-height: 1.8; }
 .settings-inline-note { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0; padding: 13px 22px; border-top: 1px solid var(--border-subtle); color: var(--text-tertiary); font-size: var(--text-xs); line-height: 1.8; }
@@ -121,11 +118,12 @@
   .settings-content-header p { font-size: var(--text-sm); }
   .settings-row { gap: 15px; padding: 17px 16px; }
   .settings-row-control { max-width: 55%; }
-  .settings-row:has(select),
+  .settings-row:has(.settings-select),
   .settings-row:has(form) { flex-direction: column; align-items: stretch; gap: 12px; }
-  .settings-row:has(select) .settings-row-control,
+  .settings-row:has(.settings-select) .settings-row-control,
   .settings-row:has(form) .settings-row-control { max-width: none; width: 100%; }
-  .settings-select { width: 100%; font-size: 16px; }
+  .settings-select { width: 100%; }
+  .settings-select .ui-select-trigger { font-size: var(--text-base); }
   .settings-name-form { width: 100%; }
   .settings-input { width: 100%; flex: 1; font-size: 16px; }
   .settings-theme-grid { gap: 9px; padding: 15px; }

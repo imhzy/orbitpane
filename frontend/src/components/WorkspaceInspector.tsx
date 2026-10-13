@@ -24,6 +24,7 @@ import {
 } from '../lib/appEvents'
 import { describeTaskStatus, isTaskActive, taskStatusLabel } from '../lib/taskStatus'
 import { useFocusTrap } from '../hooks/useFocusTrap'
+import { Textarea } from './FormControls'
 import { useEscapeLayer } from '../hooks/useEscapeLayer'
 import type {
   ConversationStats,
@@ -438,7 +439,7 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
                 <div className="task-center-copy">
                   <div><strong>{task.conversation_name}</strong><span>{taskStatusLabel(task.status)}</span></div>
                   {editingTaskId === task.run_id ? (
-                    <textarea
+                    <Textarea
                       className="task-edit-input"
                       value={taskContent}
                       onChange={event => setTaskContent(event.target.value)}

@@ -5,6 +5,7 @@ import { apiFetch, describeApiError } from '../lib/api'
 import { BACKGROUND_REFRESH_MS, emitTaskChange, TASK_CHANGE_EVENT } from '../lib/appEvents'
 import { taskStatusLabel } from '../lib/taskStatus'
 import type { ScheduleRecord, ScheduleSpec, TaskRecord } from '../lib/types'
+import { Checkbox, Input, NumberInput, Select, Textarea, TimeInput } from './FormControls'
 import './SchedulePanel.css'
 
 const DAYS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
@@ -167,29 +168,37 @@ export function SchedulePanel({ conversationId }: SchedulePanelProps) {
     {editing && <form className="schedule-form" onSubmit={event => void save(event)}>
       <div className="schedule-form-heading"><strong>{editing === 'new' ? '新增定时任务' : '编辑定时任务'}</strong>
         <button type="button" className="icon-btn" aria-label="关闭任务编辑" disabled={saving} onClick={() => setEditing(null)}><X size={15} /></button></div>
-      <label>任务名称<input autoFocus value={name} maxLength={120} required onChange={event => setName(event.target.value)} placeholder="例如：每日项目检查" /></label>
-      <label>Agent 命令<textarea value={prompt} required maxLength={200000} rows={4} onChange={event => setPrompt(event.target.value)} placeholder="填写你希望发送到当前聊天的内容…" /></label>
-      <label>执行周期<select aria-label="执行周期" value={kind} onChange={event => setKind(event.target.value as ScheduleSpec['kind'])}>
-        <option value="interval">固定间隔</option><option value="daily">每天定时</option><option value="weekly">每周定时</option>
-      </select></label>
+      <label>任务名称<Input autoFocus value={name} maxLength={120} required onChange={event => setName(event.target.value)} placeholder="例如：每日项目检查" /></label>
+      <label>Agent 命令<Textarea value={prompt} required maxLength={200000} rows={4} onChange={event => setPrompt(event.target.value)} placeholder="填写你希望发送到当前聊天的内容…" /></label>
+      <div className="schedule-field"><label htmlFor={`schedule-kind-${conversationId}`}>执行周期</label>
+        <Select id={`schedule-kind-${conversationId}`} aria-label="执行周期" value={kind} onChange={value => setKind(value as ScheduleSpec['kind'])}
+          options={[{ value: 'interval', label: '固定间隔' }, { value: 'daily', label: '每天定时' }, { value: 'weekly', label: '每周定时' }]} />
+      </div>
       {kind === 'interval' ? <div className="schedule-interval-fields">
-        <label>间隔<input aria-label="间隔" type="number" min={1} max={unit === 'hours' ? 8760 : 525600} step={1} value={interval} required onChange={event => setIntervalValue(event.target.value)} /></label>
-        <label>单位<select aria-label="单位" value={unit} onChange={event => setUnit(event.target.value as 'minutes' | 'hours')}><option value="minutes">分钟</option><option value="hours">小时</option></select></label>
+        <div className="schedule-field"><label htmlFor={`schedule-interval-${conversationId}`}>间隔</label>
+          <NumberInput id={`schedule-interval-${conversationId}`} aria-label="间隔" min={1} max={unit === 'hours' ? 8760 : 525600} step={1} value={interval} required onChange={setIntervalValue} />
+        </div>
+        <div className="schedule-field"><label htmlFor={`schedule-unit-${conversationId}`}>单位</label>
+          <Select id={`schedule-unit-${conversationId}`} aria-label="单位" value={unit} onChange={value => setUnit(value as 'minutes' | 'hours')}
+            options={[{ value: 'minutes', label: '分钟' }, { value: 'hours', label: '小时' }]} />
+        </div>
       </div> : <fieldset><legend>执行时间</legend>
         <div className="schedule-times">{times.map((time, index) => <div key={index}>
-          <input type="time" value={time} required aria-label={`执行时间 ${index + 1}`} onChange={event => setTimes(values => values.map((value, i) => i === index ? event.target.value : value))} />
+          <TimeInput value={time} required aria-label={`执行时间 ${index + 1}`} onChange={next => setTimes(values => values.map((value, i) => i === index ? next : value))} />
           <button type="button" className="icon-btn" aria-label={`删除执行时间 ${index + 1}`} disabled={times.length === 1} onClick={() => setTimes(values => values.filter((_, i) => i !== index))}><X size={13} /></button>
         </div>)}</div>
         <button type="button" className="schedule-text-button" disabled={times.length >= 24} onClick={() => setTimes(values => [...values, '18:00'])}><Plus size={12} />添加时间</button>
       </fieldset>}
       {kind === 'weekly' && <fieldset><legend>执行日期</legend><div className="schedule-weekdays">
         {DAYS.map((day, index) => <label key={day} className={weekdays.includes(index) ? 'selected' : ''}>
-          <input type="checkbox" checked={weekdays.includes(index)} onChange={event => setWeekdays(values => event.target.checked ? [...values, index] : values.filter(value => value !== index))} />{day}
+          <Checkbox checked={weekdays.includes(index)} onChange={event => setWeekdays(values => event.target.checked ? [...values, index] : values.filter(value => value !== index))} />{day}
         </label>)}
       </div></fieldset>}
-      <label>时区<input aria-label="时区" list={`schedule-zones-${conversationId}`} value={zone} maxLength={100} required onChange={event => setZone(event.target.value.trim())} />
-        <datalist id={`schedule-zones-${conversationId}`}>{ZONES.map(value => <option key={value} value={value} />)}</datalist></label>
-      <label className="schedule-compact"><input type="checkbox" checked={compact} onChange={event => setCompact(event.target.checked)} /><span>执行前压缩上下文<small>保留原始聊天记录；压缩失败则停止本次命令。</small></span></label>
+      <div className="schedule-field"><label htmlFor={`schedule-zone-${conversationId}`}>时区</label>
+        <Select id={`schedule-zone-${conversationId}`} editable aria-label="时区" value={zone} maxLength={100} required
+          onChange={value => setZone(value.trim())} options={ZONES.map(value => ({ value, label: value }))} />
+      </div>
+      <label className="schedule-compact"><Checkbox checked={compact} onChange={event => setCompact(event.target.checked)} /><span>执行前压缩上下文<small>保留原始聊天记录；压缩失败则停止本次命令。</small></span></label>
       <p className="schedule-form-hint">{kind === 'interval' ? '创建、调整周期或恢复后，首次在一个完整周期后触发。' : '按照所选时区执行。夏令时中不存在的时刻跳过，重复时刻仅触发一次。'}沿用当前聊天的 Agent、模型和权限设置。</p>
       {formError && <p className="schedule-error" role="alert">{formError}</p>}
       <div className="schedule-form-actions"><button type="button" disabled={saving} onClick={() => setEditing(null)}>取消</button><button type="submit" disabled={saving}>{saving && <Loader2 size={13} className="animate-spin" />}{saving ? '保存中…' : '保存任务'}</button></div>

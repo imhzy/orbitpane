@@ -1,13 +1,14 @@
 import { useAppContext } from '../contexts/AppContext'
 import { useEscapeLayer } from '../hooks/useEscapeLayer'
+import { Input } from './FormControls'
 
 /** Only the surface that opened the editor mounts this input. */
 export function ConversationNameInput({ conversationId }: { conversationId: number }) {
   const { editingConvName, setEditingConvName, setEditingConvId, saveConvName } = useAppContext()
   useEscapeLayer(true, () => setEditingConvId(null))
-  return <input
+  return <Input
     type="text"
-    className="cw-input conv-title-input"
+    className="conv-title-input"
     aria-label="项目名称"
     maxLength={120}
     value={editingConvName}

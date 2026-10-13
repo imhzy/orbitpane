@@ -64,8 +64,6 @@
 .cw-advanced-toggle .open { transform: rotate(180deg); }
 .cw-default-note { margin: 0; color: var(--text-tertiary); font-size: var(--text-2xs); line-height: 1.8; }
 .cw-default-note button { margin: 0 3px; padding: 0; border: 0; background: transparent; color: var(--accent-text); cursor: pointer; }
-.cw-agent-select { width: 100%; min-width: 0; appearance: auto; background: transparent; }
-.cw-agent-select option { color: var(--text-primary); background: var(--bg-surface); }
 .actions-dropdown-divider { height: 1px; margin: 5px 8px; background: var(--border-color); }
 .header-connection .run-config-control { border: 0; background: transparent; }
 .header-connection .run-config-link { width: 30px; border-radius: var(--radius-md); }
@@ -258,10 +256,7 @@
 }
 .permission-ack input {
   flex: none;
-  width: 16px;
-  height: 16px;
   margin-top: var(--space-0-5);
-  accent-color: var(--danger-color);
 }
 
 /* Live summary of the wizard's choices, replacing the old step 3 */
@@ -886,7 +881,7 @@
 .task-queue-actions button { width: 24px; height: 24px; display: grid; place-items: center; border: 0; border-radius: var(--radius-sm); color: var(--text-tertiary); background: transparent; cursor: pointer; }
 .task-queue-actions button:hover:not(:disabled) { color: var(--accent-text); background: var(--accent-subtle-bg); }
 .task-queue-actions button:disabled { opacity: .3; cursor: default; }
-.task-edit-input { width: 100%; min-height: 62px; margin: var(--space-1) 0; padding: var(--space-1-5); resize: vertical; border: 1px solid var(--accent-border); border-radius: var(--radius-sm); outline: none; color: var(--text-primary); background: var(--bg-input); font-size: var(--text-2xs); line-height: 1.4; }
+.task-edit-input { min-height: 62px; margin: var(--space-1) 0; }
 /* Semantic notifications */
 .toast.success svg { color: var(--success-color); }
 .toast.error { border-color: var(--danger-border); }

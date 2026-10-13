@@ -3,6 +3,7 @@
 /* Design tokens. Dark is the default theme; [data-theme="light"] below only
    redefines the values that change, never the structure. */
 :root {
+  color-scheme: dark;
   /* Safe area & viewport */
   --sat: env(safe-area-inset-top, 0px);
   --sab: env(safe-area-inset-bottom, 0px);
@@ -226,6 +227,7 @@
    s32-40), which is why the two themes never felt like one product: its
    "neutrals" were more saturated than the dark theme's accent surfaces. */
 [data-theme="light"] {
+  color-scheme: light;
   /* The page ground is held a full step below the card surface. At the first
      pass both sat within two lightness points of each other and every card
      depended entirely on its 1px border to exist. */

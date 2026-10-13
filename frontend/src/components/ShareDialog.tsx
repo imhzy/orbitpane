@@ -10,6 +10,7 @@ import { haptic } from '../lib/nativeFeedback'
 import { useAppContext } from '../contexts/AppContext'
 import type { ShareLink, ShareLinkCreated } from '../lib/types'
 import './ShareDialog.css'
+import { Checkbox, Input } from './FormControls'
 
 interface ShareDialogProps {
   isOpen: boolean
@@ -239,8 +240,7 @@ export function ShareDialog({ isOpen, onClose }: ShareDialogProps) {
 
             <div className="share-options">
               <label className="share-option-row">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={includeThoughts}
                   onChange={event => setIncludeThoughts(event.target.checked)}
                 />
@@ -330,7 +330,7 @@ export function ShareDialog({ isOpen, onClose }: ShareDialogProps) {
 
                         {url ? (
                           <div className="share-link-url-row">
-                            <input
+                            <Input inline
                               className="cw-input share-url-input"
                               value={url}
                               readOnly

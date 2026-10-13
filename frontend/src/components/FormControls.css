@@ -1,0 +1,141 @@
+/* Shared field surfaces. Inline variants use the surrounding search/composer
+   chrome; the same type, placeholder, validation and autofill rules still apply. */
+:where(.ui-input, .ui-textarea, .ui-select-trigger) {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  transition: border-color var(--transition-fast), background-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+:where(.ui-input, .ui-textarea) { appearance: none; }
+:where(.ui-input, .ui-textarea)::placeholder { color: var(--text-tertiary); opacity: 1; }
+:where(.ui-input, .ui-textarea, .ui-select-trigger):hover:not(:disabled):not(:focus) { border-color: var(--border-strong); }
+:where(.ui-input, .ui-textarea, .ui-select-trigger):focus-visible {
+  outline: none;
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 3px var(--accent-subtle-bg);
+}
+:where(.ui-input, .ui-textarea)[aria-invalid='true'] { border-color: var(--danger-color); }
+:where(.ui-input, .ui-textarea)[aria-invalid='true']:focus-visible { box-shadow: 0 0 0 3px var(--danger-bg); }
+:where(.ui-input, .ui-textarea, .ui-select-trigger):disabled { opacity: .45; cursor: not-allowed; }
+.ui-textarea { resize: vertical; line-height: 1.7; }
+.ui-input-inline { min-height: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.ui-input-inline:focus-visible { outline: none; box-shadow: none; }
+.ui-input:-webkit-autofill {
+  -webkit-text-fill-color: var(--text-primary);
+  caret-color: var(--text-primary);
+  box-shadow: 0 0 0 1000px var(--bg-input) inset;
+}
+.ui-input:-webkit-autofill:focus-visible { box-shadow: 0 0 0 1000px var(--bg-input) inset, 0 0 0 3px var(--accent-subtle-bg); }
+.ui-field-label { display: block; margin-bottom: var(--space-1-5); color: var(--text-secondary); font-size: var(--text-xs); }
+
+.ui-checkbox {
+  --checkbox-fill: var(--brand-primary);
+  appearance: none;
+  display: inline-grid;
+  place-content: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--bg-input);
+  cursor: pointer;
+  vertical-align: middle;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.ui-checkbox::after { content: ''; width: 5px; height: 9px; margin-top: -2px; border: solid var(--on-brand); border-width: 0 2px 2px 0; transform: rotate(45deg) scale(0); }
+.ui-checkbox:checked { background: var(--checkbox-fill); border-color: var(--checkbox-fill); }
+.ui-checkbox:checked::after { transform: rotate(45deg) scale(1); }
+.ui-checkbox:hover:not(:disabled):not(:checked) { border-color: var(--accent-color); }
+.ui-checkbox:focus-visible { outline: 2px solid var(--accent-color); outline-offset: 3px; }
+.ui-checkbox:disabled { opacity: .5; cursor: default; }
+.ui-checkbox-danger { --checkbox-fill: var(--danger-color); }
+
+.ui-select { position: relative; min-width: 0; width: 100%; }
+.ui-select-trigger { display: flex; align-items: center; gap: var(--space-2); text-align: left; cursor: pointer; }
+.ui-select-trigger[aria-expanded='true'] { border-color: var(--accent-color); box-shadow: 0 0 0 3px var(--accent-subtle-bg); }
+.ui-select-icon, .ui-select-chevron { flex: none; color: var(--text-tertiary); }
+.ui-select-icon { display: grid; place-items: center; }
+.ui-select-value { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-select-placeholder { color: var(--text-tertiary); }
+.ui-select-chevron, .ui-select-toggle svg { transition: transform var(--transition-normal); }
+.ui-select-chevron.open, .ui-select-toggle svg.open { transform: rotate(180deg); }
+.ui-select-editable-control { position: relative; }
+.ui-select-editable-control > .ui-input { padding-right: 40px; }
+.ui-select-toggle, .ui-time-toggle { position: absolute; right: 1px; top: 1px; bottom: 1px; width: 38px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 0 var(--radius-md) var(--radius-md) 0; background: transparent; color: var(--text-tertiary); cursor: pointer; }
+.ui-select-toggle:hover:not(:disabled), .ui-time-toggle:hover:not(:disabled) { background: var(--bg-surface-hover); color: var(--accent-text); }
+.ui-select-toggle:disabled, .ui-time-toggle:disabled { opacity: .45; cursor: not-allowed; }
+
+.ui-field-popover {
+  position: fixed;
+  inset: auto;
+  z-index: 1500;
+  box-sizing: border-box;
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-1-5);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-float);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  animation: field-menu-enter .14s var(--ease-out);
+}
+.ui-field-popover::backdrop { background: transparent; pointer-events: none; }
+.ui-select-option { display: flex; align-items: center; gap: var(--space-3); min-height: 38px; padding: var(--space-2) var(--space-2-5); border-radius: var(--radius-sm); color: var(--text-secondary); cursor: pointer; }
+.ui-select-option + .ui-select-option { margin-top: var(--space-0-5); }
+.ui-select-option.active { background: var(--bg-surface-hover); color: var(--text-primary); }
+.ui-select-option.selected { background: var(--accent-subtle-bg); color: var(--accent-text); }
+.ui-select-option.selected.active { box-shadow: inset 0 0 0 1px var(--accent-border); }
+.ui-select-option[aria-disabled='true'] { opacity: .4; cursor: not-allowed; }
+.ui-select-option > svg { flex: none; }
+.ui-select-option-copy { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.ui-select-option-copy > span { display: block; }
+.ui-select-option-copy small { display: block; margin-top: 2px; color: var(--text-tertiary); font-size: var(--text-xs); }
+.ui-select-empty { margin: 0; padding: var(--space-3); color: var(--text-tertiary); font-size: var(--text-xs); }
+
+.ui-number, .ui-time { position: relative; min-width: 0; width: 100%; }
+.ui-number > input { padding-right: 70px; appearance: textfield; font-variant-numeric: tabular-nums; }
+.ui-number > input::-webkit-inner-spin-button, .ui-number > input::-webkit-outer-spin-button { appearance: none; margin: 0; }
+.ui-number-actions { display: flex; position: absolute; right: 5px; top: 5px; bottom: 5px; gap: 2px; }
+.ui-number-actions button { display: grid; place-items: center; width: 28px; min-height: 0; padding: 0; border: 0; border-radius: var(--radius-sm); color: var(--text-secondary); background: var(--bg-surface); cursor: pointer; }
+.ui-number-actions button:hover:not(:disabled) { background: var(--bg-surface-hover); color: var(--accent-text); }
+.ui-number-actions button:disabled { opacity: .35; cursor: not-allowed; }
+.ui-time > input { padding-right: 42px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: .04em; }
+.ui-time-menu { padding: var(--space-4); }
+.ui-time-heading { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-4); }
+.ui-time-heading > svg { color: var(--accent-text); }
+.ui-time-heading small { margin-left: auto; color: var(--text-tertiary); font-size: var(--text-2xs); }
+.ui-time-columns { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: var(--space-2); align-items: end; }
+.ui-time-separator { align-self: end; padding-bottom: 10px; color: var(--text-tertiary); }
+.ui-time-done { width: 100%; margin-top: var(--space-4); }
+
+@keyframes field-menu-enter { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: translateY(0); } }
+
+@media (max-width: 768px), (pointer: coarse) {
+  input.ui-input, textarea.ui-textarea { font-size: var(--text-input); }
+  :where(.ui-input:not(.ui-input-inline), .ui-select-trigger) { min-height: 44px; }
+  .ui-select-option { min-height: 44px; }
+  .ui-select-toggle, .ui-time-toggle { width: 42px; }
+  .ui-number > input { padding-right: 88px; }
+  .ui-number-actions { right: 2px; top: 2px; bottom: 2px; }
+  .ui-number-actions button { width: 40px; }
+  .ui-time-done { min-height: 40px; }
+}

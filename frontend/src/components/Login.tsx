@@ -6,6 +6,7 @@ import { loginWithPasskey, passkeyError, supportsPasskeys } from '../lib/passkey
 import { readText, writeText } from '../lib/storage'
 import { Lock, AlertCircle, UserRoundKey } from 'lucide-react'
 import './Login.css'
+import { Input } from './FormControls'
 
 type LoginMethod = 'pin' | 'passkey'
 const LOGIN_METHOD_KEY = 'orbitpane_last_login_method'
@@ -98,7 +99,7 @@ export function Login({ onLogin }: { onLogin: () => void }) {
               <div className="login-input-group">
                 <label htmlFor="login-pin" className="login-input-label">访问 PIN</label>
                 <div className="login-input-wrapper">
-                  <input
+                  <Input
                     id="login-pin"
                     ref={inputRef}
                     type="password"

@@ -5,6 +5,7 @@ All HTTP/WebSocket traffic is mocked; these tests never execute real agents.
 import asyncio
 from urllib.parse import urlparse
 from playwright.async_api import async_playwright, expect
+from browser_helpers import assert_menu_visible, choose_option
 
 BASE = 'http://127.0.0.1:5179'
 
@@ -60,7 +61,7 @@ async def main():
             await route.fulfill(json=data)
 
         await page.route('**/api/**', route_api)
-        await page.add_init_script('''
+        socket_stub = '''
           window.createdSockets = [];
           class FakeSocket {
             static OPEN = 1; static CONNECTING = 0; readyState = 0;
@@ -70,20 +71,48 @@ async def main():
             receive(data) { this.onmessage?.({data: JSON.stringify(data)}); }
           }
           window.WebSocket = FakeSocket;
-        ''')
+        '''
+        await page.add_init_script(socket_stub)
         await page.goto(BASE + '/?id=1&panel=schedules')
         await expect(page.get_by_role('tab', name='定时', exact=True)).to_have_attribute('aria-selected', 'true')
         await page.get_by_role('button', name='创建第一个任务').click()
         await page.get_by_label('任务名称', exact=True).fill('Weekly review')
         await page.get_by_label('Agent 命令', exact=True).fill('Review recent changes')
-        await page.get_by_label('执行周期', exact=True).select_option('weekly')
+        await page.get_by_label('间隔', exact=True).fill('1')
+        await expect(page.get_by_role('button', name='减少间隔', exact=True)).to_be_disabled()
+        await page.get_by_role('button', name='增加间隔', exact=True).click()
+        await expect(page.get_by_label('间隔', exact=True)).to_have_value('2')
+        await page.get_by_role('button', name='减少间隔', exact=True).click()
+        await expect(page.get_by_label('间隔', exact=True)).to_have_value('1')
+        await choose_option(page, '执行周期', '每周定时')
+        await page.get_by_role('button', name='选择执行时间 1', exact=True).click()
+        await expect(page.get_by_role('dialog', name='选择执行时间 1', exact=True)).to_be_visible()
+        await choose_option(page, '执行时间 1小时', '17')
+        await choose_option(page, '执行时间 1分钟', '45')
+        await page.get_by_role('button', name='完成', exact=True).click()
+        await expect(page.get_by_label('执行时间 1', exact=True)).to_have_value('17:45')
+        await expect(page.get_by_label('执行时间 1', exact=True)).to_be_focused()
+        await page.get_by_role('button', name='选择执行时间 1', exact=True).click()
+        await page.get_by_role('combobox', name='执行时间 1小时', exact=True).click()
+        await page.keyboard.press('Escape')
+        await expect(page.get_by_role('dialog', name='选择执行时间 1', exact=True)).to_be_visible()
+        await page.keyboard.press('Escape')
+        await expect(page.get_by_role('dialog', name='选择执行时间 1', exact=True)).to_have_count(0)
+        await expect(page.locator('.workspace-inspector')).to_be_visible()
         await page.get_by_label('执行时间 1', exact=True).fill('09:15')
         await page.get_by_role('button', name='添加时间', exact=True).click()
         await page.get_by_label('执行时间 2', exact=True).fill('18:30')
         await page.get_by_label('周二', exact=True).uncheck()
         await page.get_by_label('周四', exact=True).uncheck()
         await page.get_by_label('周五', exact=True).uncheck()
-        await page.get_by_label('时区', exact=True).fill('America/New_York')
+        await page.get_by_label('时区', exact=True).fill('Europe/Paris')
+        await expect(page.get_by_label('时区', exact=True)).to_have_value('Europe/Paris')
+        await page.get_by_label('时区', exact=True).fill('New_York')
+        await page.keyboard.press('ArrowDown')
+        await page.keyboard.press('Enter')
+        await expect(page.get_by_label('时区', exact=True)).to_have_value('America/New_York')
+        assert await page.locator('select, datalist, input[type=time]').count() == 0
+        assert await page.get_by_label('周一', exact=True).evaluate("element => getComputedStyle(element).appearance === 'none'")
         await page.get_by_label('执行前压缩上下文', exact=False).check()
         await page.get_by_role('button', name='保存任务', exact=True).click()
         await expect(page.locator('.schedule-card')).to_have_count(1)
@@ -91,12 +120,12 @@ async def main():
             'compact_before': True, 'spec': {'kind': 'weekly', 'timezone': 'America/New_York', 'times': ['09:15', '18:30'], 'weekdays': [0, 2]}}
         await expect(page.locator('.schedule-rule')).to_contain_text('周一、周三')
         await page.screenshot(path='/tmp/orbitpane-schedules-desktop.png')
-        print('PASS: existing chat creates weekly schedules with multiple times, timezone and compression')
+        print('PASS: custom number/time/timezone controls, layered Escape, styled checkboxes and weekly schedule persistence')
 
         await page.get_by_role('button', name='编辑', exact=True).click()
-        await page.get_by_label('执行周期', exact=True).select_option('interval')
+        await choose_option(page, '执行周期', '固定间隔')
         await page.get_by_label('间隔', exact=True).fill('2')
-        await page.get_by_label('单位', exact=True).select_option('hours')
+        await choose_option(page, '单位', '小时')
         await page.get_by_role('button', name='保存任务', exact=True).click()
         await expect(page.locator('.schedule-rule')).to_contain_text('每 2 小时')
         assert requests[-1]['spec']['times'] == [] and requests[-1]['spec']['weekdays'] == []
@@ -140,9 +169,19 @@ async def main():
         await page.get_by_role('button', name='新增', exact=True).click()
         await page.get_by_label('任务名称', exact=True).fill('Daily check')
         await page.get_by_label('Agent 命令', exact=True).fill('Check the project')
-        await page.get_by_label('执行周期', exact=True).select_option('daily')
-        await page.get_by_label('执行时间 1', exact=True).fill('08:00')
+        await page.get_by_role('combobox', name='执行周期', exact=True).click()
+        await assert_menu_visible(page, '执行周期')
+        await page.screenshot(path='/tmp/orbitpane-themed-schedule-menu-mobile.png', animations='disabled')
+        await page.get_by_role('option', name='每天定时', exact=True).click()
+        await page.get_by_role('button', name='选择执行时间 1', exact=True).click()
+        await page.get_by_role('combobox', name='执行时间 1分钟', exact=True).click()
+        await assert_menu_visible(page, '执行时间 1分钟')
+        await page.get_by_role('option', name='30', exact=True).click()
+        await page.get_by_role('button', name='完成', exact=True).click()
+        await page.get_by_label('执行时间 1', exact=True).fill('0800')
+        await expect(page.get_by_label('执行时间 1', exact=True)).to_have_value('08:00')
         await page.get_by_label('时区', exact=True).fill('Asia/Shanghai')
+        assert await page.get_by_label('任务名称', exact=True).evaluate("element => parseFloat(getComputedStyle(element).fontSize) >= 16")
         await page.screenshot(path='/tmp/orbitpane-schedules-mobile-form.png')
         await page.get_by_role('button', name='保存任务', exact=True).click()
         await expect(page.locator('.schedule-card')).to_have_count(2)
@@ -158,6 +197,29 @@ async def main():
         await page.get_by_role('menuitem', name='定时任务', exact=True).click()
         await expect(page.get_by_role('tab', name='定时', exact=True)).to_have_attribute('aria-selected', 'true')
         print('PASS: mobile daily creation, multiple schedules, deletion and action-menu navigation without horizontal overflow')
+
+        touch = await browser.new_page(viewport={'width': 390, 'height': 844}, is_mobile=True, has_touch=True, service_workers='block')
+        touch.on('pageerror', lambda error: errors.append(str(error)))
+        await touch.route('**/api/**', route_api)
+        await touch.add_init_script(socket_stub)
+        await touch.goto(BASE + '/?id=1&panel=schedules')
+        await touch.get_by_role('button', name='新增', exact=True).tap()
+        await touch.get_by_role('combobox', name='执行周期', exact=True).tap()
+        await touch.get_by_role('option', name='每周定时', exact=True).tap()
+        await touch.get_by_role('button', name='选择执行时间 1', exact=True).tap()
+        await touch.get_by_role('combobox', name='执行时间 1小时', exact=True).tap()
+        await touch.get_by_role('option', name='22', exact=True).tap()
+        await touch.get_by_role('combobox', name='执行时间 1分钟', exact=True).tap()
+        await assert_menu_visible(touch, '执行时间 1分钟')
+        await touch.get_by_role('option', name='59', exact=True).tap()
+        await touch.get_by_role('button', name='完成', exact=True).tap()
+        await expect(touch.get_by_label('执行时间 1', exact=True)).to_have_value('22:59')
+        await touch.get_by_label('周六', exact=True).tap()
+        await expect(touch.get_by_label('周六', exact=True)).to_be_checked()
+        await touch.get_by_role('button', name='时区选项', exact=True).tap()
+        await touch.get_by_role('option', name='Asia/Tokyo', exact=True).tap()
+        await expect(touch.get_by_role('combobox', name='时区', exact=True)).to_have_value('Asia/Tokyo')
+        print('PASS: touch taps select periods, scroll long time menus, check weekdays and choose timezone suggestions')
         assert not errors, errors
         await browser.close()
 

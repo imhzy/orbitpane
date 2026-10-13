@@ -16,6 +16,7 @@ import { readJson, writeJson } from '../lib/storage'
 import type { ModelOption, ModelsResponse, TaskRecord } from '../lib/types'
 import { isTaskActive } from '../lib/taskStatus'
 import { PushNotificationButton } from './PushNotificationButton'
+import { Input, Select } from './FormControls'
 import './SettingsPage.css'
 
 const SECTIONS = [
@@ -85,17 +86,16 @@ function AiSettings() {
   return <>
     <SettingsGroup title="默认 AI">
       <SettingRow title="默认 Agent" description="用于之后新建的项目。现有项目保留各自的 Agent。">
-        <select className="settings-select" aria-label="默认 Agent" value={preferences.defaultProvider} onChange={event => updatePreferences({ defaultProvider: event.target.value })}>
-          <option value="">服务器默认 · {providers.find(provider => provider.id === serverDefaultProvider)?.name || serverDefaultProvider}</option>
-          {providers.map(provider => <option key={provider.id} value={provider.id} disabled={!provider.available}>{provider.name}{!provider.available ? '（不可用）' : ''}</option>)}
-        </select>
+        <Select className="settings-select" aria-label="默认 Agent" value={preferences.defaultProvider}
+          onChange={value => updatePreferences({ defaultProvider: value })}
+          options={[{ value: '', label: `服务器默认 · ${providers.find(provider => provider.id === serverDefaultProvider)?.name || serverDefaultProvider}` },
+            ...providers.map(provider => ({ value: provider.id, label: `${provider.name}${!provider.available ? '（不可用）' : ''}`, disabled: !provider.available }))]} />
       </SettingRow>
       <SettingRow title="默认模型" description={`新建 ${currentProvider?.name || defaultProvider} 项目时使用；对话中可随时切换。`}>
-        <select className="settings-select" aria-label="默认模型" disabled={loading} value={modelSupported ? defaultModel : ''}
-          onChange={event => updatePreferences({ defaultModels: { ...preferences.defaultModels, [defaultProvider]: event.target.value } })}>
-          <option value="">{loading ? '正在读取模型…' : 'Agent 默认模型'}</option>
-          {models.map(model => <option key={model.id} value={model.id}>{model.display_name}</option>)}
-        </select>
+        <Select className="settings-select" aria-label="默认模型" disabled={loading} value={modelSupported ? defaultModel : ''}
+          onChange={value => updatePreferences({ defaultModels: { ...preferences.defaultModels, [defaultProvider]: value } })}
+          options={[{ value: '', label: loading ? '正在读取模型…' : 'Agent 默认模型' },
+            ...models.map(model => ({ value: model.id, label: model.display_name }))]} />
       </SettingRow>
       {error && <div className="settings-inline-note" role="status">模型列表暂未同步，已显示本机缓存。<button type="button" onClick={() => setAttempt(previous => previous + 1)}>重试</button></div>}
       {!loading && defaultModel && !modelSupported && <p className="settings-inline-note">之前选择的模型目前不可用，新项目将使用 Agent 默认模型。</p>}
@@ -103,9 +103,9 @@ function AiSettings() {
     </SettingsGroup>
     <SettingsGroup title="默认工作区">
       <SettingRow title="起始目录" description="创建项目和浏览文件夹时，从这个工作区开始。">
-        <select className="settings-select" aria-label="默认工作区" value={preferences.workspaceRoot} onChange={event => updatePreferences({ workspaceRoot: event.target.value })}>
-          <option value="">服务器默认目录</option>{workspaceRoots.map(root => <option key={root} value={root}>{root}</option>)}
-        </select>
+        <Select className="settings-select" aria-label="默认工作区" value={preferences.workspaceRoot}
+          onChange={value => updatePreferences({ workspaceRoot: value })}
+          options={[{ value: '', label: '服务器默认目录' }, ...workspaceRoots.map(root => ({ value: root, label: root }))]} />
       </SettingRow>
       <SettingRow title="默认文件权限" description="新项目默认使用受限工作区。如需完全访问，在具体项目中确认后开启。"><span className="settings-status"><ShieldCheck size={14} />受限工作区</span></SettingRow>
     </SettingsGroup>
@@ -267,7 +267,7 @@ function ProjectSettings() {
         event.preventDefault(); setBusy(true)
         try { const updated = await updateConversation(conversation.id, { name: name.trim() }); if (updated) showToast('项目名称已更新') }
         finally { setBusy(false) }
-      }}><input className="settings-input" aria-label="项目名称" value={name} onChange={event => setName(event.target.value)} /><button type="submit" className="settings-button" disabled={busy || !name.trim() || name.trim() === conversation.name}>保存</button></form></SettingRow>
+      }}><Input className="settings-input" aria-label="项目名称" value={name} onChange={event => setName(event.target.value)} /><button type="submit" className="settings-button" disabled={busy || !name.trim() || name.trim() === conversation.name}>保存</button></form></SettingRow>
       <SettingRow title="项目目录"><span className="settings-path" title={conversation.path}>{conversation.path}</span></SettingRow>
       <SettingRow title="当前模型" description="在消息输入框旁切换，修改将从下一次回复开始生效。"><span className="settings-status">{conversation.preferred_model ? formatModelName(conversation.preferred_model) : 'Agent 默认模型'}</span></SettingRow>
     </SettingsGroup>

@@ -8,6 +8,7 @@ import 'katex/dist/katex.min.css'
 import { CodeBlock } from './CodeBlock'
 import { asText } from '../lib/normalize'
 import { Maximize2, X } from 'lucide-react'
+import { Checkbox } from './FormControls'
 
 interface MarkdownContentProps {
   content: string
@@ -70,8 +71,11 @@ function ResponsiveTable({ children, ...props }: React.TableHTMLAttributes<HTMLT
    unchanged. */
 const REMARK_PLUGINS = [remarkGfm, remarkMath]
 const REHYPE_PLUGINS = [rehypeKatex]
-const PROSE_COMPONENTS = { table: ResponsiveTable }
-const CODE_COMPONENTS = { table: ResponsiveTable, code: CodeBlock }
+function MarkdownCheckbox({ checked, disabled }: { checked?: boolean; disabled?: boolean }) {
+  return <Checkbox checked={checked} disabled={disabled} readOnly />
+}
+const PROSE_COMPONENTS = { table: ResponsiveTable, input: MarkdownCheckbox }
+const CODE_COMPONENTS = { table: ResponsiveTable, code: CodeBlock, input: MarkdownCheckbox }
 
 /**
  * Memoised on the text alone.

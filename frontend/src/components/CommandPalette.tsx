@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { apiFetch, describeApiError } from '../lib/api'
 import { useFocusTrap } from '../hooks/useFocusTrap'
+import { Input } from './FormControls'
 import { useEscapeLayer } from '../hooks/useEscapeLayer'
 import { OPEN_SHARE_EVENT, REQUEST_INTERRUPT_EVENT } from '../lib/appEvents'
 import { useUpdateCheck } from '../hooks/useUpdateCheck'
@@ -204,7 +205,7 @@ export function CommandPalette({
         >
           <div className="cmd-header">
             <Search size={16} className="cmd-search-icon" />
-            <input
+            <Input inline
               ref={inputRef}
               type="text"
               className="cmd-input"

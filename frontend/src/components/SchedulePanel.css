@@ -22,26 +22,23 @@
 .schedule-card-actions button, .schedule-form-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 34px; padding: 7px 9px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); font-size: var(--text-xs); cursor: pointer; }
 .schedule-card-actions .destructive { color: var(--danger-text); margin-left: auto; }
 .schedule-panel button:disabled { opacity: .45; cursor: default; }
-.schedule-panel button:hover:not(:disabled) { background: var(--bg-surface-hover); }
-.schedule-panel button:focus-visible, .schedule-panel input:focus-visible, .schedule-panel select:focus-visible, .schedule-panel textarea:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+.schedule-add:hover:not(:disabled), .schedule-card-actions button:hover:not(:disabled), .schedule-form-actions button:hover:not(:disabled) { background: var(--bg-surface-hover); }
+.schedule-panel button:not(.ui-select-trigger):focus-visible { outline: 2px solid var(--accent-color); outline-offset: 2px; }
 .schedule-form { display: grid; gap: 13px; }
 .schedule-form-heading { justify-content: space-between; font-size: var(--text-sm); }
-.schedule-form > label, .schedule-interval-fields label { display: grid; gap: 6px; color: var(--text-secondary); font-size: var(--text-xs); }
-.schedule-form input:not([type=checkbox]), .schedule-form textarea, .schedule-form select { box-sizing: border-box; min-width: 0; width: 100%; min-height: 38px; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-secondary); color: var(--text-primary); font-family: inherit; font-size: var(--text-sm); }
-.schedule-form textarea { resize: vertical; line-height: 1.6; }
-.schedule-form select { appearance: auto; }
+.schedule-form > label, .schedule-field { display: grid; gap: 6px; min-width: 0; color: var(--text-secondary); font-size: var(--text-xs); }
 .schedule-form fieldset { min-width: 0; padding: 0; border: 0; margin: 0; }
 .schedule-form legend { padding: 0; margin-bottom: 7px; font-size: var(--text-xs); color: var(--text-secondary); }
 .schedule-interval-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .schedule-times { display: grid; gap: 6px; }
 .schedule-times > div { display: flex; align-items: center; gap: 5px; }
-.schedule-times input { flex: 1; }
+.schedule-times .ui-time { flex: 1; }
 .schedule-text-button { display: inline-flex; align-items: center; gap: 4px; border: 0; min-height: 32px; background: transparent; color: var(--accent-text); font-size: var(--text-xs); cursor: pointer; }
 .schedule-weekdays { display: flex; flex-wrap: wrap; gap: 5px; }
 .schedule-weekdays label { display: flex; align-items: center; gap: 4px; min-height: 34px; padding: 5px 7px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); font-size: var(--text-xs); cursor: pointer; color: var(--text-secondary); }
 .schedule-weekdays label.selected { color: var(--accent-text); border-color: var(--accent-text); }
-.schedule-panel input[type=checkbox] { accent-color: var(--accent-text); }
 .schedule-form > .schedule-compact { display: flex; align-items: flex-start; gap: 7px; line-height: 1.7; }
+.schedule-compact .ui-checkbox { margin-top: 2px; }
 .schedule-compact small { display: block; font-size: var(--text-2xs); color: var(--text-tertiary); }
 .schedule-form-actions { display: flex; gap: 8px; justify-content: flex-end; }
 .schedule-form-actions button[type=submit] { color: var(--accent-text); border-color: var(--accent-text); }

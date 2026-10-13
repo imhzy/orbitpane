@@ -14,6 +14,7 @@ import { hasProviderChoice } from '../lib/providers'
 import { sortConversations } from '../lib/conversationOrder'
 import { haptic } from '../lib/nativeFeedback'
 import { useFocusTrap } from '../hooks/useFocusTrap'
+import { Checkbox, Input, Select } from './FormControls'
 import { useEscapeLayer } from '../hooks/useEscapeLayer'
 import { MobileBottomSheet } from './MobileBottomSheet'
 import { ConversationNameInput } from './ConversationNameInput'
@@ -319,7 +320,7 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
               {conversations.length > 0 && (
                 <div className="sidebar-search-box">
                   <Search size={14} className="search-icon" />
-                  <input
+                  <Input
                     type="text"
                     className="sidebar-search-input"
                     placeholder="搜索项目或路径…"
@@ -500,10 +501,10 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
               <>
                   <div className="cw-form">
                     <div className="cw-field-group">
-                      <label className="cw-label">项目名称</label>
+                      <label className="cw-label" htmlFor="new-project-name">项目名称</label>
                       <div className="cw-input-wrapper">
                         <Layers size={14} className="cw-icon" />
-                        <input
+                        <Input inline id="new-project-name"
                           type="text"
                           value={newConvName}
                           onChange={event => setNewConvName(event.target.value)}
@@ -515,10 +516,10 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
                     </div>
 
                     <div className="cw-field-group">
-                      <label className="cw-label">项目路径</label>
+                      <label className="cw-label" htmlFor="new-project-path">项目路径</label>
                       <div className="cw-input-wrapper">
                         <Folder size={14} className="cw-icon" />
-                        <input
+                        <Input inline id="new-project-path"
                           type="text"
                           placeholder="输入允许范围内的绝对路径"
                           value={selectedDir}
@@ -642,16 +643,11 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
                 <div className="cw-provider-step">
                   <div className="cw-form">
                     <div className="cw-field-group">
-                      <label className="cw-label">Agent 接入方式</label>
-                      <div className="cw-input-wrapper">
-                        <Cpu size={14} className="cw-icon" />
-                        <select className="cw-input cw-agent-select" aria-label="选择 Agent"
-                          value={selectedProvider || defaultProvider} onChange={event => setSelectedProvider(event.target.value)}>
-                          {providers.map(provider => <option key={provider.id} value={provider.id} disabled={!provider.available}>
-                            {provider.name}{!provider.available ? '（不可用）' : ''}
-                          </option>)}
-                        </select>
-                      </div>
+                      <label className="cw-label" htmlFor="new-project-agent">Agent 接入方式</label>
+                      <Select id="new-project-agent" aria-label="选择 Agent" icon={<Cpu size={14} />}
+                        value={selectedProvider || defaultProvider} onChange={setSelectedProvider}
+                        options={providers.map(provider => ({ value: provider.id,
+                          label: `${provider.name}${!provider.available ? '（不可用）' : ''}`, disabled: !provider.available }))} />
                     </div>
                   </div>
                   {/* A missing agent CLI is the most common first-run failure.
@@ -700,8 +696,7 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
                         clicking through the wizard without reading anything. */}
                     {selectedPermissionMode === 'unrestricted' && (
                       <label className="permission-ack">
-                        <input
-                          type="checkbox"
+                        <Checkbox tone="danger"
                           checked={unrestrictedAcknowledged}
                           onChange={event => setUnrestrictedAcknowledged(event.target.checked)}
                         />

@@ -5,6 +5,7 @@ All API and agent traffic is mocked. Requires Python Playwright and Chromium.
 import asyncio
 from urllib.parse import parse_qs, urlparse
 from playwright.async_api import async_playwright, expect
+from browser_helpers import assert_menu_visible, choose_option
 
 BASE = 'http://127.0.0.1:5179'
 
@@ -20,6 +21,7 @@ async def main():
              'models': [{'id': 'fast', 'display_name': 'Fast'}, {'id': 'deep', 'display_name': 'Deep'}]},
             {'id': 'second', 'name': 'Second Agent', 'tone': 'default', 'available': True,
              'models': [{'id': 'second-fast', 'display_name': 'Second Fast'}, {'id': 'second-deep', 'display_name': 'Second Deep'}]},
+            {'id': 'unavailable', 'name': 'Unavailable Agent', 'tone': 'default', 'available': False, 'models': []},
         ]
         conversations = [
             {'id': 1, 'name': 'OrbitPane', 'path': '/tmp/orbitpane', 'provider': 'first',
@@ -28,6 +30,7 @@ async def main():
              'preferred_model': 'deep', 'permission_mode': 'workspace', 'is_pinned': False, 'is_archived': True, 'draft': ''},
         ]
         created = []
+        long_root = '/root/projects/' + 'long-workspace-directory/' * 8
         task_failure = False
         task_status = None
 
@@ -44,7 +47,7 @@ async def main():
                 provider = next((item for item in providers if item['id'] == query.get('provider', ['first'])[0]), providers[0])
                 data = {'provider': provider['id'], 'models': provider['models']}
             elif path == '/api/workspace-roots':
-                data = {'roots': ['/tmp', '/root/projects'], 'default_root': '/tmp'}
+                data = {'roots': ['/tmp', '/root/projects', long_root], 'default_root': '/tmp'}
             elif path == '/api/ls':
                 data = {'items': [], 'current_path': query.get('path', ['/tmp'])[0]}
             elif path == '/api/push/config':
@@ -115,10 +118,37 @@ async def main():
         socket_count = await page.evaluate('window.createdSockets.length')
         await page.keyboard.press('Control+,')
         await page.get_by_role('button', name='AI 与工作区', exact=True).click()
-        await page.get_by_label('默认 Agent').select_option('second')
+        agent = page.get_by_role('combobox', name='默认 Agent', exact=True)
+        await agent.focus()
+        await page.keyboard.press('ArrowDown')
+        await assert_menu_visible(page, '默认 Agent')
+        await expect(page.get_by_role('option', name='Unavailable Agent（不可用）', exact=True)).to_have_attribute('aria-disabled', 'true')
+        await page.get_by_role('option', name='Unavailable Agent（不可用）', exact=True).click(force=True)
+        await expect(agent).to_have_attribute('aria-expanded', 'true')
+        await expect(agent).to_contain_text('服务器默认')
+        await page.screenshot(path='/tmp/orbitpane-themed-settings-menu-dark.png', animations='disabled')
+        await page.keyboard.press('Escape')
+        await expect(agent).to_be_focused()
+        await expect(agent).to_have_attribute('aria-expanded', 'false')
+        await expect(page.locator('.settings-page')).to_be_visible()
+        await page.keyboard.press('ArrowDown')
+        await page.keyboard.press('End')
+        await page.keyboard.press('Enter')
+        await expect(agent).to_contain_text('Second Agent')
+        assert await page.locator('select, datalist').count() == 0
         await expect(page.get_by_label('默认模型')).to_be_enabled()
-        await page.get_by_label('默认模型').select_option('second-deep')
-        await page.get_by_label('默认工作区').select_option('/root/projects')
+        await choose_option(page, '默认模型', 'Second Deep')
+        await choose_option(page, '默认工作区', '/root/projects')
+        await page.get_by_role('combobox', name='默认工作区', exact=True).click()
+        await page.keyboard.press('End')
+        await assert_menu_visible(page, '默认工作区')
+        await page.emulate_media(color_scheme='light')
+        await expect(page.locator('html')).to_have_attribute('data-theme', 'light')
+        await expect(agent).to_have_css('background-color', 'rgb(254, 254, 253)')
+        await expect(agent).to_have_css('color', 'rgb(37, 31, 24)')
+        await page.screenshot(path='/tmp/orbitpane-themed-settings-menu-light.png', animations='disabled')
+        await page.keyboard.press('Escape')
+        await page.emulate_media(color_scheme='dark')
         assert conversations[0]['provider'] == 'first' and conversations[0]['preferred_model'] == 'fast'
         await page.get_by_role('button', name='返回工作台', exact=True).click()
         await page.locator('.settings-page').wait_for(state='detached')
@@ -129,11 +159,14 @@ async def main():
         await page.get_by_label('项目名称', exact=True).fill('New defaults')
         await expect(page.get_by_label('项目路径', exact=True)).to_have_value('/root/projects')
         await expect(page.get_by_label('选择 Agent')).to_have_count(0)
+        await page.get_by_role('button', name='运行配置', exact=False).click()
+        await choose_option(page, '选择 Agent', 'First Agent')
+        await choose_option(page, '选择 Agent', 'Second Agent')
         await page.get_by_role('button', name='创建项目', exact=True).click()
         await page.wait_for_function("new URLSearchParams(location.search).get('id') === '3'")
         assert created == [{'name': 'New defaults', 'path': '/root/projects', 'provider': 'second',
                             'permission_mode': 'workspace', 'preferred_model': 'second-deep'}], created
-        print('PASS: new defaults apply only to newly created projects; permissions stay restricted')
+        print('PASS: themed menus escape clipping, skip unavailable options and support keyboard selection; defaults apply only to new projects')
 
         await page.goto(BASE + '/?id=1&settings=project&settings-project=1')
         await page.get_by_role('heading', name='项目设置', exact=True).wait_for()
@@ -204,6 +237,12 @@ async def main():
             await page.get_by_role('button', name=section, exact=True).click()
             await page.get_by_role('heading', name=section, exact=True).wait_for()
             assert await page.locator('.settings-content').evaluate('el => el.scrollWidth <= el.clientWidth + 1'), section
+            if section == 'AI 与工作区':
+                await page.get_by_role('combobox', name='默认 Agent', exact=True).click()
+                await assert_menu_visible(page, '默认 Agent')
+                await page.screenshot(path='/tmp/orbitpane-themed-settings-menu-mobile.png', animations='disabled')
+                await page.keyboard.press('Escape')
+                await expect(page.locator('.settings-page')).to_be_visible()
         await page.get_by_role('button', name='返回工作台', exact=True).click()
         await page.locator('.settings-page').wait_for(state='detached')
         await page.screenshot(path='/tmp/orbitpane-workbench-mobile.png')

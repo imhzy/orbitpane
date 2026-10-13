@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from
 import { Square, Send, AtSign, ListPlus, Plus } from 'lucide-react'
 import { ModelSelector } from './ModelSelector'
 import { FileMentionPicker } from './FileMentionPicker'
+import { Textarea } from './FormControls'
 import { apiFetch, describeApiError } from '../lib/api'
 import { haptic } from '../lib/nativeFeedback'
 import { useEscapeLayer } from '../hooks/useEscapeLayer'
@@ -262,7 +263,7 @@ export function ChatInput({
             onSelect={selectFile}
           />
         )}
-        <textarea
+        <Textarea inline
           ref={textareaRef}
           value={input}
           onChange={(event) => {
