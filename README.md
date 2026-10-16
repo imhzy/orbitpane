@@ -28,7 +28,7 @@ OrbitPane 是一个面向个人使用的自托管编程 Agent 工作台。通过
 
 项目列表、对话与执行时间线、任务及上下文面板集中展示。
 
-![OrbitPane 桌面工作台：项目列表、Agent 对话与上下文面板](frontend/public/screenshots/orbitpane-wide.png)
+![OrbitPane 桌面工作台：项目列表、Agent 对话与上下文面板](docs/images/orbitpane-preview-hd.png)
 
 ### 移动端任务中心
 
@@ -38,7 +38,7 @@ OrbitPane 是一个面向个人使用的自托管编程 Agent 工作台。通过
   <img src="frontend/public/screenshots/orbitpane-mobile.png" alt="OrbitPane 移动端任务中心：项目列表和执行状态" width="300" />
 </p>
 
-> 截图来自仓库现有的 PWA 展示素材，界面和模型名称以实际运行版本为准。
+> 界面和模型名称以实际运行版本为准。
 
 ## 核心功能
 
