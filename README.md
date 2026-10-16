@@ -1,237 +1,190 @@
-# OrbitPane
+<div align="center">
+  <img src="frontend/public/pwa-192x192.png" alt="OrbitPane logo" width="88" />
+  <h1>OrbitPane</h1>
+  <p><strong>把服务器上的编程 Agent，装进随时可用的工作台。</strong></p>
+  <p>自托管 · 实时对话 · 任务队列 · 定时执行 · 桌面与移动端 PWA</p>
+  <p>
+    <img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white" alt="Python 3.11+" />
+    <img src="https://img.shields.io/badge/React-19-149ECA?logo=react&logoColor=white" alt="React 19" />
+    <img src="https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white" alt="FastAPI" />
+    <img src="https://img.shields.io/badge/PWA-ready-5A0FC8?logo=pwa&logoColor=white" alt="PWA ready" />
+  </p>
+  <p>
+    <a href="#项目截图">项目截图</a> ·
+    <a href="#快速开始">快速开始</a> ·
+    <a href="#部署">部署</a> ·
+    <a href="docs/operations.md">详细文档</a> ·
+    <a href="https://github.com/imhzy/orbitpane/issues">反馈问题</a>
+  </p>
+</div>
 
-OrbitPane is a secure, self-hosted mission control for running coding agents inside
-explicitly allowed server projects. Its browser PWA provides persistent
-projects, queued execution, inline summary checkpoints, full-text search,
-realtime execution and reconnect support without coupling the UI
-protocol to a specific agent provider. Google Antigravity is the default
-provider, with OpenAI Codex available behind a feature flag.
+OrbitPane 是一个面向个人使用的自托管编程 Agent 工作台。通过浏览器连接服务器上的项目，发送任务、查看执行过程、管理上下文，并在手机上继续跟进进度。对话、任务记录和项目设置保存在自己的服务器上；模型请求由所配置的 Agent 服务处理。
 
-## Scheduled agent commands
+默认接入 **Antigravity**，可选启用 **Codex CLI**。不同 Agent 共用同一套项目管理、权限控制和实时交互界面。
 
-Open a conversation and choose **定时任务** in its action menu, or the **定时**
-tab in the task/context panel. Existing conversations can have multiple tasks,
-each with its own prompt, recurrence, IANA timezone (default `Asia/Shanghai`),
-and optional context compression. Supported rules are every N minutes/hours,
-daily at one or more times, and weekly on selected weekdays at one or more
-times. The panel supports editing, pausing, resuming, deleting and running now,
-and shows the next trigger, latest result, failures and pending execution count.
-Scheduled prompts and replies appear in the normal transcript with a clock
-badge; their source name and planned trigger time survive edits and deletion.
+## 项目截图
 
-The backend runs schedules while the browser is closed. Each accepted trigger
-is persisted atomically and joins the existing per-conversation FIFO, including
-every occurrence of a busy recurring task. Different conversations can run
-concurrently. There is no coalescing and no automatic retry of agent commands.
-Run-now requests are idempotent and do not move the next recurring trigger.
-Rules survive restarts, but missed triggers are skipped. Existing queued or
-running commands are marked interrupted on restart and are not resumed.
-The poller tolerates five seconds of normal runtime jitter; older slots are
-skipped. Intervals keep their original cadence; editing only a name or prompt
-does not reset it. Creating, changing the recurrence or resuming an interval
-waits a full period before the first trigger.
+### 桌面工作台
 
-Calendar rules use local wall time and store instants in UTC. A nonexistent
-daylight-saving time is skipped; a repeated time runs once at its first
-occurrence. These policies follow the distinction between scheduling deadlines
-and execution concurrency in the [APScheduler user guide](https://apscheduler.readthedocs.io/en/3.x/userguide.html)
-and use Python's [IANA timezone support](https://docs.python.org/3/library/zoneinfo.html).
+项目列表、对话与执行时间线、任务及上下文面板集中展示。
 
-Compression runs when the command reaches the front of the queue, using the
-latest conversation context and the provider's checkpoint capability. The
-current stateless CLI adapters generate a summary checkpoint, retain the
-original messages, and use the summary for subsequent turns. A failed or
-interrupted compression stops the scheduled command and records its reason.
-Commands inherit the conversation's agent, model and filesystem permissions;
-scheduling never grants additional permissions. Completed commands and failed
-scheduled commands use the existing opt-in browser/Web Push notifications.
+![OrbitPane 桌面工作台：项目列表、Agent 对话与上下文面板](frontend/public/screenshots/orbitpane-wide.png)
 
-Pausing stops future triggers while accepted queue items remain. Deleting a
-schedule cancels its pending items and lets its running command finish.
-Deleting a conversation removes its schedules; clearing its history cancels
-accepted commands and removes execution history while retaining the recurrence
-rules. Authenticated schedule APIs live under `/api/conversations/{id}/schedules`;
-`GET /api/schedules` lists the owner's schedules. Use one backend process, as
-with the existing PM2 fork deployment: conversation execution queues belong to
-that process. Tests use isolated databases and fake agents.
+### 移动端任务中心
 
-## Task-completion push notifications
+在手机上查看项目状态，也可以将 PWA 添加到主屏幕。
 
-iOS/iPadOS 16.4+ supports notifications for HTTPS PWAs installed on the Home
-Screen. OrbitPane uses standard Web Push with VAPID and encrypted payloads;
-Apple delivers these through APNs. No native APNs certificate, `.p8` key, or
-Apple Developer membership is needed. Chrome and Firefox Web Push also work.
+<p align="center">
+  <img src="frontend/public/screenshots/orbitpane-mobile.png" alt="OrbitPane 移动端任务中心：项目列表和执行状态" width="300" />
+</p>
 
-After installing backend dependencies, generate the server key once:
+> 截图来自仓库现有的 PWA 展示素材，界面和模型名称以实际运行版本为准。
 
-```bash
-python3 -m backend.setup_push --subject https://your-orbitpane.example.com
-pm2 restart orbitpane-backend --update-env
-```
+## 核心功能
 
-This writes `ORBITPANE_PUSH_VAPID_PRIVATE_KEY` (base64url DER P-256 key) and
-`ORBITPANE_PUSH_VAPID_SUBJECT` into the gitignored `.env`, without printing the
-private key. Back up that key with the deployment configuration. Rotating it
-requires devices to enable notifications again. Without a key, push is disabled.
-The subject can also be a real `mailto:` contact address.
+| 功能 | 说明 |
+| --- | --- |
+| 多项目工作台 | 项目置顶、归档、模型偏好、草稿保存和历史全文搜索 |
+| 实时执行 | 流式回复、执行时间线、任务状态与耗时，支持断线重连 |
+| 任务队列 | 同一会话串行执行，排队任务可编辑、排序和取消；不同会话可并行 |
+| 上下文管理 | 在对话中生成可折叠的摘要检查点，同时保留原始历史 |
+| 定时任务 | 支持间隔、每日、每周和时区设置，浏览器关闭后仍由后端调度 |
+| 多 Agent 接入 | 默认 Antigravity，可选 Codex，统一的 provider 接口便于扩展 |
+| PWA 与通知 | 桌面、移动端适配；可选 Web Push，在任务完成后接收通知 |
+| 通行密钥 | PIN 登录与可选 Passkey，支持兼容设备上的 Face ID / Touch ID |
+| 对话分享 | 创建只读快照，设置有效期、复制或撤销链接，不包含工作区元数据 |
+| 访问控制 | HttpOnly 会话 Cookie、工作区目录白名单，默认使用受限 Agent 权限 |
 
-On iPhone, use Safari's **Add to Home Screen**, open OrbitPane from that icon,
-log in, and select **开启任务通知** in the sidebar. Accept the system permission
-prompt. Existing installations should apply the app update first. The same
-button disables notifications on that device; explicit logout removes its
-subscription. Browser permission denial must be changed in system settings.
+## 快速开始
 
-Each successfully completed task, including queued tasks and summaries,
-notifies subscribed devices even when the app is closed. Failed or interrupted
-tasks do not send a success notification. Failed scheduled commands send a
-generic failure notification. Notifications contain only a generic
-completion message, and tapping one opens the corresponding conversation
-(`/?id=…`), with login required when the session has expired.
+### 环境要求
 
-Delivery jobs are persisted atomically with task completion and survive backend
-restarts. Network errors, HTTP 429 and 5xx responses retry with backoff for up
-to 24 hours; 404/410 subscriptions are removed. Clearing history, deleting a
-conversation, or unsubscribing removes its pending delivery jobs. The push
-service may accept a send just before a process crash; stable notification tags
-coalesce a retried send on the device. The host needs outbound HTTPS access to
-the browser's push service (Apple uses `*.push.apple.com`). This is a single-owner
-workspace: all devices that opted in receive completions across its projects.
+- Python **3.11+**
+- Node.js **20.19+ 或 22.12+**，以及 npm
+- 已安装并完成认证的 `antigravity` CLI；使用 Codex 时需准备对应 CLI
+- 生产部署使用 Linux、Nginx 与 PM2
 
-Notification regressions:
+### 1. 获取代码并安装依赖
 
 ```bash
-python3 -m unittest backend.tests.test_notifications -v
-node --test frontend/tests/push-worker.test.mjs
-```
+git clone https://github.com/imhzy/orbitpane.git
+cd orbitpane
 
-For a device check, start a task, background or close the PWA, wait for completion,
-and tap the notification to verify that the right conversation opens. Focus
-modes and system notification settings may affect presentation.
-
-## Architecture
-
-```text
-React + Vite PWA
-  ├── authenticated REST ── conversations / history / filesystem
-  └── authenticated WebSocket
-          │
-FastAPI application
-  ├── signed session tokens
-  ├── workspace path policy
-  ├── SQLite repository
-  ├── persistent task catalog + per-project queue
-  └── AgentProvider
-        ├── AntigravityProvider (default)
-        └── CodexCliProvider (optional)
-```
-
-The backend is split by responsibility:
-
-- `backend/app/application.py`: HTTP and WebSocket transport.
-- `backend/app/security.py`: PIN verification and signed expiring tokens.
-- `backend/app/database.py`: SQLite schema and repository.
-- `backend/app/realtime.py`: connection hub, per-project serial task queue and
-  reconnect state.
-- `backend/app/agents/`: provider-neutral contract and concrete adapters.
-
-The frontend uses `frontend/src/lib/api.ts` as the single authenticated REST
-client. Authentication state is based on a signed, expiring, HttpOnly
-HttpOnly cookie rather than an independent browser flag or a token exposed to
-JavaScript. Same-origin deployments use `SameSite=Lax`; explicit cross-origin
-production deployments use a Secure `SameSite=None` cookie.
-
-## Requirements
-
-- Python 3.11+
-- Node.js 20+
-- `antigravity` CLI command for the default provider
-- PM2 and Nginx for the documented production setup
-
-Install dependencies:
-
-```bash
+python3 -m venv ~/.venvs/orbitpane
+source ~/.venvs/orbitpane/bin/activate
 python3 -m pip install -e '.[test]'
+
 cd frontend
 npm ci
+cd ..
 ```
 
-## Configuration
-
-Configuration is read from environment variables. Start from `.env.example`,
-but do not commit real credentials.
-
-For production, these values are mandatory:
+### 2. 配置本地环境
 
 ```bash
-export ORBITPANE_ENV=production
-export ORBITPANE_PIN='use-a-private-pin'
-export ORBITPANE_AUTH_SECRET='use-a-long-random-secret'
-export ORBITPANE_ALLOWED_ROOTS='/srv/workspaces,/root/projects'
+cp .env.example .env
+openssl rand -hex 32
 ```
 
-Useful security settings:
+编辑 `.env`，将上一步生成的随机值填入 `ORBITPANE_AUTH_SECRET`，并按本机目录修改配置：
 
-- `ORBITPANE_ALLOWED_ROOTS`: comma-separated directory allowlist. Symlinks are
-  resolved before authorization.
-- `ORBITPANE_CORS_ORIGINS`: empty for same-origin deployments; otherwise a
-  comma-separated explicit origin list.
-- `ORBITPANE_AUTH_TTL_SECONDS`: signed login token lifetime, default 12 hours.
-- `ORBITPANE_WEBAUTHN_ORIGIN`: exact public HTTPS origin for passkeys, for
-  example `https://orbitpane.hzycode.com`. The hostname is the WebAuthn RP ID;
-  it is never taken from request headers. For local Vite development use
-  `http://localhost:5173`. If unset, passkey operations are disabled and PIN
-  login continues to work.
-- `ORBITPANE_DATABASE_PATH`: SQLite database location. Tests always use an
-  isolated temporary database and never share production persistence.
-- Agent filesystem permissions are selected per project. New projects default to
-  workspace-restricted mode; unrestricted mode requires an explicit choice.
+```dotenv
+ORBITPANE_ENV=development
+ORBITPANE_HOST=127.0.0.1
+ORBITPANE_PORT=8005
+ORBITPANE_PIN=replace-with-your-private-pin
+ORBITPANE_AUTH_SECRET=replace-with-your-generated-secret
+ORBITPANE_DATABASE_PATH=/absolute/path/to/orbitpane/history.db
+ORBITPANE_ALLOWED_ROOTS=/absolute/path/to/your/projects
+ORBITPANE_WEBAUTHN_ORIGIN=http://localhost:5173
+```
 
-In development, an unset PIN and signing secret are replaced with process-local
-random values, so login credentials and sessions do not survive a restart.
-Configure both values explicitly when interactive login is needed. Production
-refuses to start without both authentication settings.
+工作区目录需要预先存在。后端自动读取仓库根目录的 `.env`，已设置的环境变量优先；不要提交真实凭据。完整配置见 [`.env.example`](.env.example)。
 
-### Passkey login (iOS and other supported devices)
+### 3. 启动服务
 
-The browser remembers the last successful sign-in method and opens it by default.
-With no saved preference, the login screen defaults to **使用通行密钥登录**;
-**使用 PIN 登录** remains available. In the PIN view, passkeys remain a prominent
-one-click action. First sign in with your existing PIN, then select **绑定通行密钥**
-in the sidebar. Accept the system prompt to save the passkey (for example in
-iCloud Keychain). Subsequent logins can use Face ID, Touch ID, or the device's
-verification method. Cancelling a prompt never removes the PIN fallback.
-Browsers without WebAuthn or a secure context show the PIN form directly.
-
-Registration requires an authenticated session. Both ceremonies verify the
-configured origin, RP ID, user verification and a browser-bound, single-use
-challenge expiring after five minutes. Public login options do not expose
-registered credential IDs. Public keys and signature counters persist in
-SQLite; private keys stay with the authenticator. Synced passkeys with zero
-signature counters are supported. Keep your PIN as a recovery method if a
-device or passkey is lost, and keep the public hostname stable.
-
-The backend uses [py_webauthn](https://duo-labs.github.io/py_webauthn/registration.html)
-for registration and signature verification.
-
-## Development
-
-Backend:
+在已激活 Python 虚拟环境的终端启动后端：
 
 ```bash
 python3 backend/main.py
 ```
 
-Frontend:
+另开一个终端启动前端：
 
 ```bash
 cd frontend
 npm run dev
 ```
 
-The Vite dev server should proxy `/api` to port `8005`, or both applications can
-be served through Nginx.
+打开 **http://localhost:5173**，使用配置的 PIN 登录，然后选择白名单内的目录新建项目。Vite 已将 `/api` 和 WebSocket 请求代理至本地 `8005` 端口。
 
-Verification:
+### 4. 可选：启用 Codex
+
+在 `.env` 中设置以下值，然后重启后端：
+
+```dotenv
+CODEX_ENABLED=true
+CODEX_SANDBOX=workspace-write
+CODEX_REASONING_SUMMARY=detailed
+```
+
+启用后可在创建项目时选择 Codex。模型发现、推理强度和运行中恢复机制见 [Agent 配置](docs/operations.md#optional-codex-provider)。
+
+## 部署
+
+1. 在服务器完成依赖安装，将 `.env` 中的 `ORBITPANE_ENV` 改为 `production`，配置独立的 PIN、随机签名密钥和工作区白名单。
+2. 在 `frontend/` 下运行 `npm ci && npm run build`，生成 `frontend/dist`。
+3. 从仓库根目录启动后端，解释器应指向安装了依赖的虚拟环境：
+
+   ```bash
+   pm2 start backend/main.py --name orbitpane-backend --interpreter "$HOME/.venvs/orbitpane/bin/python"
+   pm2 save
+   ```
+
+4. 以 [`deploy/nginx/`](deploy/nginx/) 为配置来源，修改域名、证书路径和前端静态目录；检查配置后加载 Nginx，并通过 HTTPS 访问。
+
+后端保持监听 `127.0.0.1:8005`，由 Nginx 代理 API 和 WebSocket。使用 **单个后端进程**，因为执行队列和调度器属于该进程。代理配置中的分享链接日志脱敏、安全响应头及 `/s/` 路由规则需要保留。
+
+生产环境使用 Passkey 时，将 `ORBITPANE_WEBAUTHN_ORIGIN` 设置为实际 HTTPS 来源。Web Push 需要额外生成 VAPID 密钥，操作见下方文档。
+
+## 文档
+
+| 主题 | 内容 |
+| --- | --- |
+| [配置参考](docs/operations.md#configuration) | 环境变量、认证、工作区与跨域配置 |
+| [定时任务](docs/operations.md#scheduled-agent-commands) | 调度规则、时区、队列、重启与取消语义 |
+| [推送通知](docs/operations.md#task-completion-push-notifications) | VAPID 配置、iOS 主屏幕安装和消息投递 |
+| [通行密钥](docs/operations.md#passkey-login-ios-and-other-supported-devices) | Passkey 绑定、登录与恢复 |
+| [Agent 配置](docs/operations.md#optional-codex-provider) | Codex 启用、模型发现与恢复策略 |
+| [对话分享](docs/operations.md#conversation-sharing) | 快照、有效期、撤销与数据清理 |
+| [生产运维](docs/operations.md#production) | 构建、PM2 与 Nginx 部署 |
+
+## 项目结构
+
+```text
+orbitpane/
+├── backend/
+│   ├── app/
+│   │   ├── application.py  # HTTP / WebSocket 入口
+│   │   ├── database.py     # SQLite 持久化
+│   │   ├── realtime.py     # 实时连接与执行队列
+│   │   ├── scheduler.py    # 定时任务调度
+│   │   └── agents/         # AgentProvider 与具体适配器
+│   └── tests/             # 后端回归测试
+├── frontend/
+│   ├── src/               # React 界面与统一 API 客户端
+│   └── public/            # PWA 资源与项目截图
+├── deploy/nginx/          # 反向代理与安全配置
+└── docs/                  # 使用与运维文档
+```
+
+前端通过经过认证的 REST 与 WebSocket 连接 FastAPI，后端将数据存储在 SQLite，并通过 `AgentProvider` 调用 CLI。新增 Agent 应实现统一接口，避免在传输层或前端协议中加入 provider 特判。
+
+## 开发与贡献
+
+欢迎通过 [Issues](https://github.com/imhzy/orbitpane/issues) 提交可复现的问题或功能建议，也欢迎提交 Pull Request。修改前请阅读 [仓库开发约定](AGENTS.md)，保持改动聚焦，并为行为变化补充相应验证。
+
+提交前运行：
 
 ```bash
 python3 -m unittest discover -s backend/tests -v
@@ -241,195 +194,14 @@ npm run lint
 npm run build
 ```
 
-## Production
+涉及推送通知时，另运行 `node --test frontend/tests/push-worker.test.mjs`（从仓库根目录执行）。
 
-Build the frontend:
+## 安全与数据
 
-```bash
-cd /srv/orbitpane/frontend
-npm ci
-npm run build
-```
+OrbitPane 面向单所有者工作区。Agent 能修改文件并运行工具，请为服务配置与信任范围匹配的系统账号、容器或虚拟机，限制工作区目录，并保持默认受限权限。
 
-Start the backend after exporting the production environment:
+分享链接的持有者可以读取对应快照；分享前请检查对话内容。清空历史或删除会话会删除对应分享快照。备份时妥善保管数据库与 `.env`，不要在 Issue、日志或截图中公开凭据和分享令牌。更多细节见 [安全说明](docs/operations.md#security-notes)。
 
-```bash
-cd /srv/orbitpane
-pm2 start backend/main.py --name orbitpane-backend --interpreter python3
-pm2 save
-```
+## 许可证
 
-After backend changes:
-
-```bash
-pm2 restart orbitpane-backend --update-env
-pm2 status orbitpane-backend
-```
-
-Minimal same-origin Nginx layout:
-
-```nginx
-server_name orbitpane.hzycode.com;
-
-location / {
-    root /srv/orbitpane/frontend/dist;
-    try_files $uri $uri/ /index.html;
-}
-
-location /api/ {
-    proxy_pass http://127.0.0.1:8005/api/;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_set_header Host $host;
-}
-```
-
-Terminate TLS at Nginx. Do not expose port `8005` directly.
-
-## Optional Codex provider
-
-Codex is disabled by default. The adapter uses the documented
-`codex exec --json` JSONL interface, runs in `workspace-write`, and shares the
-same authentication, workspace policy, task coordinator, history and
-WebSocket protocol as Antigravity.
-
-An `error` notification does not immediately stop a running Codex process:
-the adapter keeps listening for recovery and requires `turn.completed` before
-accepting an answer. An unresolved error without further work is allowed 120
-seconds to recover. Confirmed capacity, rate-limit, and recognized transient
-connection failures get up to three continuations after 5, 15, and 30 seconds.
-The UI shows the recovery status, and Stop also cancels a pending retry.
-
-Codex session files are now persisted by the CLI (no `--ephemeral`) so automatic
-recovery can use `exec resume` with the exact thread ID and the same model and
-permissions. Recovery asks the agent to check saved work and continue only
-unfinished actions. The original task is retried without a thread only if no
-agent/tool work has started. Authentication, quota, and other permanent errors
-are not automatically retried. This recovery applies within a running task;
-it does not resume tasks across a backend restart.
-
-```bash
-export CODEX_ENABLED=true
-export CODEX_SANDBOX=workspace-write
-export CODEX_REASONING_SUMMARY=detailed
-```
-
-`CODEX_REASONING_SUMMARY` accepts `auto`, `concise`, `detailed`, or `none` and
-defaults to `detailed`, so supported Codex models publish useful reasoning
-summaries to the execution timeline. This does not enable raw hidden reasoning.
-
-Each reasoning effort a Codex model supports (its `supported_reasoning_levels`
-in `codex debug models`) is offered as a model entry of its own, the way the
-Antigravity ids already carry theirs: `gpt-5.5@high` runs `gpt-5.5` with
-`model_reasoning_effort="high"`. The bare slug, labelled *Default*, passes no
-effort, so Codex falls back to `model_reasoning_effort` in the server's
-`~/.codex/config.toml` — which the Codex TUI rewrites whenever a level is picked
-there — and, when that is unset, to the model's own `default_reasoning_level`.
-Projects created before the levels were listed keep the bare slug and so behave
-as they did. `CODEX_MODELS` accepts the same `slug@effort` form for a shorter
-list.
-
-Model lists are discovered once per backend process from `antigravity models`
-(or `agy models`, when configured as the command) and `codex debug models`.
-`ORBITPANE_ANTIGRAVITY_MODELS` and `CODEX_MODELS` can still be set to a
-comma-separated list when an explicit allowlist is preferred. If discovery
-fails, the built-in defaults are used as a fallback.
-
-The provider abstraction can later be replaced by the official Python
-`openai-codex` SDK without changing application routes or frontend state. The
-official SDK is suitable for embedding coding-focused Codex threads in an
-application, while JSONL non-interactive mode provides machine-readable agent
-events:
-
-- <https://developers.openai.com/codex/sdk/>
-- <https://developers.openai.com/codex/noninteractive/>
-
-## Conversation sharing
-
-Any project can be published as a read-only snapshot at `/s/<token>`. The page
-needs no session, and it is a copy rather than a view: turns added after the
-link was created never appear in it.
-
-- The token is 192 bits from `secrets.token_urlsafe`. Resolution is by SHA-256
-  digest; a second copy is stored sealed with AES-GCM under a key derived from
-  `ORBITPANE_AUTH_SECRET`, which is what lets the share panel show a link again
-  rather than only revoke it. The secret lives in the environment and not in
-  the database, so a stolen `history.db` is still not a set of working links.
-  Rotating the secret leaves existing links working but no longer listable with
-  their address, and links created before this was kept list the same way.
-- The share panel lists every live link of the open project with its address,
-  snapshot date, view count and expiry, so a link handed out last week can be
-  copied again from the app that made it.
-- A snapshot carries the conversation and nothing else. The workspace path, run
-  ids, per-run character accounting and feedback ratings stay private, and the
-  agent's execution transcript is included only when the sender asks for it.
-- Links can be given a 7- or 30-day expiry. Expiry deletes the stored snapshot
-  rather than hiding it; revoking takes effect immediately.
-- At most 20 links per project, so the list of what is public stays reviewable.
-- `GET /api/shared/{token}` is the only unauthenticated read in the application.
-  It is rate-limited per client, answers `404` for unknown and revoked tokens
-  alike, and is served with `X-Robots-Tag: noindex` and
-  `Referrer-Policy: no-referrer`. The HTML is covered by `robots.txt` and a
-  page-level `noindex`.
-- Visitors do not download the application bundle and no service worker is
-  registered for them.
-
-### Deleted content stops being served
-
-Four independent mechanisms, because a public copy outliving the content it
-copied is the one failure this feature must not have:
-
-1. `clear_history` and `delete_conversation` delete the project's snapshots
-   explicitly, in the same transaction as the content itself.
-2. `shares.conversation_id` is `ON DELETE CASCADE`, and startup aborts if
-   SQLite's per-connection foreign key pragma is not actually in force.
-3. `find_share_by_token_hash` joins `conversations`, so a snapshot whose project
-   is gone cannot resolve *even if it is still on disk*. This is the guarantee
-   that does not depend on any write path being correct.
-4. Expired and orphaned rows are swept at startup, hourly, and whenever the
-   owner opens the share panel.
-
-Revocation stops future loads. It cannot reach what a reader already saw, and
-SQLite frees the row's bytes without overwriting them until the file is
-vacuumed.
-
-### Deployment
-
-`deploy/nginx/` is the source of truth for the reverse proxy:
-
-```bash
-sudo cp deploy/nginx/snippets/*.conf /etc/nginx/snippets/
-sudo cp deploy/nginx/conf.d/*.conf /etc/nginx/conf.d/
-sudo nginx -t && sudo systemctl reload nginx
-```
-
-It sets HSTS, a `script-src 'self'` CSP, `frame-ancestors 'none'` and a
-`Permissions-Policy` on every route, marks `/s/` `no-store` and `noindex` at the
-HTTP level, and **masks share tokens in the access log** — a capability URL in
-plaintext in a log file is a working link. The backend applies the same
-redaction to its own Uvicorn access log.
-
-## Security notes
-
-- Every REST endpoint except login and health requires a signed session.
-- WebSockets authenticate from the same HttpOnly session cookie.
-- Failed PIN attempts are rate-limited in memory.
-- Only one task runs per project at a time; additional messages enter an
-  editable, reorderable and cancelable FIFO queue.
-- Project pins, archives, preferred models and drafts are persisted on the
-  server. The browser retains caches and drafts for offline recovery.
-- Summary checkpoints create collapsible boundaries directly in the chat while
-  retaining the full history for on-demand review.
-- Task runs retain status, duration and input/output/context character metrics.
-- WebSockets use application-level heartbeats and automatically reconnect.
-- Deleting a running conversation interrupts its process group first.
-- Agent-produced Markdown does not render raw HTML.
-- Provider model IDs are validated server-side.
-- Shared snapshots are frozen copies addressed by an unguessable, revocable
-  token; possession of the link is the entire grant.
-- SQLite uses WAL mode, busy timeouts and indexed conversation history.
-
-This service runs coding agents capable of changing files and executing tools.
-Use an OS account, container or VM whose permissions match the intended trust
-boundary.
+仓库目前尚未提供 `LICENSE` 文件。使用、修改或分发前，请与维护者确认授权范围。
