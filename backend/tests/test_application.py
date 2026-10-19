@@ -7,7 +7,7 @@ import threading
 import time
 from pathlib import Path
 from unittest import IsolatedAsyncioTestCase
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 
@@ -46,6 +46,33 @@ class ApplicationTests(IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("orbitpane_session", response.cookies)
         return {}
+
+    async def test_usage_auth_unknown_and_unavailable_provider(self):
+        self.assertEqual((await self.client.get('/api/usage')).status_code, 401)
+        await self.login_headers()
+        unknown = await self.client.get('/api/usage?provider=missing')
+        self.assertEqual(unknown.status_code, 404)
+        self.assertEqual(unknown.json()['detail'], 'Unknown provider: missing')
+        default = (await self.client.get('/api/usage')).json()
+        self.assertEqual(default['provider'], 'antigravity')
+        self.assertFalse(default['available'])
+        self.assertIn('未返回可识别的用量', default['error'])
+        disabled = (await self.client.get('/api/usage?provider=codex')).json()
+        self.assertEqual(disabled['error'], 'Codex 未启用')
+        self.assertEqual(disabled['windows'], [])
+        self.assertEqual(set(disabled), set(default))
+
+    async def test_gemini_usage_groups_reach_authenticated_api(self):
+        await self.login_headers()
+        with patch('backend.app.agents.antigravity.read_antigravity_usage', new_callable=AsyncMock) as read:
+            read.return_value = 'Gemini Models\tWeekly Limit Remaining\t76%\t2026-10-24T03:23:45Z\n'
+            response = await self.client.get('/api/usage?provider=antigravity')
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data['available'])
+        self.assertEqual(data['windows'][0]['group'], 'Gemini Models')
+        self.assertEqual(data['windows'][0]['remaining_percent'], 76)
+        self.assertIsNone(data['plan'])
 
     async def test_conversation_reorder_is_authenticated_validated_and_persistent(self) -> None:
         database = self.app.state.database

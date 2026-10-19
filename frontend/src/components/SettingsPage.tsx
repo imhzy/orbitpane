@@ -17,6 +17,7 @@ import type { ModelOption, ModelsResponse, TaskRecord } from '../lib/types'
 import { isTaskActive } from '../lib/taskStatus'
 import { PushNotificationButton } from './PushNotificationButton'
 import { Input, Select } from './FormControls'
+import { ProviderUsageCard } from './ProviderUsage'
 import './SettingsPage.css'
 
 const SECTIONS = [
@@ -110,7 +111,10 @@ function AiSettings() {
       <SettingRow title="默认文件权限" description="新项目默认使用受限工作区。如需完全访问，在具体项目中确认后开启。"><span className="settings-status"><ShieldCheck size={14} />受限工作区</span></SettingRow>
     </SettingsGroup>
     <SettingsGroup title="Agent 状态">
-      {providers.map(provider => <SettingRow key={provider.id} title={provider.name}><span className={`settings-status ${provider.available ? 'available' : ''}`}><i />{provider.available ? '可用' : '不可用'}</span></SettingRow>)}
+      {providers.map(provider => <div className="settings-agent-status" key={provider.id}>
+        <SettingRow title={provider.name}><span className={`settings-status ${provider.available ? 'available' : ''}`}><i />{provider.available ? '可用' : '不可用'}</span></SettingRow>
+        <ProviderUsageCard provider={provider.id} />
+      </div>)}
       {providers.length === 0 && <p className="settings-empty">暂未读取到 Agent，请稍后重新打开设置。</p>}
     </SettingsGroup>
     <p className="settings-footnote">默认配置保存在当前浏览器，仅用于之后新建的项目。</p>

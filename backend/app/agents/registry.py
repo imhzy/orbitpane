@@ -27,6 +27,10 @@ class ProviderRegistry:
             raise ProviderError(f"Provider is not available: {provider_id}")
         return provider
 
+    def lookup(self, provider_id: str) -> AgentProvider | None:
+        """Inspect capabilities even when execution is disabled."""
+        return self._providers.get(provider_id)
+
     def exists(self, provider_id: str) -> bool:
         return provider_id in self._providers
 

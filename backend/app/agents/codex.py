@@ -27,6 +27,8 @@ from .base import (
     humanize_model_id,
 )
 from .process import terminate_process
+from .codex_usage import parse_codex_rate_limits, read_codex_rate_limits
+from .usage import UsageCache, empty_usage
 
 logger = logging.getLogger(__name__)
 
@@ -206,6 +208,7 @@ class CodexCliProvider(AgentProvider):
 
     def __init__(self, settings: Settings, store: ModelCatalogStore | None = None):
         self.settings = settings
+        self._usage = UsageCache(self.id, self.display_name)
         self._processes: dict[int, asyncio.subprocess.Process] = {}
         self._interrupted: set[int] = set()
         self._retry_stops: dict[int, asyncio.Event] = {}
@@ -215,6 +218,15 @@ class CodexCliProvider(AgentProvider):
             fallback=lambda: self.settings.codex_models,
             store=store,
         )
+
+    async def account_usage(self) -> dict[str, object]:
+        if not self.settings.codex_enabled:
+            return empty_usage(self.id, self.display_name, "Codex 未启用")
+        if shutil.which(self.settings.codex_command) is None:
+            return empty_usage(self.id, self.display_name, "未找到 Codex CLI")
+        async def fetch():
+            return parse_codex_rate_limits(await read_codex_rate_limits(self.settings.codex_command))
+        return await self._usage.read(fetch)
 
     @property
     def _models_are_pinned(self) -> bool:

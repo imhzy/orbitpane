@@ -1,0 +1,30 @@
+.usage-card { min-width: 0; text-align: left; }
+.usage-card .inspector-card-title { gap: 8px; margin-bottom: 0; }
+.usage-card .inspector-card-title > span { flex-wrap: wrap; }
+.usage-caption, .usage-note { color: var(--text-secondary); font-size: 12px; line-height: 1.6; margin: 8px 0 0; overflow-wrap: anywhere; }
+.usage-caption { color: var(--text-tertiary); margin-top: 0; }
+.usage-window { margin-top: 16px; color: var(--text-secondary); }
+.usage-window-label { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+.usage-window strong, .usage-chip { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.usage-track { height: 5px; margin-top: 8px; background: var(--bg-surface-hover); border-radius: 4px; overflow: hidden; }
+.usage-track i { display: block; height: 100%; border-radius: inherit; background: var(--text-tertiary); transition: width .2s; }
+.usage-window small { display: block; font-size: 11px; color: var(--text-tertiary); margin-top: 6px; }
+.usage-chip { flex-shrink: 0; white-space: nowrap; padding: 6px 8px; min-height: 32px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 11px; background: var(--bg-surface-hover); color: var(--text-secondary); cursor: pointer; }
+.usage-chip:hover { filter: brightness(1.1); }
+.usage-chip:focus-visible { outline: 2px solid var(--text-secondary); outline-offset: 3px; }
+.usage-chip.low { background: var(--danger-bg); border-color: var(--danger-border); }
+.usage-chip.warn { background: var(--warning-bg); border-color: var(--warning-border); }
+.usage-card .low, .usage-chip.low { color: var(--danger-text); }
+.usage-card .warn, .usage-chip.warn { color: var(--warning-text); }
+.usage-window.low .usage-track i { background: var(--danger-color); }
+.usage-window.warn .usage-track i { background: var(--warning-color); }
+.welcome-container > .usage-card { width: 100%; max-width: 420px; align-self: flex-start; margin-top: 20px; }
+.usage-card .inspector-card-title > span:first-child { text-transform: none; letter-spacing: normal; }
+
+.usage-group + .usage-group { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border-subtle); }
+.usage-group-title { margin: 16px 0 0; font-size: 12px; font-weight: 600; color: var(--text-secondary); overflow-wrap: anywhere; }
+.usage-chip { display: inline-flex; align-items: center; gap: 5px; }
+.usage-chip-group { max-width: 100px; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 768px) {
+  .usage-chip-group { max-width: 55px; }
+}

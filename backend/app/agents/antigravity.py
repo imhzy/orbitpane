@@ -28,6 +28,8 @@ from .base import (
     humanize_model_id,
 )
 from .process import terminate_process
+from .usage import UsageCache, empty_usage
+from .antigravity_usage import parse_antigravity_usage, read_antigravity_usage
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +78,7 @@ class AntigravityProvider(AgentProvider):
 
     def __init__(self, settings: Settings, store: ModelCatalogStore | None = None):
         self.settings = settings
+        self._usage = UsageCache(self.id, self.display_name)
         self._processes: dict[int, asyncio.subprocess.Process] = {}
         self._interrupted: set[int] = set()
         self._catalog = ModelCatalogCache(
@@ -87,6 +90,14 @@ class AntigravityProvider(AgentProvider):
             fallback=lambda: self.settings.antigravity_models,
             store=store,
         )
+
+    async def account_usage(self) -> dict[str, object]:
+        if not self.available:
+            return empty_usage(self.id, self.display_name, "未找到 Antigravity CLI")
+        async def fetch():
+            return parse_antigravity_usage(await read_antigravity_usage(
+                self.settings.antigravity_command, self.settings.antigravity_proxy_url))
+        return await self._usage.read(fetch)
 
     @property
     def models(self) -> tuple[str, ...]:

@@ -1,3 +1,4 @@
+import { ProviderUsageCard } from './ProviderUsage'
 import { Plus, FolderGit2, Folder, AtSign, GitBranch, ListChecks, Archive } from 'lucide-react'
 import type { Conversation, Message } from '../lib/types'
 import { MissionControl } from './MissionControl'
@@ -84,6 +85,7 @@ export function WelcomeScreen({
               {hasArchivedProjects && onOpenArchived && <button type="button" className="ui-btn ghost" onClick={onOpenArchived}><Archive size={15} />管理已归档项目</button>}
             </div>
           )}
+          <ProviderUsageCard />
         </div>
       )}
 

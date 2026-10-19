@@ -267,3 +267,26 @@ export interface ShareLinkCreated extends ShareLink {
   token: string
   url_path: string
 }
+
+export interface UsageWindow {
+  id: string
+  group?: string
+  label: string
+  used_percent: number
+  remaining_percent: number
+  window_minutes: number | null
+  resets_at: number | null
+}
+
+export interface ProviderUsage {
+  provider: string
+  provider_name: string
+  available: boolean
+  plan: string | null
+  windows: UsageWindow[]
+  credits_balance: string | number | null
+  limit_reached: string | null
+  fetched_at: string | null
+  stale: boolean
+  error: string | null
+}

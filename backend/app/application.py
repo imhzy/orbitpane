@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .agents.usage import empty_usage
+
 import asyncio
 import hashlib
 import json
@@ -694,6 +696,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "default_provider": resolved_settings.default_provider,
             "providers": await providers.catalog(),
         }
+
+    @app.get("/api/usage", dependencies=[Depends(require_auth)])
+    async def account_usage(provider: str | None = None):
+        provider_id = provider if provider is not None else resolved_settings.default_provider
+        selected = providers.lookup(provider_id)
+        if selected is None:
+            raise HTTPException(status_code=404, detail=f"Unknown provider: {provider_id}")
+        snapshot = await selected.account_usage()
+        return snapshot if snapshot is not None else empty_usage(selected.id, selected.display_name)
 
     @app.get("/api/models", dependencies=[Depends(require_auth)])
     async def get_models(provider: str | None = None):

@@ -1,3 +1,4 @@
+import { ProviderUsageChip } from './ProviderUsage'
 import { useState, useRef, useEffect } from 'react'
 import { Menu, ChevronLeft, Pencil, Eraser, Download, FileText, MoreVertical, WifiOff, Loader2, ListChecks, Share2, Settings, Clock } from 'lucide-react'
 import { LogoIcon } from '../LogoIcon'
@@ -196,6 +197,7 @@ export function ChatHeader(_props: ChatHeaderProps) {
 
       {/* The header contains connection state and conversation actions. */}
       <div className="header-actions">
+        {activeConv && <ProviderUsageChip provider={activeConv.provider} />}
         {activeConv && (
           <div className="header-connection">
             <div className="run-config-control">

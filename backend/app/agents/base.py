@@ -326,6 +326,10 @@ class AgentProvider(ABC):
         """The model ids on offer, read from cache — never a blocking probe."""
         raise NotImplementedError
 
+    async def account_usage(self) -> dict[str, object] | None:
+        """Optional account-wide quota snapshot; independent of model discovery."""
+        return None
+
     async def ensure_model_catalog(self) -> None:
         """Refresh `models` if it has gone stale, off the event loop.
 

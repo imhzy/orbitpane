@@ -1,3 +1,4 @@
+import { ProviderUsageCard } from './ProviderUsage'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Bot,
@@ -343,6 +344,7 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
       </div>
 
       <div className="inspector-body">
+        {tab === 'mission' && activeConv && <ProviderUsageCard provider={activeConv.provider} />}
         {loading && tab !== 'schedules' && <div className="inspector-loading"><Loader2 className="animate-spin" size={18} />同步任务状态…</div>}
 
         {tab === 'schedules' && (activeConv ? <SchedulePanel key={activeConv.id} conversationId={activeConv.id} /> : <p className="inspector-empty">选择聊天后管理它的定时任务。</p>)}
