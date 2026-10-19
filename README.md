@@ -180,6 +180,20 @@ orbitpane/
 
 前端通过经过认证的 REST 与 WebSocket 连接 FastAPI，后端将数据存储在 SQLite，并通过 `AgentProvider` 调用 CLI。新增 Agent 应实现统一接口，避免在传输层或前端协议中加入 provider 特判。
 
+## 全局 Agent 插件
+
+在独立的 **设置 → Agent 插件** 页面添加、命名和配置插件，可管理多个插件实例，同一种邮件插件也可配置多个账号。插件配置和开关全局共享；启用后，所有项目的新任务都会获得相应 MCP 工具，无需项目独立开关。全局关闭后会拒绝后续调用，已开始的发送不会撤回。
+
+旧版项目配置会自动迁移成各自独立的全局实例，保留加密密钥和启用状态，不会合并覆盖；已启用的实例对所有项目可用。删除项目不删除全局插件；删除全局插件则会从所有项目移除。
+
+内置 `send_email` 支持 SMTP 主机、端口、加密方式（TLS / STARTTLS）、用户名、密码或授权码、发件人邮箱与名称。通常使用 465 + TLS 或 587 + STARTTLS。保存后可要求 Agent “给 someone@example.com 发一封邮件，主题为……，正文为……”。服务器接受邮件不等于最终送达；发送失败或结果未知时不会自动重试。当前支持纯文本正文和最多 20 个收件人。
+
+密码使用独立派生密钥加密入库，API 不回传密码，留空保留已有值。请持久化 `ORBITPANE_AUTH_SECRET`；更换此密钥后需重新填写插件密码。未配置实际 SMTP 账号时，仅能验证协议与模拟发送流程。
+
+插件在 `backend/app/plugins/` 实现：提供配置模型、调用参数模型、密钥字段与 `execute`，再加入注册表。Pydantic 模型生成 JSON Schema，前端自动渲染字段，MCP 自动发现工具；新增插件无需修改传输层或加入 Agent 类型判断。标准参见 [MCP Tools](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)。当前表单支持字符串、整数、布尔值和字符串枚举。
+
+Codex 在单次运行中注入 MCP 配置。Antigravity CLI 仅支持持久注册，因此首次启用插件运行时，会通过其 `mcp add` 注册 `orbitpane-project-plugins`。这个入口在 OrbitPane 任务之外不暴露工具；项目与运行 ID 由子进程环境传入，每次调用检查任务仍在运行。它不更改文件系统权限或跳过 CLI 审批。邮件凭据不进入提示词或命令参数。所有者账户下的 CLI 进程仍属于同一信任边界；这不是对恶意本机代码的隔离沙箱。
+
 ## 开发与贡献
 
 欢迎通过 [Issues](https://github.com/imhzy/orbitpane/issues) 提交可复现的问题或功能建议，也欢迎提交 Pull Request。修改前请阅读 [仓库开发约定](AGENTS.md)，保持改动聚焦，并为行为变化补充相应验证。

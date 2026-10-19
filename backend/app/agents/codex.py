@@ -27,6 +27,7 @@ from .base import (
     humanize_model_id,
 )
 from .process import terminate_process
+from .plugins import codex_args, environment as plugin_environment
 from .codex_usage import parse_codex_rate_limits, read_codex_rate_limits
 from .usage import UsageCache, empty_usage
 
@@ -380,6 +381,7 @@ class CodexCliProvider(AgentProvider):
             "--model",
             slug,
         ]
+        command.extend(codex_args(self.settings, request))
         command.extend(self._reasoning_args(effort))
         command.extend(self._permission_args(request.permission_mode))
         return command
@@ -389,6 +391,7 @@ class CodexCliProvider(AgentProvider):
     ) -> AgentResult:
         process = await asyncio.create_subprocess_exec(
             *command,
+            env={**os.environ, **plugin_environment(self.settings, request)},
             stdin=asyncio.subprocess.DEVNULL,
             cwd=request.working_directory,
             stdout=asyncio.subprocess.PIPE,

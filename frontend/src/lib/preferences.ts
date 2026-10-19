@@ -1,7 +1,7 @@
 import { readJson, readText } from './storage'
 
 export type ThemePreference = 'dark' | 'light' | 'system'
-export type SettingsSection = 'general' | 'ai' | 'notifications' | 'data' | 'security' | 'about' | 'project'
+export type SettingsSection = 'general' | 'plugins' | 'ai' | 'notifications' | 'data' | 'security' | 'about' | 'project'
 
 export interface AppPreferences {
   theme: ThemePreference
@@ -12,7 +12,7 @@ export interface AppPreferences {
 }
 
 export const PREFERENCES_KEY = 'orbitpane_preferences_v1'
-const SECTIONS: SettingsSection[] = ['general', 'ai', 'notifications', 'data', 'security', 'about', 'project']
+const SECTIONS: SettingsSection[] = ['general', 'plugins', 'ai', 'notifications', 'data', 'security', 'about', 'project']
 
 export function readPreferences(): AppPreferences {
   const value = readJson<unknown>(PREFERENCES_KEY, {})

@@ -105,6 +105,27 @@ class Database:
             connection.execute("PRAGMA journal_mode = WAL")
             connection.executescript(
                 """
+                CREATE TABLE IF NOT EXISTS plugins (
+                    id TEXT PRIMARY KEY,
+                    plugin_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    enabled INTEGER NOT NULL DEFAULT 0,
+                    config TEXT NOT NULL DEFAULT '{}',
+                    secret_scope TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS project_plugin_bindings (
+                    conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+                    instance_id TEXT NOT NULL REFERENCES plugins(id) ON DELETE CASCADE,
+                    enabled INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (conversation_id, instance_id)
+                );
+                CREATE TABLE IF NOT EXISTS project_plugins (
+                    conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+                    plugin_id TEXT NOT NULL,
+                    enabled INTEGER NOT NULL DEFAULT 0,
+                    config TEXT NOT NULL DEFAULT '{}',
+                    PRIMARY KEY (conversation_id, plugin_id)
+                );
                 CREATE TABLE IF NOT EXISTS passkeys (
                     credential_id BLOB PRIMARY KEY,
                     public_key BLOB NOT NULL,
@@ -288,6 +309,18 @@ class Database:
                     "would outlive the conversations they copy"
                 )
             self._purge_dead_shares(connection)
+            # Keep each legacy configuration as its own instance, retaining the
+            # original AAD scope so encrypted secrets need no plaintext migration.
+            connection.execute(
+                "INSERT OR IGNORE INTO plugins SELECT 'legacy_' || p.conversation_id || '_' || p.plugin_id, "
+                "p.plugin_id, c.name || ' · ' || p.plugin_id, p.enabled, p.config, CAST(p.conversation_id AS TEXT) "
+                "FROM project_plugins p JOIN conversations c ON c.id=p.conversation_id"
+            )
+            connection.execute(
+                "INSERT OR IGNORE INTO project_plugin_bindings SELECT conversation_id, "
+                "'legacy_' || conversation_id || '_' || plugin_id, enabled FROM project_plugins"
+            )
+            connection.execute("DELETE FROM project_plugins")
 
     @staticmethod
     def _add_column(
@@ -1397,3 +1430,33 @@ class Database:
                     _utc_iso(),
                 ),
             )
+
+    def list_plugins(self) -> list[dict[str, Any]]:
+        with self.connect() as connection:
+            if not connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='plugins'").fetchone():
+                return []
+            rows = connection.execute("SELECT * FROM plugins ORDER BY rowid").fetchall()
+            return [{**dict(row), "enabled": bool(row["enabled"]),
+                     "config": json.loads(row["config"])} for row in rows]
+
+    def create_plugin(self, instance_id: str, plugin_id: str, name: str) -> None:
+        with self.connect() as connection:
+            connection.execute("INSERT INTO plugins(id, plugin_id, name, secret_scope) VALUES (?, ?, ?, ?)",
+                               (instance_id, plugin_id, name, instance_id))
+
+    def update_plugin(self, instance_id: str, name: str, enabled: bool, config: dict) -> bool:
+        with self.connect() as connection:
+            return connection.execute("UPDATE plugins SET name=?, enabled=?, config=? WHERE id=?",
+                                      (name, enabled, json.dumps(config), instance_id)).rowcount == 1
+
+    def delete_plugin(self, instance_id: str) -> bool:
+        with self.connect() as connection:
+            return connection.execute("DELETE FROM plugins WHERE id=?", (instance_id,)).rowcount == 1
+
+    def plugin_run_active(self, conversation_id: int, run_id: str) -> bool:
+        with self.connect() as connection:
+            return connection.execute(
+                "SELECT 1 FROM runs r JOIN conversations c ON c.id=r.conversation_id "
+                "WHERE r.run_id=? AND r.conversation_id=? AND r.status='running'",
+                (run_id, conversation_id),
+            ).fetchone() is not None

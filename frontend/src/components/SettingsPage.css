@@ -144,3 +144,10 @@
 @media (max-width: 768px) {
   .settings-agent-status > .usage-card { margin-inline: 16px; }
 }
+
+.project-plugin-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.project-plugin-fields label { font-size: 13px; font-weight: 500; }
+.project-plugin-actions { padding: 16px 20px; display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.project-plugin-actions p { margin: 0; font-size: 12px; color: var(--text-secondary); }
+.settings-row > label { flex-shrink: 0; white-space: nowrap; font-size: var(--text-base); }
+.settings-row > .ui-input, .settings-row > .ui-select { min-width: 0; }

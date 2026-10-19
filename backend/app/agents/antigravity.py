@@ -28,6 +28,7 @@ from .base import (
     humanize_model_id,
 )
 from .process import terminate_process
+from .plugins import prepare_antigravity
 from .usage import UsageCache, empty_usage
 from .antigravity_usage import parse_antigravity_usage, read_antigravity_usage
 
@@ -155,8 +156,9 @@ class AntigravityProvider(AgentProvider):
             for key in ("http_proxy", "https_proxy", "all_proxy"):
                 environment[key] = self.settings.antigravity_proxy_url
         environment["PYTHONUNBUFFERED"] = "1"
+        environment.update(await prepare_antigravity(self.settings, request))
 
-        logger.error(f"Executing command: {command}")
+        logger.debug("Starting Antigravity for project %s", request.conversation_id)
 
         process = await asyncio.create_subprocess_exec(
             *command,

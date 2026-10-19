@@ -29,6 +29,10 @@ async def main():
             {'id': 2, 'name': 'Archived project', 'path': '/tmp/archive', 'provider': 'first',
              'preferred_model': 'deep', 'permission_mode': 'workspace', 'is_pinned': False, 'is_archived': True, 'draft': ''},
         ]
+        plugins = []
+        plugin_schema = {'properties': {'username': {'type': 'string', 'title': 'SMTP 用户名'},
+                                        'password': {'type': 'string', 'title': 'SMTP 密码 / 授权码'}},
+                         'required': ['username', 'password']}
         created = []
         long_root = '/root/projects/' + 'long-workspace-directory/' * 8
         task_failure = False
@@ -41,6 +45,25 @@ async def main():
             path = url.path
             if path == '/api/session':
                 data = {'authenticated': True}
+            elif path == '/api/plugins':
+                if route.request.method == 'POST':
+                    payload = route.request.post_data_json
+                    plugins.append({'id': str(len(plugins) + 1), **payload, 'enabled': False,
+                                    'description': '发送邮件', 'config': {}, 'configured_secrets': [],
+                                    'secret_fields': ['password'], 'schema': plugin_schema})
+                data = {'items': plugins, 'definitions': [{'id': 'send_email', 'name': '发送邮件'}]}
+            elif path.startswith('/api/plugins/'):
+                plugin = next(item for item in plugins if item['id'] == path.rsplit('/', 1)[1])
+                payload = route.request.post_data_json
+                config = payload['config'].copy()
+                if config.pop('password', None):
+                    plugin['configured_secrets'] = ['password']
+                plugin.update(name=payload['name'], enabled=payload['enabled'], config=config)
+                data = {'items': plugins}
+            elif path.endswith('/plugins'):
+                data = {'items': [{key: value for key, value in plugin.items() if key not in ('config', 'schema', 'secret_fields', 'configured_secrets')} for plugin in plugins]}
+            elif path == '/api/usage':
+                data = {'available': False, 'error': '', 'windows': [], 'provider': 'first', 'plan': None}
             elif path == '/api/agents':
                 data = {'default_provider': 'first', 'providers': providers}
             elif path == '/api/models':
@@ -111,6 +134,28 @@ async def main():
         await page.get_by_role('radio', name='跟随系统', exact=True).wait_for()
         await expect(page.get_by_role('radio', name='跟随系统', exact=True)).to_have_attribute('aria-checked', 'true')
         print('PASS: theme/system changes persist across reloads and settings have a direct URL')
+
+        await page.get_by_role('button', name='Agent 插件', exact=True).click()
+        await page.get_by_role('heading', name='Agent 插件', exact=True).wait_for()
+        for name in ('工作邮箱', '个人邮箱'):
+            await page.get_by_label('名称', exact=True).fill(name)
+            await page.get_by_role('button', name='添加插件', exact=True).click()
+            await page.get_by_role('heading', name=name, exact=True).first.wait_for()
+        form = page.locator('.project-plugin-form').filter(has=page.get_by_role('heading', name='工作邮箱', exact=True))
+        await form.get_by_label('SMTP 用户名', exact=True).fill('work@example.com')
+        await form.get_by_label('SMTP 密码 / 授权码', exact=True).fill('test-secret')
+        await form.get_by_role('switch').click()
+        await form.get_by_role('button', name='保存插件设置', exact=True).click()
+        await expect(form.get_by_role('status')).to_contain_text('已保存并全局启用')
+        await expect(form.get_by_label('SMTP 密码 / 授权码', exact=True)).to_have_value('')
+        await page.reload()
+        await page.get_by_role('heading', name='Agent 插件', exact=True).wait_for()
+        await expect(page.locator('.project-plugin-form')).to_have_count(2)
+        await expect(page.get_by_role('switch', name='启用工作邮箱')).to_have_attribute('aria-checked', 'true')
+        await expect(page.get_by_role('switch', name='启用个人邮箱')).to_have_attribute('aria-checked', 'false')
+        await page.screenshot(path='/tmp/orbitpane-global-plugins.png')
+        print('PASS: global plugins page creates multiple instances and persists config without echoing secrets')
+
 
         await page.get_by_role('button', name='返回工作台', exact=True).click()
         await page.locator('.settings-page').wait_for(state='detached')

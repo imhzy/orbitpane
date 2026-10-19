@@ -45,6 +45,8 @@ from .agents.base import ProviderError, SUMMARY_PROMPT
 from .agents.registry import ProviderRegistry
 from .config import Settings
 from .database import Database
+from .plugins import PluginService, PluginUpdate, PluginCreate
+from pydantic import ValidationError
 from .models import (
     ChatMessage,
     Conversation,
@@ -688,6 +690,38 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             secure=resolved_settings.environment == "production",
             samesite=cookie_same_site,
         )
+        return {"success": True}
+
+    @app.get("/api/plugins", dependencies=[Depends(require_auth)])
+    async def global_plugins():
+        service = PluginService(database, resolved_settings)
+        return {"items": await asyncio.to_thread(service.catalog), "definitions": service.definitions()}
+
+    @app.post("/api/plugins", dependencies=[Depends(require_auth)], status_code=201)
+    async def create_plugin(request: PluginCreate):
+        service = PluginService(database, resolved_settings)
+        try:
+            instance_id = await asyncio.to_thread(service.create, request)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
+        return {"id": instance_id, "items": await asyncio.to_thread(service.catalog)}
+
+    @app.put("/api/plugins/{instance_id}", dependencies=[Depends(require_auth)])
+    async def save_plugin(instance_id: str, request: PluginUpdate):
+        service = PluginService(database, resolved_settings)
+        try:
+            await asyncio.to_thread(service.save, instance_id, request)
+        except ValidationError as exc:
+            fields = ", ".join(".".join(map(str, e["loc"])) for e in exc.errors(include_input=False))
+            raise HTTPException(422, f"请检查插件配置字段：{fields}") from None
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
+        return {"items": await asyncio.to_thread(service.catalog)}
+
+    @app.delete("/api/plugins/{instance_id}", dependencies=[Depends(require_auth)])
+    async def delete_plugin(instance_id: str):
+        if not await asyncio.to_thread(database.delete_plugin, instance_id):
+            raise HTTPException(404, "Plugin not found")
         return {"success": True}
 
     @app.get("/api/agents", dependencies=[Depends(require_auth)])

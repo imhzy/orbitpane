@@ -19,10 +19,12 @@ import { PushNotificationButton } from './PushNotificationButton'
 import { Input, Select } from './FormControls'
 import { ProviderUsageCard } from './ProviderUsage'
 import './SettingsPage.css'
+import { PluginsSettings } from './ProjectPlugins'
 
 const SECTIONS = [
   { id: 'general', label: '通用', Icon: SlidersHorizontal, description: '让 OrbitPane 更符合你的使用习惯。' },
   { id: 'ai', label: 'AI 与工作区', Icon: Bot, description: '设置新建项目时使用的默认运行配置。' },
+  { id: 'plugins', label: 'Agent 插件', Icon: Bot, description: '统一管理全局插件、账号与密钥，启用后所有项目均可使用。' },
   { id: 'notifications', label: '通知', Icon: Bell, description: '选择这台设备如何提醒你任务进展。' },
   { id: 'data', label: '数据管理', Icon: Archive, description: '整理已归档项目与对话记录。' },
   { id: 'security', label: '安全', Icon: ShieldCheck, description: '管理登录方式与当前登录状态。' },
@@ -314,7 +316,7 @@ export function SettingsPage() {
     </aside>
     <div className="settings-content" ref={contentRef}><div className="settings-content-inner">
       <header className="settings-content-header"><span className="settings-breadcrumb">设置 <ChevronRight size={12} />{section?.label || '项目设置'}</span><h1 ref={headingRef} tabIndex={-1} id="settings-title">{section?.label || '项目设置'}</h1><p>{section?.description || '管理这个项目的名称、权限与归档状态。'}</p></header>
-      {settingsSection === 'general' && <GeneralSettings />}{settingsSection === 'ai' && <AiSettings />}
+      {settingsSection === 'plugins' && <PluginsSettings />}{settingsSection === 'general' && <GeneralSettings />}{settingsSection === 'ai' && <AiSettings />}
       {settingsSection === 'notifications' && <NotificationSettings />}{settingsSection === 'data' && <DataSettings />}
       {settingsSection === 'security' && <SecuritySettings />}{settingsSection === 'about' && <AboutSettings />}
       {settingsSection === 'project' && <ProjectSettings key={project?.id} />}
