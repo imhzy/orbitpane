@@ -1,7 +1,6 @@
-import { ProviderUsageCard } from './ProviderUsage'
-import { Plus, FolderGit2, Folder, AtSign, GitBranch, ListChecks, Archive } from 'lucide-react'
+import { FolderGit2, Folder, AtSign, GitBranch, ListChecks } from 'lucide-react'
 import type { Conversation, Message } from '../lib/types'
-import { MissionControl } from './MissionControl'
+import { WorkbenchHome } from './WorkbenchHome'
 
 interface WelcomeScreenProps {
   activeConv: Conversation | null
@@ -48,44 +47,15 @@ const STARTER_PROMPTS = [
 export function WelcomeScreen({
   activeConv,
   messages,
-  setIsDrawerOpen,
-  setDrawerMode,
-  conversations = [],
-  selectConversation,
-  onOpenArchived,
   onUseStarter,
 }: WelcomeScreenProps) {
-  const projects = conversations.filter(conversation => !conversation.is_archived)
-  const hasArchivedProjects = conversations.some(conversation => conversation.is_archived)
-  const openCreateDrawer = () => {
-    setIsDrawerOpen(true)
-    if (setDrawerMode) setDrawerMode('create')
-  }
 
   return (
     <>
-      {/* No project open. This is the app's landing view: it goes straight to
-          the project list rather than to a title card, because a self-hosted
-          tool never has to introduce itself to its only user. */}
+      {/* Keep the landing view quiet; session activity belongs in the sidebar. */}
       {!activeConv && (
         <div className="welcome-container">
-          {projects.length > 0 && selectConversation ? (
-            <MissionControl
-              conversations={projects}
-              onSelect={selectConversation}
-              onCreate={openCreateDrawer}
-            />
-          ) : (
-            <div className="welcome-empty">
-              <p>{hasArchivedProjects ? '所有项目都已归档。恢复已有项目，或新建项目继续。' : '还没有项目。选一个服务器上的目录，就能在里面运行 agent。'}</p>
-              <button className="cw-create-btn" onClick={openCreateDrawer} aria-label="新建项目">
-                <Plus size={15} strokeWidth={2} className="btn-icon" />
-                <span>新建项目</span>
-              </button>
-              {hasArchivedProjects && onOpenArchived && <button type="button" className="ui-btn ghost" onClick={onOpenArchived}><Archive size={15} />管理已归档项目</button>}
-            </div>
-          )}
-          <ProviderUsageCard />
+          <WorkbenchHome />
         </div>
       )}
 

@@ -1,9 +1,10 @@
 import { readJson, readText } from './storage'
 
 export type ThemePreference = 'dark' | 'light' | 'system'
-export type SettingsSection = 'general' | 'plugins' | 'ai' | 'notifications' | 'data' | 'security' | 'about' | 'project'
+export type SettingsSection = 'general' | 'plugins' | 'ai' | 'notifications' | 'data' | 'security' | 'about' | 'project' | 'usage'
 
 export interface AppPreferences {
+  density?: 'comfortable' | 'compact'
   theme: ThemePreference
   defaultProvider: string
   defaultModels: Record<string, string>
@@ -12,7 +13,7 @@ export interface AppPreferences {
 }
 
 export const PREFERENCES_KEY = 'orbitpane_preferences_v1'
-const SECTIONS: SettingsSection[] = ['general', 'plugins', 'ai', 'notifications', 'data', 'security', 'about', 'project']
+const SECTIONS: SettingsSection[] = ['general', 'plugins', 'ai', 'notifications', 'data', 'security', 'about', 'project', 'usage']
 
 export function readPreferences(): AppPreferences {
   const value = readJson<unknown>(PREFERENCES_KEY, {})
@@ -21,6 +22,7 @@ export function readPreferences(): AppPreferences {
     ? Object.fromEntries(Object.entries(raw.defaultModels).filter(([, model]) => typeof model === 'string'))
     : {}
   return {
+    density: raw.density === 'compact' ? 'compact' : 'comfortable',
     theme: raw.theme === 'light' || raw.theme === 'dark' || raw.theme === 'system'
       ? raw.theme : readText('theme') === 'light' ? 'light' : 'dark',
     defaultProvider: typeof raw.defaultProvider === 'string' ? raw.defaultProvider : '',

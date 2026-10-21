@@ -116,11 +116,11 @@ async def main():
             await row.hover()
             await row.locator('.project-menu-trigger').click()
 
-        page = await browser.new_page(viewport={'width': 1440, 'height': 960}, service_workers='block')
+        page = await browser.new_page(viewport={'width': 1440, 'height': 1400}, service_workers='block')
         await setup(page)
         await page.goto(BASE + '/?id=8')
         await page.locator('.active-conv-title-text').wait_for()
-        await page.locator('.active-conv-title-text').click()
+        await page.get_by_role('button', name='重命名会话', exact=True).click()
         editor = page.locator('.conv-title-input')
         await expect(editor).to_have_count(1)
         await expect(editor).to_be_focused()
@@ -130,13 +130,13 @@ async def main():
         await expect(page.locator('[data-conversation-id="8"] .item-title')).to_have_text('Desktop rename')
         await page.wait_for_timeout(250)
         assert name_writes == ['Desktop rename'], name_writes
-        await page.get_by_role('button', name='重命名项目 Desktop rename', exact=True).focus()
+        await page.get_by_role('button', name='重命名会话', exact=True).focus()
         await page.keyboard.press('Enter')
         await editor.fill('Cancelled')
         await editor.press('Escape')
         await expect(editor).to_have_count(0)
         assert name_writes == ['Desktop rename']
-        await page.locator('.active-conv-title-text').click()
+        await page.get_by_role('button', name='重命名会话', exact=True).click()
         await editor.fill('中文项目')
         await editor.evaluate("el => el.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', keyCode: 229, isComposing: true, bubbles: true}))")
         await expect(editor).to_have_count(1)
@@ -145,7 +145,7 @@ async def main():
         await page.wait_for_timeout(250)
         assert name_writes == ['Desktop rename', '中文项目']
         await open_menu(page, 8)
-        await page.get_by_role('menuitem', name='重命名项目', exact=True).click()
+        await page.get_by_role('menuitem', name='重命名会话', exact=True).click()
         await expect(editor).to_have_count(1)
         await expect(editor).to_be_focused()
         assert await editor.evaluate("el => Boolean(el.closest('.drawer'))")
@@ -207,7 +207,7 @@ async def main():
         mobile = await browser.new_page(viewport={'width': 390, 'height': 844}, is_mobile=True, has_touch=True, service_workers='block')
         await setup(mobile)
         await mobile.goto(BASE + '/?id=8')
-        await mobile.locator('.active-conv-title-text').tap()
+        await mobile.get_by_role('button', name='重命名会话', exact=True).tap()
         editor = mobile.locator('.conv-title-input')
         await expect(editor).to_be_focused()
         await editor.fill('Mobile rename')
@@ -219,11 +219,11 @@ async def main():
         await mobile.set_viewport_size({'width': 390, 'height': 844})
         await mobile.screenshot(path='/tmp/orbitpane-conversations-mobile-header.png')
         assert await mobile.evaluate('document.documentElement.scrollWidth <= innerWidth')
-        await mobile.get_by_role('button', name='返回项目列表', exact=True).tap()
-        await mobile.get_by_role('button', name='展开项目菜单', exact=True).tap()
+        await mobile.get_by_role('button', name='展开 / 收起导航', exact=True).tap()
         await mobile.locator('.drawer').wait_for(state='visible')
         await mobile.wait_for_timeout(400)
         handle = mobile.locator('[data-conversation-id="6"] .conversation-drag-handle')
+        await handle.evaluate("el => el.scrollIntoView({block: 'center', behavior: 'instant'})")
         source = await handle.bounding_box()
         assert source['width'] >= 44 and source['height'] >= 44
         target = await mobile.locator('[data-conversation-id="7"]').bounding_box()
@@ -247,7 +247,7 @@ async def main():
         await mobile.get_by_role('menuitem', name='下移', exact=True).tap()
         await wait_order(mobile, [10, 9, 5, 6, 7, 4, 3, 8, 2, 1])
         await row.locator('.project-menu-trigger').tap()
-        await mobile.get_by_role('menuitem', name='重命名项目', exact=True).tap()
+        await mobile.get_by_role('menuitem', name='重命名会话', exact=True).tap()
         await expect(editor).to_have_count(1)
         await expect(editor).to_be_focused()
         await editor.fill('Phone sidebar')
@@ -271,13 +271,14 @@ async def main():
         scroll_info = await scroll_area.evaluate('el => ({top: el.scrollTop, height: el.clientHeight, total: el.scrollHeight})')
         assert scroll_info['top'] > 80, scroll_info
         assert len(order_writes) == writes_before_scroll
-        assert 'id=' not in mobile.url
+        assert 'id=8' in mobile.url
         assert await mobile.locator('.project-actions-sheet').count() == 0
 
         # Holding the handle near the scroller edge reaches rows below the
         # viewport. Touch cancellation leaves the saved order intact.
         await scroll_area.evaluate('el => el.scrollTop = 0')
         handle = mobile.locator('[data-conversation-id="6"] .conversation-drag-handle')
+        await handle.evaluate("el => el.scrollIntoView({block: 'center', behavior: 'instant'})")
         source = await handle.bounding_box()
         x = source['x'] + source['width'] / 2
         y = source['y'] + source['height'] / 2

@@ -38,6 +38,10 @@ export function useAppPreferences() {
     })
   }, [theme])
 
+  useEffect(() => {
+    document.documentElement.dataset.density = preferences.density || 'comfortable'
+  }, [preferences.density])
+
   const toggleTheme = useCallback(() => {
     updatePreferences({ theme: theme === 'dark' ? 'light' : 'dark' })
   }, [theme, updatePreferences])

@@ -44,7 +44,7 @@ interface Gesture {
   measureFrame: number | null
 }
 
-const OVERLAY_BREAKPOINT = 1024
+const OVERLAY_BREAKPOINT = 769
 const SYSTEM_GESTURE_INSET = 32
 const CONTENT_LOCK_DISTANCE = 10
 const LAYER_LOCK_DISTANCE = 8

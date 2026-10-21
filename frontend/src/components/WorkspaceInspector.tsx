@@ -1,4 +1,9 @@
-import { ProviderUsageCard } from './ProviderUsage'
+import { PanelResizeHandle } from './PanelResizeHandle'
+import { usePanelWidth } from '../hooks/usePanelWidth'
+import { WorkspaceDiff } from './WorkspaceDiff'
+import { ReaderDialog } from './ReaderDialog'
+import MarkdownContent from './MarkdownContent'
+import { readJson, writeJson } from '../lib/storage'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Bot,
@@ -50,12 +55,6 @@ const EMPTY_STATS: ConversationStats = {
   context_limit: 120_000,
 }
 
-const EMPTY_WORKSPACE: WorkspaceStatus = {
-  is_git: false,
-  branch: '',
-  files: [],
-  counts: {},
-}
 
 function formatCompact(value: number): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}m`
@@ -74,8 +73,15 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
     isReconnecting,
     openSettings,
     settingsSection,
-    showToast,
+    showToast, messages, drawerMode, isDrawerOpen,
   } = useAppContext()
+  const panel = usePanelWidth('orbitpane_inspector_width', 340, 300, 480)
+  const [collapsed, setCollapsed] = useState(() => new URLSearchParams(window.location.search).has('panel') ? false : readJson('orbitpane_inspector_collapsed', false))
+  const [showSchedules, setShowSchedules] = useState(false)
+  const [showDiff, setShowDiff] = useState(false)
+  const [showResult, setShowResult] = useState(false)
+  const [workspaceError, setWorkspaceError] = useState(false)
+  const [syncError, setSyncError] = useState(false)
   const initialPanel = new URLSearchParams(window.location.search).get('panel')
   const [tab, setTab] = useState<InspectorTab>(initialPanel === 'schedules' ? 'schedules' : initialPanel === 'tasks' ? 'tasks' : 'mission')
   const [overlayOpen, setOverlayOpen] = useState(initialPanel === 'tasks' || initialPanel === 'schedules')
@@ -112,10 +118,10 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
     // on its spinner until git finished, and a git failure threw the task list
     // and the stats away with it. It now lands on its own, into its own card.
     void apiFetch<WorkspaceStatus>(`${base}/workspace-status`)
-      .then(next => { if (isCurrent()) setWorkspace(next) })
+      .then(next => { if (isCurrent()) { setWorkspace(next); setWorkspaceError(false) } })
       .catch(error => {
         console.error(error)
-        if (isCurrent()) setWorkspace(previous => previous ?? EMPTY_WORKSPACE)
+        if (isCurrent()) setWorkspaceError(true)
       })
     const results = await Promise.allSettled([
       apiFetch<{ items: TaskRecord[] }>(`${base}/tasks`)
@@ -123,6 +129,7 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
       apiFetch<ConversationStats>(`${base}/stats`)
         .then(next => { if (isCurrent()) setStats(next) }),
     ])
+    if (isCurrent()) setSyncError(results.some(result => result.status === 'rejected'))
     for (const result of results) {
       if (result.status === 'rejected') console.error(result.reason)
     }
@@ -132,6 +139,10 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
   useEffect(() => {
     setStats(EMPTY_STATS)
     setWorkspace(null)
+    setWorkspaceError(false)
+    setShowSchedules(false)
+    setShowDiff(false)
+    setShowResult(false)
     setTasks([])
     void loadInspector()
   }, [activeConversationId, loadInspector])
@@ -153,6 +164,8 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
       if (requestedTab === 'mission' || requestedTab === 'tasks' || requestedTab === 'schedules') {
         setTab(requestedTab)
       }
+      setCollapsed(false)
+      writeJson('orbitpane_inspector_collapsed', false)
       setOverlayOpen(true)
     }
     window.addEventListener(OPEN_INSPECTOR_EVENT, openInspector)
@@ -171,7 +184,9 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
       const requestedPanel = new URLSearchParams(window.location.search).get('panel')
       if (requestedPanel === 'tasks' || requestedPanel === 'schedules' || requestedPanel === 'mission') {
         setTab(requestedPanel)
-        setOverlayOpen(true)
+        setCollapsed(false)
+      writeJson('orbitpane_inspector_collapsed', false)
+      setOverlayOpen(true)
       } else if (window.innerWidth < DOCKED_BREAKPOINT) {
         setOverlayOpen(false)
       }
@@ -181,6 +196,8 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
   }, [])
 
   const closeOverlay = useCallback(() => {
+    setCollapsed(true)
+    writeJson('orbitpane_inspector_collapsed', true)
     setOverlayOpen(false)
     if (['tasks', 'schedules', 'mission'].includes(window.history.state?.orbitpanePanel)) {
       window.history.back()
@@ -306,14 +323,18 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
           landing view read as a layout waiting for data rather than a screen. */}
       <aside
         ref={panelRef}
-        className={`workspace-inspector ${overlayOpen ? 'mobile-open' : ''} ${activeConv ? '' : 'inspector-idle'}`}
+        className={`workspace-inspector ${overlayOpen ? 'mobile-open' : ''} ${activeConv ? '' : 'inspector-idle'} ${collapsed ? 'inspector-collapsed' : ''}`}
+        id="task-inspector"
+        style={{ '--inspector-width': `${panel.width}px` } as React.CSSProperties}
+        inert={isDrawerOpen && drawerMode === 'create'}
         aria-label="任务与上下文面板"
         role={isOverlay ? 'dialog' : undefined}
         aria-modal={isOverlay ? true : undefined}
       >
+      <PanelResizeHandle panel={panel} label="任务面板宽度" controls="task-inspector" reverse onCollapse={closeOverlay} />
       <div className="inspector-header">
         <div>
-          <h2>任务与上下文</h2>
+          <h2>会话任务</h2>
         </div>
         <div className="inspector-header-actions">
           <button className="icon-btn inspector-mobile-close" onClick={closeOverlay} aria-label="关闭任务面板">
@@ -322,38 +343,55 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
         </div>
       </div>
 
-      <div className="inspector-tabs" role="tablist">
+      <div className="inspector-tabs" role="tablist" aria-label="会话任务分类" onKeyDown={event => {
+        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+        event.preventDefault()
+        const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+        const index = buttons.indexOf(document.activeElement as HTMLButtonElement)
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length
+        buttons[next]?.focus()
+        buttons[next]?.click()
+      }}>
         <button
-          role="tab"
+          role="tab" id="inspector-mission" aria-controls="inspector-content" tabIndex={tab === 'mission' ? 0 : -1}
           aria-selected={tab === 'mission'}
           className={tab === 'mission' ? 'active' : ''}
           onClick={() => selectTab('mission')}
         >
-          <CircleDot size={13} />概览
+          <CircleDot size={13} />进展与结果
         </button>
         <button
-          role="tab"
+          role="tab" id="inspector-tasks" aria-controls="inspector-content" tabIndex={tab === 'tasks' ? 0 : -1}
           aria-selected={tab === 'tasks'}
           className={tab === 'tasks' ? 'active' : ''}
           onClick={() => selectTab('tasks')}
         >
-          <ListChecks size={13} />队列{activeTasks.length > 0 && <b>{activeTasks.length}</b>}
+          <ListChecks size={13} />任务记录{activeTasks.length > 0 && <b>{activeTasks.length}</b>}
         </button>
-        <button role="tab" aria-selected={tab === 'schedules'} className={tab === 'schedules' ? 'active' : ''}
+        <button role="tab" id="inspector-schedules" aria-controls="inspector-content" tabIndex={tab === 'schedules' ? 0 : -1} aria-selected={tab === 'schedules'} className={tab === 'schedules' ? 'active' : ''}
           onClick={() => selectTab('schedules')}><Clock size={13} />定时</button>
       </div>
 
-      <div className="inspector-body">
-        {tab === 'mission' && activeConv && <ProviderUsageCard provider={activeConv.provider} />}
+      <div className="inspector-body" id="inspector-content" role="tabpanel" aria-labelledby={`inspector-${tab}`} tabIndex={0}>
+        {syncError && <div role="status" className="inspector-sync-error">部分状态同步失败。<button className="ui-btn ghost" onClick={() => void loadInspector()}>重试</button></div>}
         {loading && tab !== 'schedules' && <div className="inspector-loading"><Loader2 className="animate-spin" size={18} />同步任务状态…</div>}
 
-        {tab === 'schedules' && (activeConv ? <SchedulePanel key={activeConv.id} conversationId={activeConv.id} /> : <p className="inspector-empty">选择聊天后管理它的定时任务。</p>)}
+        {tab === 'schedules' && (activeConv ? <><button className="ui-btn secondary" onClick={() => setShowSchedules(true)}>展开定时任务管理</button>{!showSchedules && <SchedulePanel key={activeConv.id} conversationId={activeConv.id} />}</> : <p className="inspector-empty">选择聊天后管理它的定时任务。</p>)}
 
         {!loading && tab === 'mission' && (
           <>
+            <section className="inspector-card task-outcome-card">
+              <h3>{activeTasks.length > 0 ? '当前执行' : '最近结果'}</h3>
+              <p>{(activeTasks[0] || tasks[0])?.prompt || '发送消息，开始第一个任务。'}</p>
+              {(activeTasks[0] || tasks[0]) && <strong>{taskStatusLabel((activeTasks[0] || tasks[0]).status)}</strong>}
+              {(activeTasks[0] || tasks[0])?.error && <p className="home-task-error">{(activeTasks[0] || tasks[0]).error}</p>}
+              <div className="outcome-actions"><button className="ui-btn secondary" onClick={() => selectTab('tasks')}>查看任务记录</button>
+                <button className="ui-btn secondary" disabled={!messages.some(message => message.role === 'agent' && !message.isThinking && message.content)} onClick={() => setShowResult(true)}>阅读最近回复</button></div>
+              <small>执行完成表示 Agent 已结束运行；测试与验收结论以回复中的实际记录为准。</small>
+            </section>
             <section className="inspector-card mission-status-card">
               <div className="inspector-card-title">
-                <span><Bot size={14} />当前项目</span>
+                <span><Bot size={14} />当前会话</span>
                 <span className={`connection-chip ${connectionState}`}>
                   {connectionState === 'online' ? '已连接' : connectionState === 'connecting' ? '连接中' : connectionState === 'offline' ? '连接断开' : '待连接'}
                 </span>
@@ -363,7 +401,7 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
                   <strong className="mission-project-name">{activeConv.name}</strong>
                   <span className="mission-project-path">{activeConv.path}</span>
                   <button type="button" className="inspector-project-settings" onClick={() => openSettings('project', activeConv.id)}>
-                    <ShieldCheck size={13} />{activeConv.permission_mode === 'workspace' ? '受限工作区' : '完全访问'}<span>项目设置 →</span>
+                    <ShieldCheck size={13} />{activeConv.permission_mode === 'workspace' ? '受限工作区' : '完全访问'}<span>会话设置 →</span>
                   </button>
                 </>
               ) : <p className="inspector-empty">选择项目后显示上下文。</p>}
@@ -406,7 +444,7 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
                   <span><FileDiff size={14} />未提交改动</span>
                   {workspace?.is_git && <span className="branch-chip"><GitBranch size={11} />{workspace.branch || 'detached'}</span>}
                 </div>
-                {workspace === null ? (
+                {workspaceError ? <p role="status">Git 状态读取失败。<button className="ui-btn ghost" onClick={() => void loadInspector(true)}>重试</button></p> : workspace === null ? (
                   <p className="inspector-empty">正在读取 Git 状态…</p>
                 ) : !workspace.is_git ? (
                   <p className="inspector-empty">当前目录不是 Git 工作区。</p>
@@ -423,6 +461,8 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
                     {workspace.files.length > 12 && <small>另有 {workspace.files.length - 12} 个变更文件</small>}
                   </div>
                 )}
+                {workspace?.is_git && <button className="ui-btn secondary" onClick={() => setShowDiff(true)}>展开文件差异</button>}
+                <small className="reader-note">当前工作区改动，可能来自多个会话或手动编辑。</small>
               </section>
             )}
           </>
@@ -430,7 +470,7 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
 
         {!loading && tab === 'tasks' && (
           <section className="task-center-list">
-            {!activeConv ? <p className="inspector-empty">选择项目后显示该项目的任务队列。</p> : tasks.length === 0 ? <p className="inspector-empty">当前项目还没有任务记录。</p> : tasks.slice(0, 30).map(task => (
+            {!activeConv ? <p className="inspector-empty">选择会话后显示它的任务记录。</p> : tasks.length === 0 ? <p className="inspector-empty">当前会话还没有任务记录。</p> : tasks.slice(0, 30).map(task => (
               <article key={task.run_id} className={`task-center-item ${task.status}`}>
                 <div className="task-state-icon">
                   {(() => {
@@ -472,6 +512,9 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
         )}
       </div>
       </aside>
+      {showSchedules && activeConv && <ReaderDialog title="定时任务管理" onClose={() => setShowSchedules(false)}><SchedulePanel conversationId={activeConv.id} /></ReaderDialog>}
+      {showDiff && activeConv && <WorkspaceDiff conversationId={activeConv.id} onClose={() => setShowDiff(false)} />}
+      {showResult && <ReaderDialog title="最近 Agent 回复" onClose={() => setShowResult(false)}><div className="markdown-body result-reader"><MarkdownContent content={messages.findLast(message => message.role === 'agent' && !message.isThinking && message.content)?.content || ''} enableCodeBlocks /></div><p className="reader-note">来自当前已加载的会话记录。</p></ReaderDialog>}
     </>
   )
 }

@@ -1,4 +1,4 @@
-"""Usage card/chip integration against Vite on port 5179 (mocked APIs)."""
+"""Usage settings integration against Vite on port 5179 (mocked APIs)."""
 import asyncio
 from itertools import product
 from urllib.parse import urlparse
@@ -65,27 +65,19 @@ async def main():
                 constructor(){setTimeout(()=>{this.readyState=1;this.onopen?.()},30)}
                 send(){} close(){this.readyState=3}
             }; window.WebSocket=FakeSocket;''')
-            await page.goto('http://127.0.0.1:5179/?id=1')
-            chip = page.locator('.usage-chip')
-            try:
-                await expect(chip).to_contain_text('5h 72%')
-            except AssertionError:
-                print('DIAGNOSTIC', errors, await page.locator('body').inner_text())
-                raise
-            if provider_id == 'antigravity':
-                await expect(chip).to_contain_text('Gemini Models')
-                await expect(chip).to_have_attribute('aria-label', 'Google Gemini 用量，Gemini Models · 5 小时还剩 72%')
-            await chip.click(timeout=10000)
+            await page.goto('http://127.0.0.1:5179/?id=1&settings=usage')
             card = page.get_by_role('region', name='账号用量')
             await expect(card).to_be_visible()
             await expect(card).to_contain_text(heading)
+            assert await card.evaluate('(el) => parseFloat(getComputedStyle(el).paddingLeft) >= 16 && parseFloat(getComputedStyle(el).paddingTop) >= 16')
+            assert await page.locator('.settings-group-content').first.evaluate('(el) => parseFloat(getComputedStyle(el).paddingLeft) >= 16')
             await expect(card.get_by_role('progressbar')).to_have_count(window_count)
             await expect(card.get_by_role('progressbar').first).to_have_attribute('aria-valuenow', '72')
             assert len([url for url in calls if f'provider={provider_id}' in url]) == 1, calls
             remaining = 12
             await card.get_by_role('button', name='刷新用量').click()
-            await expect(chip).to_contain_text('5h 12%')
-            await expect(chip).to_have_class('usage-chip low')
+            await expect(card.get_by_role('progressbar').first).to_have_attribute('aria-valuenow', '12')
+            await expect(card.locator('.usage-window').first).to_have_class('usage-window low')
             assert len([url for url in calls if f'provider={provider_id}' in url]) == 2
             assert await card.evaluate('(el) => {const r=el.getBoundingClientRect();return r.left>=0 && r.right<=innerWidth}')
             await page.screenshot(path=f'/tmp/orbitpane-usage-{provider_id}-{width}.png')
@@ -96,6 +88,7 @@ async def main():
             await expect(settings_card.get_by_role('progressbar')).to_have_count(window_count)
             if provider_id == 'antigravity':
                 await expect(settings_card.locator('.usage-group-title')).to_have_text(['Gemini Models', 'Claude and GPT models', 'Gemini 4 Argon'])
+            assert await settings_card.evaluate('(el) => parseFloat(getComputedStyle(el).paddingLeft) >= 16')
             await settings_card.scroll_into_view_if_needed()
             await expect(settings_card).to_be_visible()
             assert await settings_card.evaluate('(el) => {const r=el.getBoundingClientRect();return r.left>=0 && r.right<=innerWidth}')

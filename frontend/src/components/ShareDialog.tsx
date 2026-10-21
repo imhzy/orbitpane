@@ -10,6 +10,9 @@ import { haptic } from '../lib/nativeFeedback'
 import { useAppContext } from '../contexts/AppContext'
 import type { ShareLink, ShareLinkCreated } from '../lib/types'
 import './ShareDialog.css'
+import { ReaderDialog } from './ReaderDialog'
+import MarkdownContent from './MarkdownContent'
+import type { SharedSnapshot } from '../lib/types'
 import { Checkbox, Input } from './FormControls'
 
 interface ShareDialogProps {
@@ -42,6 +45,8 @@ function formatDate(value?: string | null): string {
  */
 export function ShareDialog({ isOpen, onClose }: ShareDialogProps) {
   const { activeConv, showToast, requestConfirm } = useAppContext()
+  const [preview, setPreview] = useState<SharedSnapshot | null>(null)
+  const [previewing, setPreviewing] = useState(false)
   const [links, setLinks] = useState<ShareLink[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
@@ -49,7 +54,13 @@ export function ShareDialog({ isOpen, onClose }: ShareDialogProps) {
   const [freshId, setFreshId] = useState<number | null>(null)
   const [copiedId, setCopiedId] = useState<number | null>(null)
   const [includeThoughts, setIncludeThoughts] = useState(false)
-  const [expiresInDays, setExpiresInDays] = useState<number | null>(null)
+  const [expiresInDays, setExpiresInDays] = useState<number | null>(7)
+  const previewRequest = useRef(0)
+  useEffect(() => {
+    previewRequest.current += 1
+    setPreview(null)
+    setPreviewing(false)
+  }, [isOpen, activeConv?.id])
   const closeRef = useRef<HTMLButtonElement | null>(null)
   const freshRef = useRef<HTMLLIElement | null>(null)
   const copiedTimer = useRef<number | null>(null)
@@ -98,6 +109,17 @@ export function ShareDialog({ isOpen, onClose }: ShareDialogProps) {
     if (freshId === null) return
     freshRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
   }, [freshId])
+
+  const loadPreview = async () => {
+    if (!conversationId || previewing) return
+    setPreviewing(true)
+    const request = ++previewRequest.current
+    try {
+      const data = await apiFetch<SharedSnapshot>(`/api/conversations/${conversationId}/share-preview?include_thoughts=${includeThoughts}`)
+      if (previewRequest.current === request) setPreview(data)
+    } catch (error) { if (previewRequest.current === request) showToast(describeApiError(error, '预览读取失败'), 'error') }
+    finally { if (previewRequest.current === request) setPreviewing(false) }
+  }
 
   const createLink = useCallback(async () => {
     if (conversationId === null || isCreating) return
@@ -238,6 +260,9 @@ export function ShareDialog({ isOpen, onClose }: ShareDialogProps) {
               </button>
             </div>
 
+            <p className="reader-note">访问范围：任何持有链接的人。默认 7 天有效；删除源会话或清空历史后，链接也会失效。</p>
+            <button className="ui-btn secondary" disabled={previewing} onClick={() => void loadPreview()}><Eye size={15} />{previewing ? '读取预览…' : '预览接收者可见内容'}</button>
+            {preview && <ReaderDialog title="分享内容预览" onClose={() => setPreview(null)}><p className="reader-note">预览尚未公开。最终快照以点击生成时的内容为准；正文自身可能包含路径或敏感信息，请检查后再分享。</p><h2>{preview.title}</h2>{preview.messages.map((message, index) => <article className="share-preview-message" key={message.id ?? index}><strong>{message.role === 'user' ? '用户' : 'Agent'}</strong><div className="markdown-body"><MarkdownContent content={message.content} />{message.thought && <details><summary>执行过程</summary><pre>{message.thought}</pre></details>}</div></article>)}</ReaderDialog>}
             <div className="share-options">
               <label className="share-option-row">
                 <Checkbox
@@ -289,7 +314,7 @@ export function ShareDialog({ isOpen, onClose }: ShareDialogProps) {
               {isLoading ? (
                 <p className="share-links-empty">正在加载…</p>
               ) : links.length === 0 ? (
-                <p className="share-links-empty">这个项目还没有对外分享过。</p>
+                <p className="share-links-empty">这个会话还没有对外分享过。</p>
               ) : (
                 <ul>
                   {links.map(link => {

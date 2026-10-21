@@ -1,6 +1,9 @@
-.usage-card { min-width: 0; text-align: left; }
-.usage-card .inspector-card-title { gap: 8px; margin-bottom: 0; }
-.usage-card .inspector-card-title > span { flex-wrap: wrap; }
+.usage-card { min-width: 0; padding: 20px; text-align: left; border: 1px solid var(--border-color); border-radius: var(--radius-lg); background: var(--bg-surface); }
+.usage-card-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.usage-card-header > span { min-width: 0; overflow-wrap: anywhere; color: var(--text-primary); font-size: var(--text-base); font-weight: 600; }
+.usage-card-header > button { flex: none; }
+.usage-card .usage-card-header { gap: 8px; margin-bottom: 8px; }
+.usage-card .usage-card-header > span { flex-wrap: wrap; }
 .usage-caption, .usage-note { color: var(--text-secondary); font-size: 12px; line-height: 1.6; margin: 8px 0 0; overflow-wrap: anywhere; }
 .usage-caption { color: var(--text-tertiary); margin-top: 0; }
 .usage-window { margin-top: 16px; color: var(--text-secondary); }
@@ -19,7 +22,7 @@
 .usage-window.low .usage-track i { background: var(--danger-color); }
 .usage-window.warn .usage-track i { background: var(--warning-color); }
 .welcome-container > .usage-card { width: 100%; max-width: 420px; align-self: flex-start; margin-top: 20px; }
-.usage-card .inspector-card-title > span:first-child { text-transform: none; letter-spacing: normal; }
+.usage-card .usage-card-header > span:first-child { text-transform: none; letter-spacing: normal; }
 
 .usage-group + .usage-group { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border-subtle); }
 .usage-group-title { margin: 16px 0 0; font-size: 12px; font-weight: 600; color: var(--text-secondary); overflow-wrap: anywhere; }
@@ -28,3 +31,5 @@
 @media (max-width: 768px) {
   .usage-chip-group { max-width: 55px; }
 }
+
+@media (max-width: 768px) { .usage-card { padding: 16px; } }

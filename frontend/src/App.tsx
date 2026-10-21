@@ -12,6 +12,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { ArrowDown, WifiOff, RefreshCw } from 'lucide-react'
 import './App.css'
 import './Workspace.css'
+import './Workbench.css'
+import { ProjectSessions } from './components/ProjectSessions'
 import { apiFetch, describeApiError } from './lib/api'
 import { AUTH_EXPIRED_EVENT, clearLegacyAuthState } from './lib/auth'
 import {
@@ -177,13 +179,13 @@ export default function App() {
   } = useWebSocket(activeConvRef, showToast, loadConversations, preferences.desktopNotifications)
 
   // Drawer state
-  const isDesktopRef = useRef(window.innerWidth >= 1024)
-  const [isDrawerOpen, setIsDrawerOpen] = useState(isDesktopRef.current)
+  const isDesktopRef = useRef(window.innerWidth >= 769)
+  const [isDrawerOpen, setIsDrawerOpen] = useState(() => isDesktopRef.current && readJson('orbitpane_sidebar_open', true))
   const [drawerMode, setDrawerMode] = useState<'sessions' | 'create'>('sessions')
 
   useEffect(() => {
     const handleResize = () => {
-      const isDesktop = window.innerWidth >= 1024
+      const isDesktop = window.innerWidth >= 769
 
       // Mobile browsers fire resize events when the software keyboard opens.
       // Only change drawer state when the responsive breakpoint is crossed.
@@ -196,6 +198,10 @@ export default function App() {
     return () => window.removeEventListener('resize', handleResize)
   }, [])
 
+
+  useEffect(() => {
+    if (window.innerWidth >= 769) writeText('orbitpane_sidebar_open', JSON.stringify(isDrawerOpen))
+  }, [isDrawerOpen])
 
   // Command Palette State
   const [isCmdPaletteOpen, setIsCmdPaletteOpen] = useState(false)
@@ -417,13 +423,12 @@ export default function App() {
       setIsCmdPaletteOpen(prev => !prev)
     },
     onToggleSidebar: () => {
-      if (settingsSection || activeConfirm) return
+      if (settingsSection || activeConfirm || drawerMode === 'create') return
       setIsDrawerOpen(prev => !prev)
     },
     onNewWorkspace: () => {
       if (activeConfirm) return
       if (settingsSection) closeSettings()
-      setIsDrawerOpen(true)
       setDrawerMode('create')
     },
     onOpenSettings: () => { if (!activeConfirm) openSettings() },
@@ -569,7 +574,6 @@ export default function App() {
     if (!isLoggedIn) return
     const params = new URLSearchParams(window.location.search)
     if (params.get('action') === 'new-project') {
-      setIsDrawerOpen(true)
       setDrawerMode('create')
     }
   }, [isLoggedIn])
@@ -634,7 +638,7 @@ export default function App() {
      safety net. It used to refetch the whole project list every 5 seconds for
      as long as it was open, on top of two other panels doing the same. */
   useEffect(() => {
-    if (!isDrawerOpen || !isLoggedIn) return
+    if ((!isDrawerOpen && drawerMode !== 'create') || !isLoggedIn) return
 
     if (drawerMode === 'create') {
       loadDir(currentPath)
@@ -737,7 +741,7 @@ export default function App() {
       setMessages([])
       setCopiedMessageKey(null)
     }
-    if (window.innerWidth < 1024) setIsDrawerOpen(false)
+    if (window.innerWidth < 769) setIsDrawerOpen(false)
     loadModels(conv.provider)
 
     if (updateUrl) {
@@ -831,7 +835,7 @@ export default function App() {
       })
       .catch(err => {
         console.error(err)
-        showToast(describeApiError(err, '创建项目失败'), 'error')
+        showToast(describeApiError(err, '创建会话失败'), 'error')
       })
   }
 
@@ -840,8 +844,8 @@ export default function App() {
     const conversation = conversations.find(item => item.id === convId)
     requestConfirm({
       id: `delete-conversation-${convId}`,
-      title: '删除项目',
-      description: `确定要删除「${conversation?.name ?? '该项目'}」及其全部任务记录吗？删除后有 6 秒可以撤销。`,
+      title: '删除会话',
+      description: `确定要删除「${conversation?.name ?? '该会话'}」及其全部任务记录吗？分享链接将失效，项目文件与其他会话保留。删除后有 6 秒可以撤销。`,
       confirmText: '删除',
       variant: 'destructive',
       onConfirm: () => {
@@ -862,10 +866,10 @@ export default function App() {
         setPendingDeletionIds(previous => [...previous, convId])
 
         runWithUndo({
-          message: `已删除「${conversation?.name ?? '项目'}」`,
+          message: `已删除「${conversation?.name ?? '会话'}」`,
           onUndo: () => {
             setPendingDeletionIds(previous => previous.filter(id => id !== convId))
-            showToast('已恢复该项目')
+            showToast('已恢复该会话')
           },
           perform: () => {
             setPendingDeletionIds(previous => previous.filter(id => id !== convId))
@@ -877,7 +881,7 @@ export default function App() {
               })
               .catch(err => {
                 console.error(err)
-                showToast(describeApiError(err, '删除项目失败'), 'error')
+                showToast(describeApiError(err, '删除会话失败'), 'error')
                 loadConversations()
               })
           },
@@ -968,7 +972,7 @@ export default function App() {
     requestConfirm({
       id: `clear-history-${conversationId}`,
       title: '清空对话记录',
-      description: '将删除该项目的全部消息、总结与排队任务。清空后有 6 秒可以撤销。',
+      description: '将删除当前会话的全部消息、总结与排队任务，已有分享链接也将失效。清空后有 6 秒可以撤销。',
       confirmText: '清空',
       variant: 'destructive',
       onConfirm: () => {
@@ -1316,20 +1320,32 @@ export default function App() {
   ])
 
   const requestCloseDrawer = useCallback(() => {
+    const close = () => {
+      if (drawerMode !== 'create') setIsDrawerOpen(false)
+      setDrawerMode('sessions')
+      if (drawerMode === 'create') {
+        setNewConvName('')
+        setSelectedDir(defaultWorkspaceRoot)
+        setCurrentPath(defaultWorkspaceRoot)
+        setSelectedProvider(defaultProvider)
+        setSelectedPermissionMode('workspace')
+      }
+    }
     if (!hasUnsavedDraftProject) {
-      setIsDrawerOpen(false)
+      close()
       return true
     }
     requestConfirm({
       id: 'discard-draft-project',
-      title: '放弃新建项目',
+      title: '放弃创建会话',
       description: '名称、目录、Agent 与权限设置都会丢失，确定要关闭吗？',
       confirmText: '放弃',
       variant: 'destructive',
-      onConfirm: () => setIsDrawerOpen(false),
+      onConfirm: close,
     })
     return false
-  }, [hasUnsavedDraftProject, requestConfirm])
+  }, [hasUnsavedDraftProject, requestConfirm, drawerMode, defaultWorkspaceRoot, defaultProvider,
+      setNewConvName, setSelectedDir, setCurrentPath, setSelectedProvider, setSelectedPermissionMode])
 
   /** Drop a starter suggestion into the composer rather than sending blind. */
   const applyStarterPrompt = useCallback((prompt: string) => {
@@ -1413,7 +1429,7 @@ export default function App() {
   return (
     <AppContext.Provider value={contextValue}>
       <div className="app-container">
-      <div className="app-workbench" inert={settingsSection !== null} aria-hidden={settingsSection ? true : undefined}>
+      <div className="app-workbench" inert={settingsSection !== null || drawerMode === 'create'} aria-hidden={settingsSection || drawerMode === 'create' ? true : undefined}>
       {/* One hit region owns both the drawer and its scrim. Pointer capture
           therefore remains on the same element when a swipe crosses their
           visual boundary in either direction. */}
@@ -1439,7 +1455,7 @@ export default function App() {
       </motion.div>
 
       {/* Main Chat Area */}
-      <div className="chat-main">
+      <main className="chat-main">
         {!isOnline && (
           <div className="offline-banner" role="status">
             <WifiOff size={13} />
@@ -1447,6 +1463,7 @@ export default function App() {
           </div>
         )}
         <ChatHeader />
+        {activeConv && <ProjectSessions />}
 
         <div
           className="chat-messages"
@@ -1573,7 +1590,7 @@ export default function App() {
           />
           )}
         </div>
-      </div>
+      </main>
 
       <Suspense fallback={null}>
         <WorkspaceInspector
@@ -1594,7 +1611,6 @@ export default function App() {
           isOpen={isCmdPaletteOpen}
           onClose={() => setIsCmdPaletteOpen(false)}
           onNewWorkspace={() => {
-            setIsDrawerOpen(true)
             setDrawerMode('create')
           }}
           onToggleTheme={toggleTheme}

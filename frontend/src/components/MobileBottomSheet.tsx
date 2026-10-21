@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion, useDragControls } from 'framer-motion'
+import { useEscapeLayer } from '../hooks/useEscapeLayer'
 import { useFocusTrap } from '../hooks/useFocusTrap'
 
 interface MobileBottomSheetProps {
@@ -35,6 +36,7 @@ export function MobileBottomSheet({
 }: MobileBottomSheetProps) {
   const dragControls = useDragControls()
   const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 768px)').matches)
+  useEscapeLayer(open && isMobile, onClose)
   const sheetRef = useFocusTrap<HTMLDivElement>(open && isMobile)
   useEffect(() => {
     const query = window.matchMedia('(max-width: 768px)')

@@ -25,18 +25,24 @@ const SECTIONS = [
   { id: 'general', label: '通用', Icon: SlidersHorizontal, description: '让 OrbitPane 更符合你的使用习惯。' },
   { id: 'ai', label: 'AI 与工作区', Icon: Bot, description: '设置新建项目时使用的默认运行配置。' },
   { id: 'plugins', label: 'Agent 插件', Icon: Bot, description: '统一管理全局插件、账号与密钥，启用后所有项目均可使用。' },
+  { id: 'usage', label: '账户额度', Icon: Bot, description: '查看已连接提供方的账户额度。' },
   { id: 'notifications', label: '通知', Icon: Bell, description: '选择这台设备如何提醒你任务进展。' },
-  { id: 'data', label: '数据管理', Icon: Archive, description: '整理已归档项目与对话记录。' },
+  { id: 'data', label: '数据管理', Icon: Archive, description: '整理已归档会话与对话记录。' },
   { id: 'security', label: '安全', Icon: ShieldCheck, description: '管理登录方式与当前登录状态。' },
   { id: 'about', label: '关于', Icon: Info, description: '保持应用更新，随时从桌面打开。' },
 ] as const
+
+function UsageAccounts() {
+  const { providers } = useAppContext()
+  return <div className="settings-usage-accounts">{providers.length ? providers.map(provider => <ProviderUsageCard key={provider.id} provider={provider.id} />) : <ProviderUsageCard />}</div>
+}
 
 function SettingRow({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   return <div className="settings-row"><div className="settings-row-copy"><h3>{title}</h3>{description && <p>{description}</p>}</div><div className="settings-row-control">{children}</div></div>
 }
 
-function SettingsGroup({ title, children }: { title: string; children: ReactNode }) {
-  return <section className="settings-group"><h2>{title}</h2><div className="settings-group-body">{children}</div></section>
+function SettingsGroup({ title, children, padded = false }: { title: string; children: ReactNode; padded?: boolean }) {
+  return <section className="settings-group"><h2>{title}</h2><div className={`settings-group-body${padded ? ' settings-group-content' : ''}`}>{children}</div></section>
 }
 
 function GeneralSettings() {
@@ -53,6 +59,12 @@ function GeneralSettings() {
           </button>
         ))}
       </div>
+    </SettingsGroup>
+    <SettingsGroup title="阅读与布局">
+      <SettingRow title="界面密度" description="舒适模式提高文字与操作区的可读性。">
+        <Select aria-label="界面密度" value={preferences.density || 'comfortable'} onChange={value => updatePreferences({ density: value as 'comfortable' | 'compact' })}
+          options={[{ value: 'comfortable', label: '舒适' }, { value: 'compact', label: '紧凑' }]} />
+      </SettingRow>
     </SettingsGroup>
     <SettingsGroup title="键盘快捷键">
       {[
@@ -161,20 +173,20 @@ function DataSettings() {
   const [busyId, setBusyId] = useState<number | null>(null)
   const archived = conversations.filter(conversation => conversation.is_archived)
   return <>
-    <SettingsGroup title="已归档项目">
-      {archived.length === 0 ? <div className="settings-empty"><Archive size={24} /><strong>暂无已归档项目</strong><p>在项目菜单中归档后，可以在这里恢复或删除。</p></div>
+    <SettingsGroup title="已归档会话">
+      {archived.length === 0 ? <div className="settings-empty"><Archive size={24} /><strong>暂无已归档会话</strong><p>在项目菜单中归档后，可以在这里恢复或删除。</p></div>
         : archived.map(conversation => <div key={conversation.id} className="settings-archive-row"><Folder size={17} /><div><strong>{conversation.name}</strong><span title={conversation.path}>{conversation.path}</span></div>
           <button className="settings-button" type="button" disabled={busyId === conversation.id} onClick={async () => {
             setBusyId(conversation.id)
             try { const updated = await updateConversation(conversation.id, { is_archived: false }); if (updated) showToast('项目已恢复') }
             finally { setBusyId(null) }
           }}>恢复</button>
-          <button type="button" className="icon-btn destructive" aria-label={`删除已归档项目 ${conversation.name}`} onClick={event => deleteConversation(event, conversation.id)}><Trash2 size={15} /></button>
+          <button type="button" className="icon-btn destructive" aria-label={`删除已归档会话 ${conversation.name}`} onClick={event => deleteConversation(event, conversation.id)}><Trash2 size={15} /></button>
         </div>)}
     </SettingsGroup>
     <SettingsGroup title="对话与分享">
       <SettingRow title="导出、分享和清空对话" description="打开项目后，在对话右上角的「会话操作」菜单中管理。"><Info size={17} /></SettingRow>
-      <SettingRow title="项目记录" description="归档会保留对话；删除项目会一并删除对话记录与分享链接。"><span className="settings-status">{conversations.length} 个项目</span></SettingRow>
+      <SettingRow title="项目记录" description="归档会保留对话；删除会话会一并删除对话记录与分享链接。"><span className="settings-status">{conversations.length} 个项目</span></SettingRow>
     </SettingsGroup>
   </>
 }
@@ -257,7 +269,7 @@ function ProjectSettings() {
       .finally(() => { if (!controller.signal.aborted) setTasksLoading(false) })
     return () => controller.abort()
   }, [conversationId, attempt])
-  if (!conversation) return <div className="settings-empty"><Folder size={24} /><strong>未选择项目</strong><p>从项目列表或会话菜单打开项目设置。</p></div>
+  if (!conversation) return <div className="settings-empty"><Folder size={24} /><strong>未选择项目</strong><p>从项目列表或会话菜单打开会话设置。</p></div>
   const setPermission = async (mode: 'workspace' | 'unrestricted') => {
     if (conversation.permission_mode === mode) return
     setBusy(true)
@@ -268,17 +280,17 @@ function ProjectSettings() {
   }
   return <>
     <div className="settings-scope-note"><Folder size={15} />这些设置仅影响「{conversation.name}」。</div>
-    <SettingsGroup title="项目信息">
-      <SettingRow title="项目名称"><form className="settings-name-form" onSubmit={async event => {
+    <SettingsGroup title="会话信息">
+      <SettingRow title="会话名称"><form className="settings-name-form" onSubmit={async event => {
         event.preventDefault(); setBusy(true)
-        try { const updated = await updateConversation(conversation.id, { name: name.trim() }); if (updated) showToast('项目名称已更新') }
+        try { const updated = await updateConversation(conversation.id, { name: name.trim() }); if (updated) showToast('会话名称已更新') }
         finally { setBusy(false) }
-      }}><Input className="settings-input" aria-label="项目名称" value={name} onChange={event => setName(event.target.value)} /><button type="submit" className="settings-button" disabled={busy || !name.trim() || name.trim() === conversation.name}>保存</button></form></SettingRow>
+      }}><Input className="settings-input" aria-label="会话名称" value={name} onChange={event => setName(event.target.value)} /><button type="submit" className="settings-button" disabled={busy || !name.trim() || name.trim() === conversation.name}>保存</button></form></SettingRow>
       <SettingRow title="项目目录"><span className="settings-path" title={conversation.path}>{conversation.path}</span></SettingRow>
       <SettingRow title="当前模型" description="在消息输入框旁切换，修改将从下一次回复开始生效。"><span className="settings-status">{conversation.preferred_model ? formatModelName(conversation.preferred_model) : 'Agent 默认模型'}</span></SettingRow>
     </SettingsGroup>
     <SettingsGroup title="文件系统权限">
-      <div className="settings-permission-grid" role="radiogroup" aria-label="当前项目文件系统权限">
+      <div className="settings-permission-grid" role="radiogroup" aria-label="当前会话文件系统权限">
         <button type="button" role="radio" aria-checked={conversation.permission_mode === 'workspace'} disabled={busy || tasksLoading || hasActiveTasks} className={conversation.permission_mode === 'workspace' ? 'selected' : ''} onClick={() => void setPermission('workspace')}><ShieldCheck size={22} /><strong>受限工作区</strong><span>Agent 只能在项目目录内读写。</span></button>
         <button type="button" role="radio" aria-checked={conversation.permission_mode === 'unrestricted'} disabled={busy || tasksLoading || hasActiveTasks} className={`danger ${conversation.permission_mode === 'unrestricted' ? 'selected' : ''}`} onClick={() => {
           if (conversation.permission_mode === 'unrestricted') return
@@ -288,9 +300,9 @@ function ProjectSettings() {
       {tasksLoading ? <p className="settings-inline-note">正在确认任务状态…</p> : tasksError ? <div className="settings-inline-note" role="status">无法确认任务状态，暂时不能修改权限。<button type="button" onClick={() => setAttempt(previous => previous + 1)}>重试</button></div>
         : hasActiveTasks && <div className="settings-inline-note">任务运行或排队时不能修改权限。<button type="button" onClick={() => setAttempt(previous => previous + 1)}>刷新状态</button></div>}
     </SettingsGroup>
-    <SettingsGroup title="项目整理">
-      <SettingRow title="星标置顶" description="在项目列表中优先显示。"><button type="button" className="settings-switch" role="switch" aria-label="项目星标置顶" aria-checked={conversation.is_pinned} onClick={() => void updateConversation(conversation.id, { is_pinned: !conversation.is_pinned })}><span /></button></SettingRow>
-      <SettingRow title="归档项目" description="从左栏收起项目，对话记录仍然保留。"><button type="button" className="settings-button" onClick={() => void updateConversation(conversation.id, { is_archived: !conversation.is_archived })}><Archive size={15} />{conversation.is_archived ? '恢复项目' : '归档项目'}</button></SettingRow>
+    <SettingsGroup title="会话整理">
+      <SettingRow title="星标置顶" description="在项目列表中优先显示。"><button type="button" className="settings-switch" role="switch" aria-label="会话星标置顶" aria-checked={conversation.is_pinned} onClick={() => void updateConversation(conversation.id, { is_pinned: !conversation.is_pinned })}><span /></button></SettingRow>
+      <SettingRow title="归档会话" description="从左栏收起会话，对话记录仍然保留。"><button type="button" className="settings-button" onClick={() => void updateConversation(conversation.id, { is_archived: !conversation.is_archived })}><Archive size={15} />{conversation.is_archived ? '恢复会话' : '归档会话'}</button></SettingRow>
     </SettingsGroup>
   </>
 }
@@ -310,16 +322,17 @@ export function SettingsPage() {
       <div className="settings-nav-heading"><Settings size={20} /><strong>设置</strong></div>
       <nav aria-label="设置分类">
         {SECTIONS.map(({ id, label, Icon }) => <button key={id} type="button" aria-current={settingsSection === id ? 'page' : undefined} className={settingsSection === id ? 'active' : ''} onClick={() => openSettings(id, settingsProjectId ?? undefined)}><Icon size={17} /><span>{label}</span></button>)}
-        {(project || settingsSection === 'project') && <button type="button" className={`settings-project-nav ${settingsSection === 'project' ? 'active' : ''}`} aria-current={settingsSection === 'project' ? 'page' : undefined} onClick={() => openSettings('project', project?.id)}><Folder size={17} /><span>项目设置</span></button>}
+        {(project || settingsSection === 'project') && <button type="button" className={`settings-project-nav ${settingsSection === 'project' ? 'active' : ''}`} aria-current={settingsSection === 'project' ? 'page' : undefined} onClick={() => openSettings('project', project?.id)}><Folder size={17} /><span>会话设置</span></button>}
       </nav>
       <span className="settings-nav-footer"><LogoIcon size={17} />OrbitPane</span>
     </aside>
     <div className="settings-content" ref={contentRef}><div className="settings-content-inner">
-      <header className="settings-content-header"><span className="settings-breadcrumb">设置 <ChevronRight size={12} />{section?.label || '项目设置'}</span><h1 ref={headingRef} tabIndex={-1} id="settings-title">{section?.label || '项目设置'}</h1><p>{section?.description || '管理这个项目的名称、权限与归档状态。'}</p></header>
+      <header className="settings-content-header"><span className="settings-breadcrumb">设置 <ChevronRight size={12} />{section?.label || '会话设置'}</span><h1 ref={headingRef} tabIndex={-1} id="settings-title">{section?.label || '会话设置'}</h1><p>{section?.description || '管理这个会话的名称、权限与归档状态。'}</p></header>
       {settingsSection === 'plugins' && <PluginsSettings />}{settingsSection === 'general' && <GeneralSettings />}{settingsSection === 'ai' && <AiSettings />}
       {settingsSection === 'notifications' && <NotificationSettings />}{settingsSection === 'data' && <DataSettings />}
       {settingsSection === 'security' && <SecuritySettings />}{settingsSection === 'about' && <AboutSettings />}
-      {settingsSection === 'project' && <ProjectSettings key={project?.id} />}
+      {settingsSection === 'usage' && <SettingsGroup title="提供方账户额度" padded><UsageAccounts /></SettingsGroup>}
+      {settingsSection === 'project'  && <ProjectSettings key={project?.id} />}
     </div></div>
   </div>
 }

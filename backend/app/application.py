@@ -1239,6 +1239,73 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return await asyncio.to_thread(_workspace_git_status, workspace)
 
+    @app.get(
+        "/api/conversations/{conversation_id}/workspace-diff",
+        dependencies=[Depends(require_auth)],
+    )
+    async def workspace_diff(conversation_id: int):
+        """Read only tracked changes under the allowed project directory."""
+        conversation = await asyncio.to_thread(database.get_conversation, conversation_id)
+        if conversation is None:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        try:
+            workspace = resolved_settings.resolve_allowed_path(conversation.path)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        process = None
+        limit = 256_000
+        try:
+            process = await asyncio.create_subprocess_exec(
+                "git", "--no-pager", "diff", "--no-ext-diff", "--no-textconv",
+                "--no-color", "HEAD", "--", ".",
+                cwd=workspace, stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            # read(n) may return a short chunk; consume until EOF or the cap.
+            async def collect():
+                chunks = []
+                size = 0
+                while size <= limit:
+                    chunk = await process.stdout.read(min(65536, limit + 1 - size))
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    size += len(chunk)
+                if size > limit:
+                    if process.returncode is None:
+                        process.kill()
+                    # Drain the pipe after termination so wait cannot deadlock.
+                    await process.communicate()
+                else:
+                    await process.wait()
+                return b"".join(chunks)
+            output = await asyncio.wait_for(collect(), timeout=8)
+            truncated = len(output) > limit
+            if process.returncode != 0 and not truncated:
+                raise HTTPException(status_code=422, detail="无法读取差异，请确认目录是已有提交的 Git 仓库。")
+            return {"diff": output[:limit].decode("utf-8", errors="replace"),
+                    "truncated": truncated,
+                    "scope": "当前项目目录中已跟踪文件相对 HEAD 的改动；不包含未跟踪文件。"}
+        except (OSError, asyncio.TimeoutError) as exc:
+            raise HTTPException(status_code=503, detail="差异读取失败或超时，请稍后重试。") from exc
+        finally:
+            if process is not None and process.returncode is None:
+                process.kill()
+                await process.communicate()
+
+    @app.get(
+        "/api/conversations/{conversation_id}/share-preview",
+        dependencies=[Depends(require_auth)],
+    )
+    def share_preview(conversation_id: int, include_thoughts: bool = False):
+        conversation = database.get_conversation(conversation_id)
+        if conversation is None:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        return _build_share_snapshot(
+            conversation, database.list_messages(conversation_id),
+            include_thoughts=include_thoughts,
+        )
+
     @app.get("/api/ls", dependencies=[Depends(require_auth)])
     def list_directory(
         path: str | None = Query(default=None, min_length=1, max_length=4096),

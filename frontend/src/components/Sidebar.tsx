@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { motion, useReducedMotion } from 'framer-motion'
 import type { MotionValue } from 'framer-motion'
 import {
@@ -8,8 +9,13 @@ import {
   Search, Star, Settings, Command, MoreHorizontal, ChevronDown, Maximize2, Minimize2,
   Archive, ShieldAlert, ShieldCheck, ArrowUp, ArrowDown, GripVertical
 } from 'lucide-react'
+import { apiFetch } from '../lib/api'
+import { BACKGROUND_REFRESH_MS, TASK_CHANGE_EVENT } from '../lib/appEvents'
+import { describeTaskStatus, isTaskActive, isTaskRunning } from '../lib/taskStatus'
+import { PanelResizeHandle } from './PanelResizeHandle'
+import { usePanelWidth } from '../hooks/usePanelWidth'
 import { LogoIcon } from '../LogoIcon'
-import type { Conversation } from '../lib/types'
+import type { Conversation, TaskRecord } from '../lib/types'
 import { hasProviderChoice } from '../lib/providers'
 import { sortConversations } from '../lib/conversationOrder'
 import { haptic } from '../lib/nativeFeedback'
@@ -43,10 +49,6 @@ const SESSIONS_PANE = {
   active: { opacity: 1, scale: 1 },
   hidden: { opacity: 0, scale: 1.06 },
 }
-const CREATE_PANE = {
-  active: { opacity: 1, scale: 1 },
-  hidden: { opacity: 0, scale: 0.94 },
-}
 
 function projectMenuPosition(element: Element) {
   const trigger = element.querySelector<HTMLElement>('.project-menu-trigger') ?? element
@@ -59,7 +61,7 @@ function projectMenuPosition(element: Element) {
 
 export function Sidebar({ isVisible, drawerX }: SidebarProps) {
   const {
-    isDrawerOpen, drawerMode, setDrawerMode,
+    isDrawerOpen, drawerMode, setDrawerMode, setIsDrawerOpen, showProjectHome,
     conversations, isConversationsLoading, activeConv, selectConversation,
     editingConvId, editingConvSurface, saveConvName, startEditingConv,
     deleteConversation, getProviderBadge, reorderConversations, isReorderingConversations,
@@ -71,6 +73,42 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
     openSettings, settingsSection, setIsCmdPaletteOpen
   } = useAppContext()
 
+  const [sessionTasks, setSessionTasks] = useState<Map<number, TaskRecord>>(new Map())
+  useEffect(() => {
+    if (!isVisible) return
+    let canceled = false
+    let busy = false
+    const refresh = async () => {
+      if (busy) return
+      busy = true
+      try {
+        const data = await apiFetch<{ items: TaskRecord[] }>('/api/tasks?limit=80')
+        const latest = new Map<number, TaskRecord>()
+        for (const task of data.items) {
+          const previous = latest.get(task.conversation_id)
+          if (!previous || (!isTaskActive(previous.status) && isTaskActive(task.status)) || (isTaskRunning(task.status) && previous.status === 'queued')) latest.set(task.conversation_id, task)
+        }
+        if (!canceled) setSessionTasks(latest)
+      } catch {
+        // Hide stale statuses rather than imply a task is still running.
+        if (!canceled) setSessionTasks(new Map())
+      } finally { busy = false }
+    }
+    void refresh()
+    const onChange = () => void refresh()
+    const timer = window.setInterval(onChange, BACKGROUND_REFRESH_MS)
+    window.addEventListener(TASK_CHANGE_EVENT, onChange)
+    return () => { canceled = true; window.clearInterval(timer); window.removeEventListener(TASK_CHANGE_EVENT, onChange) }
+  }, [isVisible])
+
+  const panel = usePanelWidth('orbitpane_sidebar_width', 272, 240, 360)
+  const navigateHome = () => {
+    showProjectHome()
+    const url = new URL(location.href)
+    url.searchParams.delete('view')
+    history.replaceState({}, '', url)
+    if (window.innerWidth < 769) setIsDrawerOpen(false)
+  }
   const [searchTerm, setSearchTerm] = useState('')
   const [isSorting, setIsSorting] = useState(false)
   const [isDirectoryExpanded, setIsDirectoryExpanded] = useState(false)
@@ -100,9 +138,9 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
   }, [])
   /* Only an overlay drawer is modal; the docked desktop column must keep Tab
      flowing into the conversation next to it. */
-  const [isOverlayDrawer, setIsOverlayDrawer] = useState(() => window.innerWidth < 1024)
+  const [isOverlayDrawer, setIsOverlayDrawer] = useState(() => window.innerWidth < 769)
   useEffect(() => {
-    const query = window.matchMedia('(min-width: 1024px)')
+    const query = window.matchMedia('(min-width: 769px)')
     const sync = () => setIsOverlayDrawer(!query.matches)
     sync()
     query.addEventListener('change', sync)
@@ -112,12 +150,14 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
      the refresh button, and a drawer pulled open by a swipe would arrive with
      a focus ring drawn around it as if the user had selected it. Tab still
      steps into the header from here. */
-  const drawerRef = useFocusTrap<HTMLDivElement>(isDrawerOpen && isOverlayDrawer && !settingsSection, {
+  const drawerRef = useFocusTrap<HTMLDivElement>(isDrawerOpen && isOverlayDrawer && drawerMode !== 'create' && !settingsSection, {
     initialFocus: (): HTMLElement | null => drawerRef.current,
   })
+  const createRef = useFocusTrap<HTMLDivElement>(drawerMode === 'create' && !settingsSection)
+  useEscapeLayer(drawerMode === 'create' && !settingsSection, requestCloseDrawer)
   // While sorting, dnd-kit's sensor owns Escape; cancelling must leave the
   // overlay drawer open, ready for the next keyboard operation.
-  useEscapeLayer(isDrawerOpen && isOverlayDrawer && !settingsSection && !isSorting, requestCloseDrawer)
+  useEscapeLayer(isDrawerOpen && isOverlayDrawer && drawerMode !== 'create' && !settingsSection && !isSorting, requestCloseDrawer)
   useEscapeLayer(contextConv !== null, () => setContextConv(null))
   const longPressRef = React.useRef<{ timer: number; x: number; y: number } | null>(null)
   const suppressClickRef = React.useRef(false)
@@ -152,7 +192,7 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
   }
 
   useEffect(() => {
-    if (isDrawerOpen && window.innerWidth < 1024) {
+    if (isDrawerOpen && window.innerWidth < 769) {
       const originalOverflow = document.body.style.overflow
       document.body.style.overflow = 'hidden'
       return () => {
@@ -162,12 +202,12 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
   }, [isDrawerOpen])
 
   useEffect(() => {
-    if (!isDrawerOpen || drawerMode !== 'create') {
+    if (drawerMode !== 'create') {
       setIsDirectoryExpanded(false)
       setIsAdvancedOpen(false)
       setUnrestrictedAcknowledged(false)
     }
-  }, [isDrawerOpen, drawerMode])
+  }, [drawerMode])
 
   useEffect(() => {
     if (!contextConv) return
@@ -186,7 +226,7 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
     )
   ))
   const sortingDisabled = isReorderingConversations || editingConvId !== null || Boolean(searchTerm.trim())
-  const contextGroup = filteredConvs.filter(item => item.is_pinned === contextConv?.is_pinned)
+  const contextGroup = filteredConvs.filter(item => item.path === contextConv?.path && item.is_pinned === contextConv?.is_pinned)
   const contextIndex = contextGroup.findIndex(item => item.id === contextConv?.id)
   const moveContextConversation = (direction: -1 | 1) => {
     const target = contextIndex + direction
@@ -202,7 +242,7 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
     <button type="button" role="menuitem" onClick={() => {
       openSettings('project', contextConv.id)
       setContextConv(null)
-    }}><Settings size={16} />项目设置</button>
+    }}><Settings size={16} />会话设置</button>
     <button type="button" role="menuitem" onClick={() => {
       void updateConversation(contextConv.id, { is_pinned: !contextConv.is_pinned })
       haptic('selection')
@@ -211,7 +251,7 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
     <button type="button" role="menuitem" onClick={() => {
       startEditingConv(contextConv, 'sidebar')
       setContextConv(null)
-    }}><Pencil size={16} />重命名项目</button>
+    }}><Pencil size={16} />重命名会话</button>
     <button type="button" role="menuitem" disabled={sortingDisabled || contextIndex <= 0}
       onClick={() => moveContextConversation(-1)}><ArrowUp size={16} />上移</button>
     <button type="button" role="menuitem" disabled={sortingDisabled || contextIndex < 0 || contextIndex >= contextGroup.length - 1}
@@ -219,12 +259,12 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
     <button type="button" role="menuitem" onClick={() => {
       void updateConversation(contextConv.id, { is_archived: !contextConv.is_archived })
       setContextConv(null)
-    }}><Archive size={16} />{contextConv.is_archived ? '恢复项目' : '归档项目'}</button>
+    }}><Archive size={16} />{contextConv.is_archived ? '恢复会话' : '归档会话'}</button>
     <button type="button" role="menuitem" className="destructive" onClick={event => {
       deleteConversation(event, contextConv.id)
       haptic('warning')
       setContextConv(null)
-    }}><Trash2 size={16} />删除项目</button>
+    }}><Trash2 size={16} />删除会话</button>
   </>
 
   return (
@@ -232,14 +272,16 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
       {isVisible && (
           <motion.div
             ref={drawerRef}
-            style={drawerX ? { x: drawerX } : undefined}
-            className={`drawer ${drawerMode === 'create' ? 'create-mode' : ''} ${drawerMode === 'create' && isDirectoryExpanded ? 'directory-focus-mode' : ''}`}
+            id="project-navigation"
+            style={{ x: drawerX, '--sidebar-width': `${panel.width}px` } as React.CSSProperties}
+            className="drawer"
             role={isDrawerOpen && isOverlayDrawer ? 'dialog' : undefined}
             aria-modal={isDrawerOpen && isOverlayDrawer ? true : undefined}
             aria-hidden={!isDrawerOpen ? true : undefined}
             inert={!isDrawerOpen ? true : undefined}
             aria-label="项目菜单"
           >
+          <PanelResizeHandle panel={panel} controls="project-navigation" label="项目导航宽度" onCollapse={requestCloseDrawer} />
           <div className="drawer-header">
             <div className="drawer-brand">
               <LogoIcon size={24} />
@@ -270,48 +312,15 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
             </div>
           </div>
 
-          {/* Navigation Tabs */}
-          {/* The selected pill is one element that travels between the tabs
-              (shared layoutId) instead of one background switching off while
-              another switches on — so the indicator and the panes below it
-              move together. */}
-          <div className="drawer-tabs" role="tablist">
-            {([
-              { mode: 'sessions' as const, Icon: MessageSquare, label: '项目列表' },
-              { mode: 'create' as const, Icon: Plus, label: '新建项目' },
-            ]).map(({ mode, Icon, label }) => (
-              <button
-                key={mode}
-                role="tab"
-                aria-selected={drawerMode === mode}
-                className={`drawer-tab-btn ${drawerMode === mode ? 'active' : ''}`}
-                onClick={() => setDrawerMode(mode)}
-              >
-                {drawerMode === mode && (
-                  <motion.span
-                    layoutId="drawer-tab-pill"
-                    className="drawer-tab-pill"
-                    transition={paneZoom}
-                  />
-                )}
-                <Icon size={14} />
-                <span>{label}</span>
-              </button>
-            ))}
-          </div>
-
-          {/* The two modes are stacked in depth and cross-zoom, rather than
-              swapping instantly. Both panes stay mounted so the browser keeps
-              each one's scroll position — an unmount/remount resets it, which
-              is what made the old switch feel like a page load. The inactive
-              pane is `inert` so it takes no focus and is invisible to
-              assistive tech. */}
+          <nav className="global-navigation" aria-label="工作台导航">
+            <button type="button" aria-current={!activeConv ? 'page' : undefined} onClick={navigateHome}><Compass size={17} />工作台</button>
+          </nav>
+          <div className="sidebar-project-heading"><span><MessageSquare size={15} />项目与会话</span><button type="button" className="ui-btn ghost" aria-haspopup="dialog" onClick={() => setDrawerMode('create')}><Plus size={15} />打开项目</button></div>
           <div className="drawer-panes">
             <motion.div
               className="drawer-pane"
-              inert={drawerMode !== 'sessions'}
               variants={SESSIONS_PANE}
-              animate={drawerMode === 'sessions' ? 'active' : 'hidden'}
+              animate="active"
               transition={paneZoom}
               initial={false}
             >
@@ -380,6 +389,9 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
                     const isPinned = conv.is_pinned
                     const badge = getProviderBadge(conv.provider, providers)
                     const ProviderIcon = badge.Icon
+                    const task = sessionTasks.get(conv.id)
+                    const taskStatus = describeTaskStatus(task?.status)
+                    const TaskIcon = taskStatus.Icon
                     return (
                       <div 
                         key={conv.id} 
@@ -416,13 +428,14 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
                             <>
                               <div className="item-title-row">
                                 <span className="item-title" title={conv.name}>{conv.name}</span>
+                                {task && <span className={`sidebar-task-status ${taskStatus.tone}`} title={`任务${taskStatus.label}`} aria-label={`任务${taskStatus.label}`}><TaskIcon size={12} /><span>{taskStatus.label}</span></span>}
                                 {isPinned && <Star size={11} className="pin-star-icon" fill="currentColor" />}
                               </div>
                               <span className="item-meta-row">
                                 {showProviderTags && (
                                   <span className="item-provider-name">{badge.text}</span>
                                 )}
-                                <span className="item-meta-path" title={conv.path}>{conv.path}</span>
+                                <span className="item-meta-path">{conv.preferred_model ? `模型 · ${conv.preferred_model}` : '独立会话'}</span>
                               </span>
                             </>
                           )}
@@ -441,7 +454,7 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
                           ) : (
                             <>
                               <button type="button" className="icon-btn project-menu-trigger"
-                                title="项目操作" aria-label={`项目操作 ${conv.name}`}
+                                title="会话操作" aria-label={`会话操作 ${conv.name}`}
                                 aria-haspopup="menu" aria-expanded={contextConv?.id === conv.id}
                                 onClick={event => {
                                   event.stopPropagation()
@@ -457,26 +470,17 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
 
                   return (
                     <div className="flex flex-col gap-3">
-                      {pinnedConvs.length > 0 && (
-                        <div className="sidebar-section-group">
-                          <div className="sidebar-section-title">
-                            <Star size={12} className="icon-warning" />
-                            <span>星标置顶 ({pinnedConvs.length})</span>
-                          </div>
-                          <SortableConversationGroup conversations={pinnedConvs} label="星标项目" disabled={sortingDisabled} renderItem={renderConvItem} onSortingChange={setIsSorting} />
-                        </div>
-                      )}
-
-                      {unpinnedConvs.length > 0 && (
-                        <div className="sidebar-section-group">
-                          {pinnedConvs.length > 0 && (
-                            <div className="sidebar-section-title">
-                              <span>所有项目 ({unpinnedConvs.length})</span>
-                            </div>
-                          )}
-                          <SortableConversationGroup conversations={unpinnedConvs} label="所有项目" disabled={sortingDisabled} renderItem={renderConvItem} onSortingChange={setIsSorting} />
-                        </div>
-                      )}
+                      {[...new Set([...pinnedConvs, ...unpinnedConvs].map(item => item.path))].map(path => {
+                        const sessions = [...pinnedConvs, ...unpinnedConvs].filter(item => item.path === path)
+                        return <section className="sidebar-project-group" key={path}>
+                          <div className="sidebar-section-title" title={path}><Folder size={14} /><strong>{path.split('/').filter(Boolean).at(-1) || '/'}</strong><span>{sessions.length}</span></div>
+                          <small className="sidebar-project-path" title={path}>{path}</small>
+                          {[true, false].map(pinned => {
+                            const group = sessions.filter(item => item.is_pinned === pinned)
+                            return group.length > 0 && <SortableConversationGroup key={String(pinned)} conversations={group} label={`${path} ${pinned ? '置顶' : ''}会话`} disabled={sortingDisabled} renderItem={renderConvItem} onSortingChange={setIsSorting} />
+                          })}
+                        </section>
+                      })}
                     </div>
                   )
                 })()
@@ -485,23 +489,31 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
 
             </motion.div>
 
-            {/* Create Project Mode */}
-            <motion.div
-              className="drawer-pane"
-              inert={drawerMode !== 'create'}
-              variants={CREATE_PANE}
-              animate={drawerMode === 'create' ? 'active' : 'hidden'}
-              transition={paneZoom}
-              initial={false}
-            >
+
+          </div>
+
+          <div className="sidebar-footer">
+            <button type="button" className="sidebar-footer-btn sidebar-command-btn" onClick={() => setIsCmdPaletteOpen(true)}>
+              <Command size={16} /><span>搜索与快捷指令</span><kbd>⌘K</kbd>
+            </button>
+            <button type="button" className="sidebar-footer-btn sidebar-settings-btn" onClick={() => openSettings()}>
+              <Settings size={16} /><span>设置</span><ChevronRight size={14} />
+            </button>
+          </div>
+          </motion.div>
+      )}
+      {drawerMode === 'create' && createPortal(
+        <div className="create-project-overlay" data-drawer-swipe-ignore inert={settingsSection !== null} aria-hidden={settingsSection ? true : undefined} onClick={() => requestCloseDrawer()}>
+          <div ref={createRef} className={`create-project-dialog ${isDirectoryExpanded ? 'directory-focus-mode' : ''}`} role="dialog" aria-modal="true" aria-labelledby="create-project-title" onClick={event => event.stopPropagation()}>
+            <header className="create-project-header"><h2 id="create-project-title">打开项目，创建会话</h2><button type="button" className="icon-btn" aria-label="关闭打开项目窗口" onClick={() => requestCloseDrawer()}><X size={18} /></button></header>
                 <div className="drawer-content cw-content">
               <div className="cw-header">
-                <h3 className="cw-title">新建项目</h3>
+                <p className="create-intro">选择已有目录作为项目。每个会话有独立的历史和任务，共享该目录中的文件。</p>
               </div>
               <>
                   <div className="cw-form">
                     <div className="cw-field-group">
-                      <label className="cw-label" htmlFor="new-project-name">项目名称</label>
+                      <label className="cw-label" htmlFor="new-project-name">首个会话名称</label>
                       <div className="cw-input-wrapper">
                         <Layers size={14} className="cw-icon" />
                         <Input inline id="new-project-name"
@@ -509,7 +521,7 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
                           value={newConvName}
                           onChange={event => setNewConvName(event.target.value)}
                           className="cw-input"
-                          aria-label="项目名称"
+                          aria-label="会话名称"
                           placeholder="如：OrbitPane 前端"
                         />
                       </div>
@@ -709,26 +721,16 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
 
               <div className="cw-action cw-wizard-actions">
                 <button className="cw-create-btn" disabled={!canCreateProject}
-                  title={!canLeaveFirstStep ? '请填写项目名称与目录' : !isSelectedProviderAvailable ? '所选 Agent 当前不可用' : !canCreateProject ? '请先确认完全访问模式的风险' : undefined}
+                  title={!canLeaveFirstStep ? '请填写会话名称与目录' : !isSelectedProviderAvailable ? '所选 Agent 当前不可用' : !canCreateProject ? '请先确认完全访问模式的风险' : undefined}
                   onClick={() => { createConversation(); setIsAdvancedOpen(false); setUnrestrictedAcknowledged(false) }}>
-                  <Plus size={16} strokeWidth={2.5} /><span>创建项目</span>
+                  <Plus size={16} strokeWidth={2.5} /><span>创建会话并打开项目</span>
                 </button>
               </div>
                 </div>
-            </motion.div>
           </div>
-
-          <div className="sidebar-footer">
-            <button type="button" className="sidebar-footer-btn sidebar-command-btn" onClick={() => setIsCmdPaletteOpen(true)}>
-              <Command size={16} /><span>搜索与快捷指令</span><kbd>⌘K</kbd>
-            </button>
-            <button type="button" className="sidebar-footer-btn sidebar-settings-btn" onClick={() => openSettings()}>
-              <Settings size={16} /><span>设置</span><ChevronRight size={14} />
-            </button>
-          </div>
-          </motion.div>
+        </div>, document.body,
       )}
-      {contextConv && !isPhone && <div ref={menuRef} className="project-actions-popover" role="menu" aria-label="项目操作"
+      {contextConv && !isPhone && <div ref={menuRef} className="project-actions-popover" role="menu" aria-label="会话操作"
         style={{ top: menuPosition.top, left: menuPosition.left }} onKeyDown={event => {
           if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
           event.preventDefault()
@@ -739,7 +741,7 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
           buttons[next]?.focus()
         }}>{projectActions}</div>}
       <MobileBottomSheet open={contextConv !== null && isPhone} onClose={() => setContextConv(null)}
-        title={contextConv?.name ?? '项目操作'} className="project-actions-sheet" backdropClassName="project-actions-backdrop" role="menu">
+        title={contextConv?.name ?? '会话操作'} className="project-actions-sheet" backdropClassName="project-actions-backdrop" role="menu">
         {projectActions}
       </MobileBottomSheet>
     </>

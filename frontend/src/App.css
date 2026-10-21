@@ -3185,7 +3185,7 @@
 }
 
 /* Desktop layout: the drawer stops being an overlay and docks as a column. */
-@media (min-width: 1024px) {
+@media (min-width: 769px) {
   /* Let the docked drawer participate directly in .app-container's flex row. */
   .drawer-layer {
     display: contents;

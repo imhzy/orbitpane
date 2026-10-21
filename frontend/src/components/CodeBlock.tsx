@@ -1,6 +1,7 @@
+import { ReaderDialog } from './ReaderDialog'
 import { REFERENCE_FILE_EVENT } from '../lib/appEvents'
 import { lazy, Suspense, useState, useEffect } from 'react'
-import { Copy, Check, Code, Download, ListOrdered, MapPin, WrapText } from 'lucide-react'
+import { Maximize2, Copy, Check, Code, Download, ListOrdered, MapPin, WrapText } from 'lucide-react'
 
 const HighlightedCode = lazy(() => import('./HighlightedCode'))
 
@@ -28,6 +29,7 @@ interface CodeBlockProps extends React.HTMLAttributes<HTMLElement> {
 }
 
 export function CodeBlock({ children, className, ...props }: CodeBlockProps) {
+  const [expanded, setExpanded] = useState(false)
   const [copied, setCopied] = useState(false)
   const [wrapLongLines, setWrapLongLines] = useState(false)
   const [showLineNumbers, setShowLineNumbers] = useState(true)
@@ -67,6 +69,7 @@ export function CodeBlock({ children, className, ...props }: CodeBlockProps) {
           </span>
         </div>
         <div className="code-block-actions">
+          <button onClick={() => setExpanded(true)} title="展开代码" aria-label="展开代码"><Maximize2 size={13} /></button>
           {fileName && (
             <button className="code-reference-btn" onClick={() => window.dispatchEvent(new CustomEvent(REFERENCE_FILE_EVENT, { detail: fileName }))} title="在输入框引用此文件"><MapPin size={13} /></button>
           )}
@@ -79,6 +82,7 @@ export function CodeBlock({ children, className, ...props }: CodeBlockProps) {
           </button>
         </div>
       </div>
+      {expanded && <ReaderDialog title={fileName || `${match[1]} 代码`} onClose={() => setExpanded(false)}><pre className="code-reader">{codeStr}</pre></ReaderDialog>}
       <Suspense
         fallback={
           <pre className="m-0 overflow-auto p-4 text-[13px] font-mono">

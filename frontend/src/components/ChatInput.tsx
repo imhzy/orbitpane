@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Square, Send, AtSign, ListPlus, Plus } from 'lucide-react'
+import { Square, Send, AtSign, ListPlus, Plus, X } from 'lucide-react'
+import { useAppContext } from '../contexts/AppContext'
 import { ModelSelector } from './ModelSelector'
 import { FileMentionPicker } from './FileMentionPicker'
 import { Textarea } from './FormControls'
@@ -71,6 +72,8 @@ export function ChatInput({
   showToast,
   setIsDrawerOpen
 }: ChatInputProps) {
+  const { activeTaskCount } = useAppContext()
+  const references = [...input.matchAll(/(?:^|\s)(@(?:"([^"]+)"|([^\s]+)))/g)].map(match => ({ text: match[1], path: match[2] || match[3], index: match.index! + match[0].length - match[1].length }))
   const activeConversationId = activeConv?.id
   const inputBoxRef = useRef<HTMLDivElement>(null)
   const searchRequestRef = useRef(0)
@@ -177,7 +180,7 @@ export function ChatInput({
     const handleReferenceFile = (event: Event) => {
       const path = (event as CustomEvent<string>).detail
       if (!path) return
-      setInput(previous => `${previous}${previous && !previous.endsWith(' ') ? ' ' : ''}@${path}`)
+      setInput(previous => `${previous}${previous && !previous.endsWith(' ') ? ' ' : ''}@${/\s/u.test(path) ? `"${path}"` : path}`)
       window.requestAnimationFrame(() => textareaRef.current?.focus())
     }
     window.addEventListener(REFERENCE_FILE_EVENT, handleReferenceFile)
@@ -193,7 +196,7 @@ export function ChatInput({
 
   const selectFile = useCallback((item: FileSearchItem) => {
     if (!mention || activeConversationId === undefined) return
-    const insertedPath = /\s/u.test(item.path) ? `"${item.path}"` : item.path
+    const insertedPath = /\s/u.test(item.path) ? `@"${item.path}"` : `@${item.path}`
     const before = input.slice(0, mention.start)
     const after = input.slice(mention.end)
     const separator = after.length === 0 || !/^\s/u.test(after) ? ' ' : ''
@@ -271,6 +274,11 @@ export function ChatInput({
             updateMentionFromTextarea(event.currentTarget)
           }}
           onKeyDown={(e) => {
+            // Let the IME handle candidate navigation and committing text.
+            // Some browsers end composition before the confirming keydown,
+            // but still identify that key as an IME event with keyCode 229.
+            if (isComposingRef.current || e.nativeEvent.isComposing || e.keyCode === 229) return
+
             if (mention) {
               if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
                 e.preventDefault()
@@ -291,8 +299,6 @@ export function ChatInput({
                 return
               }
             }
-            if (e.key === 'Enter' && !e.shiftKey && !isAgentThinking && input.trim()) {
-                    }
             handleKeyDown(e)
           }}
           onSelect={event => updateMentionFromTextarea(event.currentTarget)}
@@ -323,6 +329,8 @@ export function ChatInput({
           className="input-textarea"
         />
 
+        {references.length > 0 && <div className="composer-references" aria-label="已引用的文件路径">{references.map(reference => <span key={`${reference.index}-${reference.path}`} title={reference.path}><AtSign size={13} /><span>{reference.path}</span><button type="button" aria-label={`移除引用 ${reference.path}`} onClick={() => setInput(value => value.slice(0, reference.index) + value.slice(reference.index + reference.text.length))}><X size={13} /></button></span>)}<small>路径将随消息发送，由 Agent 读取</small></div>}
+        {isAgentThinking && <div className="composer-queue-state" role="status"><ListPlus size={14} />当前任务正在执行；本次提交加入队列。{activeTaskCount > 1 ? `另有 ${activeTaskCount - 1} 个活动任务` : ''}</div>}
         <div className="input-bottom-bar">
           <div className="input-bottom-left">
             <button
@@ -382,7 +390,7 @@ export function ChatInput({
               title={!activeConv ? '请先选择项目' : isAgentThinking ? '加入任务队列 (Enter)' : '发送消息 (Enter)'}
               aria-label={isAgentThinking ? '加入任务队列' : '发送消息'}
             >
-              <Send size={15} />
+              <Send size={15} /><span>{isAgentThinking ? '加入队列' : '发送'}</span>
             </button>
           </div>
         </div>

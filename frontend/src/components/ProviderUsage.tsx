@@ -48,8 +48,8 @@ export function ProviderUsageCard({ provider }: { provider?: string }) {
     const group = window.group ?? ''
     groups.set(group, [...(groups.get(group) ?? []), window])
   }
-  return <section className="inspector-card usage-card" aria-label="账号用量">
-    <div className="inspector-card-title">
+  return <section className="usage-card" aria-label="账号用量">
+    <div className="usage-card-header">
       <span>{title(usage)}</span>
       <button type="button" className="icon-btn" title="刷新用量" aria-label="刷新用量"
         disabled={loading} onClick={() => void refresh()}>

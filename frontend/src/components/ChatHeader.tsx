@@ -1,6 +1,5 @@
-import { ProviderUsageChip } from './ProviderUsage'
 import { useState, useRef, useEffect } from 'react'
-import { Menu, ChevronLeft, Pencil, Eraser, Download, FileText, MoreVertical, WifiOff, Loader2, ListChecks, Share2, Settings, Clock } from 'lucide-react'
+import { Menu, Pencil, Eraser, Download, FileText, MoreVertical, WifiOff, Loader2, ListChecks, Share2, Settings, Clock } from 'lucide-react'
 import { LogoIcon } from '../LogoIcon'
 import { ShareDialog } from './ShareDialog'
 import { hasProviderChoice } from '../lib/providers'
@@ -24,7 +23,7 @@ export function ChatHeader(_props: ChatHeaderProps) {
     startEditingConv, getProviderBadge, providers, isDrawerOpen,
     setIsDrawerOpen, openSettings,
     isExporting, exportConversationAsImage, messages, clearMessages, summarizeMessages,
-    isConnected, isReconnecting, connectWebSocket, showProjectHome, activeTaskCount
+    isAgentThinking, isConnected, isReconnecting, connectWebSocket, showProjectHome, activeTaskCount
   } = useAppContext()
 
   const connectionState = !activeConv
@@ -87,14 +86,14 @@ export function ChatHeader(_props: ChatHeaderProps) {
       <button type="button" role="menuitem" className="actions-dropdown-item" onClick={() => {
         openSettings('project', activeConv?.id)
         setIsActionsMenuOpen(false)
-      }}><Settings size={14} /><span>项目设置</span></button>
+      }}><Settings size={14} /><span>会话设置</span></button>
       <div className="actions-dropdown-divider" />
       {activeConv && (
         <>
           <button type="button" role="menuitem" className="actions-dropdown-item" onClick={() => {
             startEditingConv(activeConv, 'header')
             setIsActionsMenuOpen(false)
-          }}><Pencil size={14} /><span>重命名项目</span></button>
+          }}><Pencil size={14} /><span>重命名会话</span></button>
           <button type="button" role="menuitem" className="actions-dropdown-item" onClick={() => {
             openInspectorPanel('schedules')
             setIsActionsMenuOpen(false)
@@ -152,12 +151,12 @@ export function ChatHeader(_props: ChatHeaderProps) {
       <div className="header-brand">
         <button 
           className="icon-btn" 
-          style={{ visibility: isDrawerOpen ? 'hidden' : 'visible' }}
-          onClick={() => activeConv ? showProjectHome() : setIsDrawerOpen(true)}
-          title={activeConv ? '返回项目列表' : '展开项目菜单 (⌘B)'}
-          aria-label={activeConv ? '返回项目列表' : '展开项目菜单'}
+          aria-expanded={isDrawerOpen}
+          onClick={() => setIsDrawerOpen(!isDrawerOpen)}
+          title="展开 / 收起导航"
+          aria-label="展开 / 收起导航"
         >
-          {activeConv ? <ChevronLeft size={20} /> : <Menu size={18} />}
+          <Menu size={18} />
         </button>
 
         {/* App identity only when nothing else can carry it. The docked sidebar
@@ -175,11 +174,10 @@ export function ChatHeader(_props: ChatHeaderProps) {
               editingConvId === activeConv.id && editingConvSurface === 'header' ? (
                 <ConversationNameInput conversationId={activeConv.id} />
               ) : (
-                <button type="button" className="conv-title-trigger" title="重命名项目" aria-label={`重命名项目 ${activeConv.name}`}
-                  onClick={() => startEditingConv(activeConv, 'header')}>
+                <span className="conv-title-trigger">
                   <span className="active-conv-title-text" title={activeConv.name}>{activeConv.name}</span>
-                  <Pencil size={13} className="edit-title-icon" aria-hidden="true" />
-                </button>
+                  <button type="button" className="icon-btn" aria-label="重命名会话" onClick={() => startEditingConv(activeConv, 'header')}><Pencil size={13} /></button>
+                </span>
               )
             ) : (
               <div className="brand-title-group header-app-mark">
@@ -188,16 +186,14 @@ export function ChatHeader(_props: ChatHeaderProps) {
             )}
           </div>
           {activeConv && (
-            <div className="header-path" title={activeConv.path}>
-              {activeConv.path}
-            </div>
+            <div className="header-path"><button className="breadcrumb-home" onClick={showProjectHome}>工作台</button><span> / {activeConv.path.split('/').filter(Boolean).at(-1) || '/'} / 会话</span><span className="header-task-state"> · {isAgentThinking ? '执行中' : activeTaskCount > 0 ? `${activeTaskCount} 个活动任务` : '就绪'}</span></div>
           )}
         </div>
       </div>
 
       {/* The header contains connection state and conversation actions. */}
       <div className="header-actions">
-        {activeConv && <ProviderUsageChip provider={activeConv.provider} />}
+
         {activeConv && (
           <div className="header-connection">
             <div className="run-config-control">

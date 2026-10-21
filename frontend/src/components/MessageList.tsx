@@ -1,6 +1,6 @@
 import React, { Suspense, lazy } from 'react'
 import { motion } from 'framer-motion'
-import { AlertCircle, Info, FileText, Check, Copy, ThumbsUp, ThumbsDown, RotateCcw, Clock, ListTodo, Gauge, ChevronDown, ChevronUp, History, Sparkles, ShieldAlert } from 'lucide-react'
+import { MoreHorizontal, AlertCircle, Info, FileText, Check, Copy, ThumbsUp, ThumbsDown, RotateCcw, Clock, ListTodo, Gauge, ChevronDown, ChevronUp, History, Sparkles, ShieldAlert } from 'lucide-react'
 import { LogoIcon } from '../LogoIcon'
 import { AgentExecutionTimeline } from './AgentExecutionTimeline'
 import type { Message } from '../lib/types'
@@ -146,6 +146,7 @@ const MessageRow = React.memo(function MessageRow({
       onPointerCancel={onLongPressCancel}
       onContextMenu={event => onContextMenu(event, rowKey)}
     >
+      <button type="button" className="message-more-btn" aria-label="消息操作" onClick={event => onContextMenu(event, rowKey)}><MoreHorizontal size={17} /></button>
       {/* Only the agent is introduced. A right-aligned bubble is already the
           universal sign for "you said this"; labelling it 你 with an avatar —
           and left-aligning that label above a right-aligned bubble — put a
@@ -401,7 +402,7 @@ export function MessageList({
   }, [cancelLongPress])
 
   const handleContextMenu = React.useCallback((event: React.SyntheticEvent, rowKey: string) => {
-    if (!window.matchMedia('(pointer: coarse)').matches) return
+    if (event.type !== 'click' && !window.matchMedia('(pointer: coarse)').matches) return
     event.preventDefault()
     if (isDrawerSwiping) return
     haptic('light')

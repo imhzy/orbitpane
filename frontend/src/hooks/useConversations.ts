@@ -379,7 +379,7 @@ export function useConversations(showToast: (msg: string, kind?: ToastKind) => v
           setActiveConv(original)
         }
       }
-      if (!options.silent) showToast('项目设置保存失败', 'error')
+      if (!options.silent) showToast('会话设置保存失败', 'error')
       return null
     })
   }, [showToast])
@@ -430,7 +430,7 @@ export function useConversations(showToast: (msg: string, kind?: ToastKind) => v
     }
     void updateConversation(conversationId, { name: trimmed })
       .then(updated => {
-        if (updated) showToast('项目名称已更新')
+        if (updated) showToast('会话名称已更新')
       })
   }, [editingConvName, setEditingConvId, showToast, updateConversation])
 

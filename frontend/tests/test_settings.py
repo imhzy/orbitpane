@@ -200,21 +200,21 @@ async def main():
         await expect(page.locator('.composer-model-selector .model-selector-text')).to_have_text('Fast')
         await expect(page.get_by_label('消息输入框')).to_have_value('Keep this unsent draft')
         assert await page.evaluate('window.createdSockets.length') == socket_count
-        await page.get_by_role('tab', name='新建项目', exact=True).click()
-        await page.get_by_label('项目名称', exact=True).fill('New defaults')
+        await page.locator('.sidebar-project-heading').get_by_role('button', name='打开项目', exact=True).click()
+        await page.get_by_label('会话名称', exact=True).fill('New defaults')
         await expect(page.get_by_label('项目路径', exact=True)).to_have_value('/root/projects')
         await expect(page.get_by_label('选择 Agent')).to_have_count(0)
         await page.get_by_role('button', name='运行配置', exact=False).click()
         await choose_option(page, '选择 Agent', 'First Agent')
         await choose_option(page, '选择 Agent', 'Second Agent')
-        await page.get_by_role('button', name='创建项目', exact=True).click()
+        await page.get_by_role('button', name='创建会话并打开项目', exact=True).click()
         await page.wait_for_function("new URLSearchParams(location.search).get('id') === '3'")
         assert created == [{'name': 'New defaults', 'path': '/root/projects', 'provider': 'second',
                             'permission_mode': 'workspace', 'preferred_model': 'second-deep'}], created
         print('PASS: themed menus escape clipping, skip unavailable options and support keyboard selection; defaults apply only to new projects')
 
         await page.goto(BASE + '/?id=1&settings=project&settings-project=1')
-        await page.get_by_role('heading', name='项目设置', exact=True).wait_for()
+        await page.get_by_role('heading', name='会话设置', exact=True).wait_for()
         unrestricted = page.get_by_role('radio', name='完全访问', exact=False)
         await expect(unrestricted).to_be_enabled()
         await unrestricted.click()
@@ -228,7 +228,7 @@ async def main():
         await expect(page.get_by_role('button', name='开启完全访问', exact=True)).to_be_focused()
         await page.keyboard.press('Control+,')
         await page.keyboard.press('Control+Shift+j')
-        await expect(page.locator('.settings-content-header h1')).to_have_text('项目设置')
+        await expect(page.locator('.settings-content-header h1')).to_have_text('会话设置')
         await expect(page.get_by_role('button', name='开启完全访问', exact=True)).to_be_focused()
         await page.keyboard.press('Escape')
         await page.locator('.confirm-overlay').wait_for(state='detached')
@@ -258,7 +258,7 @@ async def main():
         await page.get_by_role('button', name='数据管理', exact=True).click()
         await page.get_by_text('Archived project', exact=True).wait_for()
         await page.get_by_role('button', name='恢复', exact=True).click()
-        await page.get_by_text('暂无已归档项目', exact=True).wait_for()
+        await page.get_by_text('暂无已归档会话', exact=True).wait_for()
         assert conversations[1]['is_archived'] is False
         await page.get_by_role('button', name='返回工作台', exact=True).click()
         await page.locator('.settings-page').wait_for(state='detached')
@@ -278,7 +278,7 @@ async def main():
             await toast.click()
         await page.locator('.toast').wait_for(state='detached')
         await page.screenshot(path='/tmp/orbitpane-settings-mobile.png')
-        for section in ['AI 与工作区', '通知', '数据管理', '安全', '关于', '项目设置']:
+        for section in ['AI 与工作区', '通知', '数据管理', '安全', '关于', '会话设置']:
             await page.get_by_role('button', name=section, exact=True).click()
             await page.get_by_role('heading', name=section, exact=True).wait_for()
             assert await page.locator('.settings-content').evaluate('el => el.scrollWidth <= el.clientWidth + 1'), section
@@ -291,27 +291,26 @@ async def main():
         await page.get_by_role('button', name='返回工作台', exact=True).click()
         await page.locator('.settings-page').wait_for(state='detached')
         await page.screenshot(path='/tmp/orbitpane-workbench-mobile.png')
-        await page.get_by_label('返回项目列表', exact=True).click()
-        await page.get_by_label('展开项目菜单', exact=True).click()
-        await page.get_by_label('项目操作 OrbitPane', exact=True).click()
+        await page.get_by_label('展开 / 收起导航', exact=True).click()
+        await page.get_by_label('会话操作 OrbitPane', exact=True).click()
         menu = page.locator('.project-actions-sheet')
-        await expect(menu.get_by_role('menuitem', name='项目设置', exact=True)).to_be_focused()
+        await expect(menu.get_by_role('menuitem', name='会话设置', exact=True)).to_be_focused()
         for _ in range(6):
             await page.keyboard.press('Tab')
             assert await menu.evaluate('el => el.contains(document.activeElement)')
         await page.keyboard.press('Escape')
         await menu.wait_for(state='detached')
-        await expect(page.get_by_label('项目操作 OrbitPane', exact=True)).to_be_focused()
-        await page.get_by_label('项目操作 OrbitPane', exact=True).click()
-        await page.locator('.project-actions-sheet').get_by_role('menuitem', name='项目设置', exact=True).click()
-        await page.get_by_role('heading', name='项目设置', exact=True).wait_for()
+        await expect(page.get_by_label('会话操作 OrbitPane', exact=True)).to_be_focused()
+        await page.get_by_label('会话操作 OrbitPane', exact=True).click()
+        await page.locator('.project-actions-sheet').get_by_role('menuitem', name='会话设置', exact=True).click()
+        await page.get_by_role('heading', name='会话设置', exact=True).wait_for()
         await page.keyboard.press('Escape')
         await page.locator('.settings-page').wait_for(state='detached')
 
         await page.set_viewport_size({'width': 900, 'height': 960})
         item = page.locator('.list-item').filter(has_text='OrbitPane').first
         await item.dispatch_event('pointerdown', {'pointerType': 'touch', 'clientX': 160, 'clientY': 270})
-        popover = page.get_by_role('menu', name='项目操作', exact=True)
+        popover = page.get_by_role('menu', name='会话操作', exact=True)
         await popover.wait_for()
         bounds = await popover.bounding_box()
         assert bounds and bounds['x'] >= 8 and bounds['y'] >= 8, bounds
@@ -322,13 +321,13 @@ async def main():
         for conversation in conversations:
             conversation['is_archived'] = True
         await page.goto(BASE)
-        await page.get_by_text('所有项目都已归档。恢复已有项目，或新建项目继续。', exact=True).wait_for()
-        await page.get_by_role('button', name='管理已归档项目', exact=True).click()
+        await page.get_by_role('heading', name='工作台', exact=True).wait_for()
+        await page.get_by_role('button', name='管理已归档会话', exact=True).click()
         await page.get_by_role('heading', name='数据管理', exact=True).wait_for()
         await page.locator('.settings-archive-row').filter(has_text='OrbitPane').get_by_role('button', name='恢复', exact=True).click()
         await page.get_by_role('button', name='返回工作台', exact=True).click()
         await page.locator('.settings-page').wait_for(state='detached')
-        await expect(page.get_by_role('region', name='项目任务总览', exact=True)).to_be_visible()
+        await expect(page.get_by_role('region', name='工作台', exact=True)).to_be_visible()
         assert conversations[0]['is_archived'] is False
         assert not errors, errors
         print('PASS: mobile settings fit; project sheets trap and restore focus; tablet long-press menus stay anchored')

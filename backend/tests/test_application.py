@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import subprocess
 import tempfile
 import threading
 import time
@@ -46,6 +47,54 @@ class ApplicationTests(IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("orbitpane_session", response.cookies)
         return {}
+
+    async def test_share_preview_is_authenticated_filtered_and_not_published(self):
+        database = self.app.state.database
+        conversation = database.create_conversation("Preview", str(self.workspace), "antigravity")
+        database.add_message(conversation.id, "user", "Review this")
+        database.add_message(conversation.id, "agent", "Result", thought="Private execution")
+        database.add_message(conversation.id, "system", "Internal metadata")
+        url = f"/api/conversations/{conversation.id}/share-preview"
+        self.assertEqual((await self.client.get(url)).status_code, 401)
+        await self.login_headers()
+        response = await self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        snapshot = response.json()
+        self.assertEqual([item["role"] for item in snapshot["messages"]], ["user", "agent"])
+        self.assertNotIn("thought", snapshot["messages"][1])
+        self.assertNotIn("path", snapshot)
+        self.assertNotIn("token", snapshot)
+        detailed = (await self.client.get(url + "?include_thoughts=true")).json()
+        self.assertEqual(detailed["messages"][1]["thought"], "Private execution")
+        self.assertEqual(database.count_shares(conversation.id), 0)
+        database.delete_conversation(conversation.id)
+        self.assertEqual((await self.client.get(url)).status_code, 404)
+
+    async def test_workspace_diff_is_authenticated_scoped_and_bounded(self):
+        def git(*args):
+            subprocess.run(["git", *args], cwd=self.root, check=True, capture_output=True)
+        git("init")
+        (self.workspace / "file.txt").write_text("before\n")
+        (self.root / "outside.txt").write_text("outside before\n")
+        git("add", ".")
+        git("-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "-m", "initial")
+        (self.workspace / "file.txt").write_text("after\n")
+        (self.root / "outside.txt").write_text("PRIVATE OUTSIDE CONTENT\n")
+        database = self.app.state.database
+        conversation = database.create_conversation("Diff", str(self.workspace), "antigravity")
+        url = f"/api/conversations/{conversation.id}/workspace-diff"
+        self.assertEqual((await self.client.get(url)).status_code, 401)
+        await self.login_headers()
+        result = await self.client.get(url)
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertIn("+after", result.json()["diff"])
+        self.assertNotIn("PRIVATE OUTSIDE CONTENT", result.json()["diff"])
+        self.assertFalse(result.json()["truncated"])
+        (self.workspace / "file.txt").write_text("a new line\n" * 40000)
+        result = await self.client.get(url)
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertTrue(result.json()["truncated"])
+        self.assertLessEqual(len(result.json()["diff"]), 256000)
 
     async def test_usage_auth_unknown_and_unavailable_provider(self):
         self.assertEqual((await self.client.get('/api/usage')).status_code, 401)
