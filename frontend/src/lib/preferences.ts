@@ -1,4 +1,4 @@
-import { readJson, readText } from './storage'
+import { readJson } from './storage'
 
 export type ThemePreference = 'dark' | 'light' | 'system'
 export type SettingsSection = 'general' | 'plugins' | 'ai' | 'notifications' | 'data' | 'security' | 'about' | 'project' | 'usage'
@@ -24,7 +24,7 @@ export function readPreferences(): AppPreferences {
   return {
     density: raw.density === 'compact' ? 'compact' : 'comfortable',
     theme: raw.theme === 'light' || raw.theme === 'dark' || raw.theme === 'system'
-      ? raw.theme : readText('theme') === 'light' ? 'light' : 'dark',
+      ? raw.theme : 'system',
     defaultProvider: typeof raw.defaultProvider === 'string' ? raw.defaultProvider : '',
     defaultModels,
     workspaceRoot: typeof raw.workspaceRoot === 'string' ? raw.workspaceRoot : '',

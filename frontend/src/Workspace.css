@@ -1054,6 +1054,12 @@
   .chat-header {
     padding-left: var(--space-2-5);
     padding-right: var(--space-2-5);
+    /* This bar occupies its own row, so no content needs to show through it.
+       Keep the iOS PWA safe-area padding, without a backdrop compositing layer
+       above the scrolling conversation. */
+    background: var(--bg-primary);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
   .chat-header .edit-title-btn,
   .chat-header .new-ws-header-btn { display: none !important; }

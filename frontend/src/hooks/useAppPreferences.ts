@@ -19,13 +19,18 @@ export function useAppPreferences() {
   useEffect(() => {
     const query = window.matchMedia('(prefers-color-scheme: dark)')
     const sync = () => setSystemDark(query.matches)
+    sync()
     query.addEventListener('change', sync)
+    window.addEventListener('pageshow', sync)
+    document.addEventListener('visibilitychange', sync)
     const onStorage = (event: StorageEvent) => {
       if (event.key === PREFERENCES_KEY || event.key === null) setPreferences(readPreferences())
     }
     window.addEventListener('storage', onStorage)
     return () => {
       query.removeEventListener('change', sync)
+      window.removeEventListener('pageshow', sync)
+      document.removeEventListener('visibilitychange', sync)
       window.removeEventListener('storage', onStorage)
     }
   }, [])
@@ -34,7 +39,7 @@ export function useAppPreferences() {
     document.documentElement.setAttribute('data-theme', theme)
     writeText('theme', theme)
     document.querySelectorAll('meta[name="theme-color"]').forEach(meta => {
-      meta.setAttribute('content', theme === 'dark' ? '#0c0c0b' : '#faf9f8')
+      meta.setAttribute('content', theme === 'dark' ? '#0c0c0b' : '#f6f5f3')
     })
   }, [theme])
 
