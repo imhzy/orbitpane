@@ -27,7 +27,6 @@
 .workbench-home { width:100%; max-width:1120px; margin:0 auto; padding:8px 0 32px; text-align:left; }
 .welcome-container:not(.session-empty-container) { max-width:1120px; width:100%; padding-top:24px; }
 .chat-message-list { max-width:1120px; }
-.message-row .markdown-body > :where(p,ul,ol,blockquote,h1,h2,h3,h4) { max-width:76ch; }
 .message-row { position:relative; }
 .message-more-btn { display:none; }
 .input-area .input-reference-btn { display:grid; flex:none; min-width:36px; height:36px; padding:0; place-items:center; border:1px solid var(--border-color); background:transparent; color:var(--text-secondary); border-radius:8px; cursor:pointer; }
@@ -71,7 +70,6 @@
  .header-path { display:none; }
  .welcome-container:not(.session-empty-container) { padding:16px 4px; }
  .global-navigation button { min-height:44px; }
- .message-more-btn { display:grid; place-items:center; align-self:flex-end; order:10; min-width:44px; min-height:44px; border:0; background:transparent; color:var(--text-secondary); border-radius:8px; cursor:pointer; }
  .input-box:not(.has-text):not(:focus-within) { flex-direction:column; align-items:stretch; }
  .input-box:not(.has-text):not(:focus-within) .input-bottom-left { display:flex; }
  .input-box:not(.has-text):not(:focus-within) .input-bottom-bar { width:100%; }
@@ -122,3 +120,7 @@
 .sidebar-task-status.attention { color:var(--danger-text); }
 
 .home-task-error { color:var(--danger-text); }
+
+@media (max-width:768px), (pointer:coarse) {
+ .message-more-btn { display:grid; place-items:center; align-self:flex-end; order:10; min-width:44px; min-height:44px; border:0; background:transparent; color:var(--text-secondary); border-radius:8px; cursor:pointer; }
+}

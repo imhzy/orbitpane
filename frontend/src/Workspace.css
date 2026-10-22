@@ -1106,7 +1106,9 @@
   .list-item .item-actions { display: flex !important; position: static; padding-left: 0; background: transparent; opacity: 1; pointer-events: auto; transform: none; }
   .message-toolbar .toolbar-btn,
   .user-copy-btn { display: none; }
-  .message-row, .list-item { -webkit-touch-callout: none; }
+  .list-item { -webkit-touch-callout: none; }
+  .message-row { -webkit-touch-callout: default; }
+  .message-bubble { -webkit-user-select: text; user-select: text; }
 
   .desktop-model-menu { display: none !important; }
   .mobile-sheet-backdrop {

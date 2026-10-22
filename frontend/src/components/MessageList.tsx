@@ -38,10 +38,7 @@ interface MessageRowProps {
   handleFeedback: (messageId: number | undefined, type: 'up' | 'down') => void
   regenerateLastResponse: () => void
   formatTimestamp: (ts?: string | number) => string
-  onLongPressStart: (event: React.PointerEvent, rowKey: string) => void
-  onLongPressMove: (event: React.PointerEvent) => void
-  onLongPressCancel: () => void
-  onContextMenu: (event: React.SyntheticEvent, rowKey: string) => void
+  onOpenActions: (event: React.SyntheticEvent, rowKey: string) => void
 }
 
 const MarkdownContent = lazy(() => import('./MarkdownContent'))
@@ -125,10 +122,7 @@ const MessageRow = React.memo(function MessageRow({
   handleFeedback,
   regenerateLastResponse,
   formatTimestamp,
-  onLongPressStart,
-  onLongPressMove,
-  onLongPressCancel,
-  onContextMenu,
+  onOpenActions,
 }: MessageRowProps) {
   const isAgentLike = message.role === 'agent' || message.role === 'summary'
   const feedback = message.feedback ?? ''
@@ -140,13 +134,8 @@ const MessageRow = React.memo(function MessageRow({
       transition={{ duration: 0.2 }}
       className={`message-row ${message.role}${message.schedule_name ? ' scheduled-message' : ''}`}
       data-message-id={message.id}
-      onPointerDown={event => onLongPressStart(event, rowKey)}
-      onPointerMove={onLongPressMove}
-      onPointerUp={onLongPressCancel}
-      onPointerCancel={onLongPressCancel}
-      onContextMenu={event => onContextMenu(event, rowKey)}
     >
-      <button type="button" className="message-more-btn" aria-label="消息操作" onClick={event => onContextMenu(event, rowKey)}><MoreHorizontal size={17} /></button>
+      <button type="button" className="message-more-btn" aria-label="消息操作" onClick={event => onOpenActions(event, rowKey)}><MoreHorizontal size={17} /></button>
       {/* Only the agent is introduced. A right-aligned bubble is already the
           universal sign for "you said this"; labelling it 你 with an avatar —
           and left-aligning that label above a right-aligned bubble — put a
@@ -313,12 +302,6 @@ export function MessageList({
   const [expandedHistoryKey, setExpandedHistoryKey] = React.useState<string | null>(null)
   const [expandedSummaryKey, setExpandedSummaryKey] = React.useState<string | null>(null)
   const [contextMessageKey, setContextMessageKey] = React.useState<string | null>(null)
-  const longPressRef = React.useRef<{
-    timer: number
-    pointerId: number
-    x: number
-    y: number
-  } | null>(null)
   const isSummarizedSectionExpanded = (
     renderAll || (latestSummaryKey !== null && expandedHistoryKey === latestSummaryKey)
   )
@@ -373,72 +356,18 @@ export function MessageList({
     wasThinkingRef.current = isThinking
   }, [messages])
 
-  const cancelLongPress = React.useCallback(() => {
-    if (longPressRef.current) window.clearTimeout(longPressRef.current.timer)
-    longPressRef.current = null
-  }, [])
-
-  const beginLongPress = React.useCallback((event: React.PointerEvent, rowKey: string) => {
-    if (event.pointerType !== 'touch' || isDrawerSwiping) return
-    if (longPressRef.current) window.clearTimeout(longPressRef.current.timer)
-    longPressRef.current = {
-      pointerId: event.pointerId,
-      x: event.clientX,
-      y: event.clientY,
-      timer: window.setTimeout(() => {
-        haptic('light')
-        setContextMessageKey(rowKey)
-        longPressRef.current = null
-      }, 460),
-    }
-  }, [isDrawerSwiping])
-
-  const moveLongPress = React.useCallback((event: React.PointerEvent) => {
-    const pending = longPressRef.current
-    if (!pending || pending.pointerId !== event.pointerId) return
-    if (Math.abs(event.clientX - pending.x) > 10 || Math.abs(event.clientY - pending.y) > 10) {
-      cancelLongPress()
-    }
-  }, [cancelLongPress])
-
-  const handleContextMenu = React.useCallback((event: React.SyntheticEvent, rowKey: string) => {
-    if (event.type !== 'click' && !window.matchMedia('(pointer: coarse)').matches) return
+  // Native long-press belongs to text selection. Message actions have an
+  // explicit button so opening a sheet never steals the browser's selection.
+  const handleOpenActions = React.useCallback((event: React.SyntheticEvent, rowKey: string) => {
     event.preventDefault()
     if (isDrawerSwiping) return
     haptic('light')
     setContextMessageKey(rowKey)
   }, [isDrawerSwiping])
 
-  React.useEffect(() => cancelLongPress, [cancelLongPress])
   React.useEffect(() => {
-    // The message viewport captures touch pointers so the drawer remains
-    // continuous when its scrim mounts. Captured events no longer target the
-    // message row, but they still bubble to window, where the long-press timer
-    // can be cancelled without weakening the drawer gesture.
-    const handlePointerMove = (event: PointerEvent) => {
-      const pending = longPressRef.current
-      if (!pending || pending.pointerId !== event.pointerId) return
-      if (Math.abs(event.clientX - pending.x) > 10 || Math.abs(event.clientY - pending.y) > 10) {
-        cancelLongPress()
-      }
-    }
-    const handlePointerEnd = (event: PointerEvent) => {
-      if (longPressRef.current?.pointerId === event.pointerId) cancelLongPress()
-    }
-    window.addEventListener('pointermove', handlePointerMove, { passive: true })
-    window.addEventListener('pointerup', handlePointerEnd, { passive: true })
-    window.addEventListener('pointercancel', handlePointerEnd, { passive: true })
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove)
-      window.removeEventListener('pointerup', handlePointerEnd)
-      window.removeEventListener('pointercancel', handlePointerEnd)
-    }
-  }, [cancelLongPress])
-  React.useEffect(() => {
-    if (!isDrawerSwiping) return
-    cancelLongPress()
-    setContextMessageKey(null)
-  }, [cancelLongPress, isDrawerSwiping])
+    if (isDrawerSwiping) setContextMessageKey(null)
+  }, [isDrawerSwiping])
 
   return (
     <>
@@ -577,10 +506,7 @@ export function MessageList({
             handleFeedback={handleFeedback}
             regenerateLastResponse={regenerateLastResponse}
             formatTimestamp={formatTimestamp}
-            onLongPressStart={beginLongPress}
-            onLongPressMove={moveLongPress}
-            onLongPressCancel={cancelLongPress}
-            onContextMenu={handleContextMenu}
+            onOpenActions={handleOpenActions}
           />
         )
         }

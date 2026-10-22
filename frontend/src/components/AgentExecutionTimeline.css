@@ -304,6 +304,11 @@
   background: var(--bg-code);
 }
 
+/* Keep consecutive text/code blocks separated, including Markdown pre blocks. */
+.step-body .markdown-body > * + * {
+  margin-top: var(--space-3);
+}
+
 .step-code {
   font-family: var(--font-mono);
   font-size: var(--text-xs);

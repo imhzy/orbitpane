@@ -316,6 +316,7 @@ export function useDrawerGesture({
       || isOpenRef.current
       || !isOverlayRef.current
       || document.querySelector('[aria-modal="true"]')
+      || (window.getSelection()?.isCollapsed === false)
       || event.clientX < (window.visualViewport?.offsetLeft ?? 0) + SYSTEM_GESTURE_INSET
       || !isOwnDescendant(event)
       || gestureBelongsToNestedContent(event.target, event.currentTarget, allowActionStarts)
@@ -354,6 +355,13 @@ export function useDrawerGesture({
 
     if (!gesture.locked) {
       if (gesture.origin === 'content') {
+        // A held finger or an active selection belongs to native text
+        // selection, including dragging its handles across the message.
+        if (window.getSelection()?.isCollapsed === false
+          || event.timeStamp - gesture.samples[0].time > 350) {
+          abandonGesture(gesture)
+          return
+        }
         if (
           deltaX < -CONTENT_LOCK_DISTANCE
           || (absoluteY >= CONTENT_LOCK_DISTANCE && absoluteY > absoluteX)

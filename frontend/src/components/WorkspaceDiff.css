@@ -1,0 +1,38 @@
+.workspace-diff-view { min-width:0; }
+.diff-toolbar,.diff-controls { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.diff-toolbar { justify-content:space-between; margin:16px 0; font-size:13px; }
+.diff-controls button { min-height:36px; padding:6px 10px; border:1px solid var(--border-color); border-radius:6px; background:var(--bg-surface); color:var(--text-secondary); cursor:pointer; }
+.diff-controls button[aria-pressed="true"] { background:var(--accent-subtle-bg); color:var(--accent-text); border-color:var(--accent-border); }
+.diff-stat-added { color:var(--success-text); }
+.diff-stat-removed { color:var(--danger-text); }
+.diff-file { margin-bottom:16px; border:1px solid var(--border-color); border-radius:8px; overflow:hidden; }
+.diff-file > summary { padding:12px; cursor:pointer; background:var(--bg-code-header); font:13px/1.6 var(--font-mono); overflow-wrap:anywhere; }
+.diff-file-path { margin-right:12px; }
+.diff-file-stats { display:inline-flex; gap:8px; white-space:nowrap; }
+.diff-scroll { overflow-x:auto; overscroll-behavior-x:contain; }
+.diff-lines { font:12px/1.7 var(--font-mono); tab-size:4; width:max-content; min-width:100%; }
+.diff-pair,.diff-column-labels { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
+.diff-cell { display:grid; grid-template-columns:4.5em 1.5em minmax(0,1fr); min-width:0; }
+.diff-cell + .diff-cell { border-left:1px solid var(--border-color); }
+.diff-unified-line { display:grid; grid-template-columns:4em 4em 1.5em minmax(0,1fr); }
+.diff-lines code { font:inherit; white-space:pre; padding-right:12px; }
+.diff-line-number,.diff-marker { color:var(--text-tertiary); user-select:none; -webkit-user-select:none; text-align:right; padding-right:8px; }
+.diff-marker { padding-right:4px; }
+.diff-lines .diff-added { background:var(--success-bg); color:var(--text-primary); }
+.diff-lines .diff-removed { background:var(--danger-bg); color:var(--text-primary); }
+.diff-added .diff-marker { color:var(--success-text); }
+.diff-removed .diff-marker { color:var(--danger-text); }
+.diff-empty { background:var(--bg-surface-hover); }
+.diff-info { padding:6px 12px; white-space:pre-wrap; overflow-wrap:anywhere; color:var(--text-secondary); }
+.diff-hunk { background:var(--accent-subtle-bg); color:var(--accent-text); }
+.diff-column-labels { background:var(--bg-code-header); color:var(--text-secondary); }
+.diff-column-labels > span { padding:8px 12px; }
+.diff-wrap .diff-lines { width:100%; }
+.diff-wrap .diff-lines code { white-space:pre-wrap; overflow-wrap:anywhere; min-width:0; }
+@media (max-width:768px) {
+  .diff-controls button { min-height:44px; }
+  .diff-toolbar { align-items:flex-start; }
+  .diff-file > summary { min-height:44px; }
+  .diff-unified-line { grid-template-columns:3.5em 3.5em 1.25em minmax(0,1fr); }
+  .diff-lines { font-size:11px; }
+}

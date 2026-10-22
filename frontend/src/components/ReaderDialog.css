@@ -4,8 +4,7 @@
 .reader-dialog h2 { font-size:18px; overflow-wrap:anywhere; }
 .reader-body { overflow:auto; padding:24px; min-height:0; overscroll-behavior:contain; }
 .reader-note { display:block; font:13px/1.7 var(--font-sans); color:var(--text-secondary); margin:12px 0; }
-.workspace-diff,.code-reader { font:13px/1.7 var(--font-mono); tab-size:4; white-space:pre; overflow-x:auto; }
-.workspace-diff span { display:inline; }
+.code-reader { font:13px/1.7 var(--font-mono); tab-size:4; white-space:pre; overflow-x:auto; }
 .diff-added { color:var(--success-text); background:var(--success-bg); }
 .diff-removed { color:var(--danger-text); background:var(--danger-bg); }
 .result-reader { max-width:80ch; margin:auto; }
