@@ -82,6 +82,9 @@ async def main():
         await page.keyboard.press('Escape')
         await page.locator('.global-navigation').get_by_role('button',name='工作台',exact=True).click()
         await expect(page.get_by_role('heading',name='工作台')).to_be_visible()
+        await page.wait_for_timeout(350)
+        assert await page.locator('.chat-messages').evaluate('el => el.scrollTop == 0')
+        assert await page.get_by_role('heading',name='工作台').evaluate('el => el.getBoundingClientRect().top >= 0')
         await expect(page.locator('.home-activity')).to_have_count(0)
         await expect(page.locator('.sidebar-task-status')).to_contain_text(['已完成'])
         for task_status, label in [('running', '执行中'), ('queued', '排队中'), ('failed', '已失败'), ('completed', '已完成')]:

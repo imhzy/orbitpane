@@ -143,6 +143,7 @@ export default function App() {
   }, [])
 
   const scrollToBottom = useCallback((smooth = true) => {
+    if (!activeConvRef.current) return
     const container = messagesContainerRef.current
     if (container) {
       const target = Math.max(0, container.scrollHeight - container.clientHeight)
@@ -154,7 +155,7 @@ export default function App() {
         container.scrollTop = target
       }
     }
-  }, [])
+  }, [activeConvRef])
 
   const {
     messages,
@@ -680,6 +681,13 @@ export default function App() {
       window.removeEventListener('online', handleOnline)
     }
   }, [isLoggedIn, loadConversations, loadProviders, activeConvRef, socketRef, connectWebSocket])
+
+  // The home shares this scroller, but always opens at its masthead.
+  useEffect(() => {
+    if (!activeConversationId && messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTo({ top: 0, behavior: 'instant' })
+    }
+  }, [activeConversationId, isLoggedIn])
 
   // ResizeObserver for message list auto-scrolling
   useEffect(() => {
