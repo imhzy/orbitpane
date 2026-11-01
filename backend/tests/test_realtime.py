@@ -196,6 +196,9 @@ class AgentCoordinatorTests(IsolatedAsyncioTestCase):
             self.assertEqual(first["status"], "running")
             self.assertEqual(second["position"], 1)
             self.assertEqual(third["position"], 2)
+            self.assertFalse(await coordinator.cancel_queued(
+                conversation.id, str(first["run_id"])
+            ))
             await coordinator.reorder_queue(
                 conversation.id,
                 [str(third["run_id"]), str(second["run_id"])],
@@ -217,6 +220,14 @@ class AgentCoordinatorTests(IsolatedAsyncioTestCase):
                 [item["prompt"] for item in coordinator.queue_items(conversation.id)],
                 ["second edited"],
             )
+            cancellation = hub.messages[-1][1]
+            self.assertEqual(cancellation["type"], "queue_changed")
+            self.assertEqual(cancellation["canceled_run_id"], third["run_id"])
+            self.assertEqual(cancellation["queue"][0]["run_id"], second["run_id"])
+            self.assertEqual(cancellation["queue"][0]["position"], 1)
+            self.assertFalse(await coordinator.cancel_queued(
+                conversation.id, str(third["run_id"])
+            ))
             queued_catalog = [
                 item
                 for item in await coordinator.task_catalog(

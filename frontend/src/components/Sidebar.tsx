@@ -508,7 +508,7 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
             <header className="create-project-header"><h2 id="create-project-title">打开项目，创建会话</h2><button type="button" className="icon-btn" aria-label="关闭打开项目窗口" onClick={() => requestCloseDrawer()}><X size={18} /></button></header>
                 <div className="drawer-content cw-content">
               <div className="cw-header">
-                <p className="create-intro">选择已有目录作为项目。每个会话有独立的历史和任务，共享该目录中的文件。</p>
+                <p className="create-intro">同一目录下的会话共享文件，历史和任务相互独立。</p>
               </div>
               <>
                   <div className="cw-form">
@@ -649,7 +649,7 @@ export function Sidebar({ isVisible, drawerX }: SidebarProps) {
                 <Cpu size={14} /><span>运行配置<small>{providers.find(provider => provider.id === (selectedProvider || defaultProvider))?.name || selectedProvider} · {selectedPermissionMode === 'workspace' ? '受限工作区' : '完全访问'}</small></span>
                 <ChevronDown size={15} className={isAdvancedOpen ? 'open' : ''} />
               </button>
-              <p className="cw-default-note">默认配置可在<button type="button" onClick={() => openSettings('ai')}>设置 → AI 与工作区</button>中调整。</p>
+              <p className="cw-default-note"><button type="button" onClick={() => openSettings('ai')}>配置默认 Agent 与工作区</button></p>
 
               {isAdvancedOpen && (
                 <div className="cw-provider-step">

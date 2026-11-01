@@ -778,7 +778,8 @@ class AgentCoordinator:
             )
 
     async def _broadcast_queue(
-        self, conversation_id: int, run_id: str | None = None
+        self, conversation_id: int, run_id: str | None = None,
+        *, canceled_run_id: str | None = None,
     ) -> None:
         active_run_id = run_id or (
             self._states[conversation_id].run_id
@@ -792,6 +793,7 @@ class AgentCoordinator:
                 "conversation_id": conversation_id,
                 "run_id": active_run_id,
                 "queue": self.queue_items(conversation_id),
+                **({"canceled_run_id": canceled_run_id} if canceled_run_id else {}),
             },
         )
 
@@ -854,7 +856,7 @@ class AgentCoordinator:
                 completed_at=_utc_now(),
                 error="用户取消了排队任务",
             )
-        await self._broadcast_queue(conversation_id)
+        await self._broadcast_queue(conversation_id, canceled_run_id=run_id)
         return True
 
     async def reorder_queue(

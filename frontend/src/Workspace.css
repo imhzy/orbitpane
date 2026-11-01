@@ -353,6 +353,8 @@
 .message-row.summary .message-time-footer { align-self: flex-start; }
 .message-resource-meta {
   margin-right: auto;
+  min-width: 0;
+  max-width: 100%;
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
@@ -360,6 +362,8 @@
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
 }
+.message-resource-meta > svg { flex-shrink: 0; }
+.message-resource-meta > span { min-width: 0; overflow-wrap: anywhere; }
 
 /* Completed summaries become an in-thread boundary for collapsed history. */
 .summarized-originals-heading,
@@ -1219,3 +1223,20 @@
   .mobile-sheet-grabber,
   .mobile-sheet-title { display: none; }
 }
+
+.queued-message-delete {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 4px 10px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--danger-text);
+  background: transparent;
+  cursor: pointer;
+}
+.queued-message-delete:hover:not(:disabled) { background: var(--danger-bg); }
+.queued-message-delete:disabled { opacity: .5; cursor: default; }

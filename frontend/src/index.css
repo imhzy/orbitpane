@@ -27,14 +27,14 @@
   --font-heading: Inter, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", "Noto Sans Mono CJK SC", ui-monospace, monospace;
 
-  /* Type scale. 11px is the hard floor: below that CJK glyphs lose strokes and
+  /* Type scale. 12px is the hard floor: below that CJK glyphs lose strokes and
      the text stops being readable at arm's length on a laptop. Every font-size
      in the app resolves to one of these — no ad-hoc or half-pixel values. */
-  --text-2xs: 11px;  /* badges, metadata (floor) */
-  --text-xs: 12px;   /* secondary labels */
-  --text-sm: 13px;   /* control text */
-  --text-base: 14px; /* dense body, mobile message text */
-  --text-md: 15px;   /* body */
+  --text-2xs: 12px;  /* badges, metadata (floor) */
+  --text-xs: 13px;   /* secondary labels */
+  --text-sm: 14px;   /* control text */
+  --text-base: 15px; /* dense body, mobile message text */
+  --text-md: 16px;   /* body */
   --text-lg: 18px;   /* dialog and section titles */
   --text-xl: 24px;
   /* Page-level title. One step above --text-xl and used exactly once per
@@ -51,6 +51,11 @@
   /* Functional, not a visual step: iOS Safari zooms the page when a focused
      input renders below 16px, so form fields opt out of the ramp. */
   --text-input: 16px;
+
+  /* Shared alignment for conversation content and application chrome. */
+  --content-width: 960px;
+  --page-gutter: clamp(16px, 2.5vw, 32px);
+  --control-height: 36px;
 
   /* Radii */
   --radius-sm: 6px;
@@ -448,7 +453,7 @@ img, svg {
   align-items: center;
   justify-content: center;
   gap: var(--space-1-5);
-  height: 32px;
+  height: var(--control-height);
   padding: 0 var(--space-3);
   border: 1px solid transparent;
   border-radius: var(--radius-md);
@@ -510,8 +515,23 @@ img, svg {
 /* Square variant for icon-only actions, so an icon button and a text button
    on the same row share a baseline and a height. */
 .ui-btn.icon-only {
-  width: 32px;
+  width: var(--control-height);
   padding: 0;
+}
+
+/* Form controls use the same font as their surrounding UI. */
+button, input, textarea, select { font-family: inherit; }
+
+:root[data-density='compact'] {
+  --text-2xs: 12px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-md: 15px;
+}
+
+@media (max-width: 768px), (pointer: coarse) {
+  :root { --control-height: 44px; }
 }
 
 /* Reduced Motion */

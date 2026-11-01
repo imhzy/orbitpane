@@ -133,6 +133,77 @@ class AntigravityProviderTests(IsolatedAsyncioTestCase):
             self.assertEqual(completed_responses, ["Recovered final answer"])
             self.assertEqual(emitted, [])
 
+    async def test_background_query_waits_for_notification_and_new_final_answer(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            log_path = root / "agent.log"
+            log_path.write_text("Streaming conversation test\n")
+            transcript = root / ".gemini/antigravity-cli/brain/test/.system_generated/logs/transcript_full.jsonl"
+            transcript.parent.mkdir(parents=True)
+            transcript.touch()
+            completion = asyncio.Event()
+            responses: list[str] = []
+            pending: set[str] = set()
+            seen = asyncio.Queue()
+
+            async def emit(event):
+                await seen.put(event)
+
+            async def append_and_wait(*records):
+                with transcript.open("a") as stream:
+                    for record in records:
+                        stream.write(json.dumps(record) + "\n")
+                    stream.write(json.dumps({"type": "PLANNER_RESPONSE", "thinking": "barrier"}) + "\n")
+                await asyncio.wait_for(seen.get(), 2)
+
+            with patch.object(Path, "home", return_value=root):
+                follower = asyncio.create_task(AntigravityProvider._follow_transcript(
+                    log_path, emit, [], completion, responses, pending,
+                ))
+                try:
+                    await append_and_wait(
+                        {"type": "GENERIC", "status": "RUNNING", "content":
+                         "Tool is running as a background task with task id: test/task-14"},
+                        {"type": "GENERIC", "status": "DONE", "content":
+                         "Task: test/task-14\nStatus: RUNNING\n"},
+                        {"type": "PLANNER_RESPONSE", "status": "DONE", "content": "I am waiting"},
+                    )
+                    self.assertEqual(pending, {"test/task-14"})
+                    self.assertFalse(completion.is_set())
+                    self.assertEqual(responses, [])
+                    await append_and_wait({"type": "SYSTEM_MESSAGE", "source": "SYSTEM", "content":
+                        '[Message] sender=test/task-14 content=Task id "test/task-14" finished with result:\nQuery data'})
+                    self.assertEqual(pending, set())
+                    self.assertFalse(completion.is_set())
+                    self.assertEqual(responses, [])
+                    # A JSONL write split across reads must not lose the final answer.
+                    record = json.dumps({"type": "PLANNER_RESPONSE", "status": "DONE", "content": "Actual analysis"})
+                    with transcript.open("a") as stream:
+                        stream.write(record[:20])
+                    await asyncio.sleep(0.3)
+                    with transcript.open("a") as stream:
+                        stream.write(record[20:] + "\n")
+                    await asyncio.wait_for(completion.wait(), 2)
+                    self.assertEqual(responses, ["Actual analysis"])
+                finally:
+                    follower.cancel()
+                    await asyncio.gather(follower, return_exceptions=True)
+
+    def test_background_task_status_tracks_multiple_tasks_and_terminal_results(self) -> None:
+        pending = {"test/task-1", "test/task-2"}
+        update = AntigravityProvider._update_background_tasks
+        update({"type": "GENERIC", "status": "DONE", "content": "Task: test/task-1\nStatus: RUNNING"}, pending)
+        self.assertEqual(len(pending), 2)
+        update({"type": "GENERIC", "content": "Task: test/task-1\nStatus: DONE"}, pending)
+        self.assertEqual(pending, {"test/task-2"})
+        update({"type": "SYSTEM_MESSAGE", "source": "SYSTEM", "content":
+                '[Message] content=Task id "test/task-2" was canceled with result:'}, pending)
+        self.assertEqual(pending, set())
+        for status in ("FAILED", "CANCELED", "ERROR"):
+            pending.add("test/task-3")
+            update({"type": "GENERIC", "content": f"Task: test/task-3\nStatus: {status}"}, pending)
+            self.assertEqual(pending, set())
+
     async def test_follow_log_detects_retry_and_recovery(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -261,7 +332,91 @@ class AntigravityProviderTests(IsolatedAsyncioTestCase):
                 thoughts: list[str],
                 completion_event: asyncio.Event,
                 completed_responses: list[str],
+                pending_tasks: set[str],
             ) -> None:
+                completed_responses.append("Recovered final answer")
+                completion_event.set()
+                await asyncio.Future()
+
+            async def terminate(stuck_process) -> None:
+                stuck_process.returncode = -15
+                stdout.feed_eof()
+                process_done.set()
+
+            emitted: list[AgentEvent] = []
+
+            async def emit(event: AgentEvent) -> None:
+                emitted.append(event)
+
+            request = AgentRequest(
+                run_id="test-run",
+                conversation_id=1,
+                working_directory=str(root),
+                prompt="Analyze",
+                history=(),
+                model="test-model",
+            )
+            with (
+                patch(
+                    "backend.app.agents.antigravity.asyncio.create_subprocess_exec",
+                    return_value=process,
+                ),
+                patch.object(
+                    AntigravityProvider,
+                    "_follow_transcript",
+                    side_effect=follow_transcript,
+                ),
+                patch(
+                    "backend.app.agents.antigravity.terminate_process",
+                    side_effect=terminate,
+                ) as terminate_mock,
+            ):
+                result = await provider.run(request, emit)
+
+            self.assertEqual(result.content, "Recovered final answer")
+            self.assertEqual(
+                [event.content for event in emitted if event.type == "token"],
+                ["Recovered final answer"],
+            )
+            terminate_mock.assert_awaited_once_with(process)
+
+    async def test_run_keeps_process_alive_while_background_query_is_pending(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            provider = AntigravityProvider(test_settings(root))
+            provider._COMPLETION_GRACE_SECONDS = 0.01
+            stdout = asyncio.StreamReader()
+            stderr = asyncio.StreamReader()
+            stderr.feed_eof()
+            process_done = asyncio.Event()
+            process = SimpleNamespace(
+                pid=123,
+                stdout=stdout,
+                stderr=stderr,
+                returncode=None,
+            )
+
+            async def wait() -> int:
+                await process_done.wait()
+                return process.returncode
+
+            process.wait = wait
+
+            async def follow_transcript(
+                log_path: Path,
+                emit,
+                thoughts: list[str],
+                completion_event: asyncio.Event,
+                completed_responses: list[str],
+                pending_tasks: set[str],
+            ) -> None:
+                pending_tasks.add("test/task-14")
+                # Longer than both the completion grace and the run-loop poll.
+                await asyncio.sleep(1.2)
+                self.assertIsNone(process.returncode)
+                pending_tasks.clear()
                 completed_responses.append("Recovered final answer")
                 completion_event.set()
                 await asyncio.Future()

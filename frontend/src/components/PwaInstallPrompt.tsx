@@ -163,9 +163,6 @@ export function PwaInstallPrompt({ showToast, suppressed = false }: PwaInstallPr
                     <span className="pwa-banner-title">安装 OrbitPane 到手机</span>
                     <span className="pwa-chip">{isIOS ? 'iOS App' : isAndroid ? 'Android App' : 'PWA 应用'}</span>
                   </div>
-                  <p className="pwa-banner-desc">
-                    全屏独立运行，离线极速缓存，脱离浏览器工具栏
-                  </p>
                 </div>
               </div>
 

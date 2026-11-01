@@ -244,9 +244,7 @@ export function ShareDialog({ isOpen, onClose }: ShareDialogProps) {
               <div>
                 <h3 id="share-dialog-title">分享这个对话</h3>
                 <p className="share-card-subtitle">
-                  生成一个只读链接，对方无需登录即可查看
-                  <strong>此刻</strong>
-                  的对话快照，之后的新消息不会出现在里面。
+                  只读快照，不包含后续消息。
                 </p>
               </div>
               <button

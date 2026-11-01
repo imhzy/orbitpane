@@ -1,7 +1,6 @@
 import React, { Suspense, lazy } from 'react'
 import { motion } from 'framer-motion'
-import { MoreHorizontal, AlertCircle, Info, FileText, Check, Copy, ThumbsUp, ThumbsDown, RotateCcw, Clock, ListTodo, Gauge, ChevronDown, ChevronUp, History, Sparkles, ShieldAlert } from 'lucide-react'
-import { LogoIcon } from '../LogoIcon'
+import { Trash2, MoreHorizontal, AlertCircle, Info, FileText, Check, Copy, ThumbsUp, ThumbsDown, RotateCcw, Clock, ListTodo, Gauge, ChevronDown, ChevronUp, History, Sparkles, ShieldAlert } from 'lucide-react'
 import { AgentExecutionTimeline } from './AgentExecutionTimeline'
 import type { Message } from '../lib/types'
 import { haptic } from '../lib/nativeFeedback'
@@ -22,6 +21,7 @@ interface MessageListProps {
   isDrawerSwiping: boolean
   copyMessageText: (text: string, messageKey: string) => void
   handleFeedback: (messageId: number | undefined, type: 'up' | 'down') => void
+  deleteQueuedMessage: (runId: string) => Promise<void>
   regenerateLastResponse: () => void
   formatTimestamp: (ts?: string | number) => string
   messagesEndRef: React.RefObject<HTMLDivElement | null>
@@ -36,6 +36,7 @@ interface MessageRowProps {
   isLastAgentMessage: boolean
   copyMessageText: (text: string, messageKey: string) => void
   handleFeedback: (messageId: number | undefined, type: 'up' | 'down') => void
+  deleteQueuedMessage: (runId: string) => Promise<void>
   regenerateLastResponse: () => void
   formatTimestamp: (ts?: string | number) => string
   onOpenActions: (event: React.SyntheticEvent, rowKey: string) => void
@@ -120,12 +121,20 @@ const MessageRow = React.memo(function MessageRow({
   isLastAgentMessage,
   copyMessageText,
   handleFeedback,
+  deleteQueuedMessage,
   regenerateLastResponse,
   formatTimestamp,
   onOpenActions,
 }: MessageRowProps) {
+  const [isDeleting, setIsDeleting] = React.useState(false)
   const isAgentLike = message.role === 'agent' || message.role === 'summary'
   const feedback = message.feedback ?? ''
+  const resourceDetails = [
+    message.context_chars ? `${Math.round(message.context_chars / 1000)}k 上下文` : '',
+    message.output_chars ? `${message.output_chars} 字输出` : '',
+    message.thinkingDuration ? `${message.thinkingDuration.toFixed(1)} 秒` : '',
+    message.model ? formatModelName(message.model) : '',
+  ].filter(Boolean).join(' · ')
 
   return (
     <motion.div
@@ -136,28 +145,11 @@ const MessageRow = React.memo(function MessageRow({
       data-message-id={message.id}
     >
       <button type="button" className="message-more-btn" aria-label="消息操作" onClick={event => onOpenActions(event, rowKey)}><MoreHorizontal size={17} /></button>
-      {/* Only the agent is introduced. A right-aligned bubble is already the
-          universal sign for "you said this"; labelling it 你 with an avatar —
-          and left-aligning that label above a right-aligned bubble — put a
-          second, contradictory alignment on every turn the user takes. */}
-      {isAgentLike && (
+      {message.role === 'summary' && (
         <div className="message-header">
           <div className="message-author">
-            {message.role === 'agent' ? (
-              <div className="avatar agent-avatar">
-                <LogoIcon size={16} />
-              </div>
-            ) : (
-              <div className="avatar summary-avatar">
-                <FileText size={15} />
-              </div>
-            )}
-            <span className="author-name">
-              {message.role === 'agent' ? 'OrbitPane' : '对话总结'}
-            </span>
-            {message.model && (
-              <span className="model-pill">{formatModelName(message.model)}</span>
-            )}
+            <div className="avatar summary-avatar"><FileText size={15} /></div>
+            <span className="author-name">对话总结</span>
           </div>
         </div>
       )}
@@ -170,6 +162,18 @@ const MessageRow = React.memo(function MessageRow({
               <div className="queued-task-banner">
                 <ListTodo size={14} />
                 <span>任务已排队{message.queuePosition ? ` · 第 ${message.queuePosition} 位` : ''}</span>
+                {message.run_id && <button
+                  type="button"
+                  className="queued-message-delete"
+                  disabled={isDeleting}
+                  aria-label="删除排队消息"
+                  onClick={async () => {
+                    setIsDeleting(true)
+                    try { await deleteQueuedMessage(message.run_id!) }
+                    finally { setIsDeleting(false) }
+                  }}
+                ><Trash2 size={14} aria-hidden="true" />{isDeleting ? '删除中…' : '删除'}</button>}
+
               </div>
             )}
             <AgentExecutionTimeline
@@ -194,12 +198,10 @@ const MessageRow = React.memo(function MessageRow({
 
             {!message.isThinking && message.content && (
               <div className="message-toolbar">
-                {(message.context_chars || message.output_chars || message.thinkingDuration) && (
-                  <span className="message-resource-meta" title="本次运行资源">
-                    <Gauge size={12} />
-                    {message.context_chars ? `${Math.round(message.context_chars / 1000)}k 上下文` : ''}
-                    {message.output_chars ? ` · ${message.output_chars} 字输出` : ''}
-                    {message.thinkingDuration ? ` · ${message.thinkingDuration.toFixed(1)} 秒` : ''}
+                {resourceDetails && (
+                  <span className="message-resource-meta" title="本次运行资源与模型">
+                    <Gauge size={12} aria-hidden="true" />
+                    <span>{resourceDetails}</span>
                   </span>
                 )}
                 <button
@@ -274,6 +276,7 @@ export function MessageList({
   isDrawerSwiping,
   copyMessageText,
   handleFeedback,
+  deleteQueuedMessage,
   regenerateLastResponse,
   formatTimestamp,
   messagesEndRef
@@ -504,6 +507,7 @@ export function MessageList({
             isLastAgentMessage={key === lastAgentKey}
             copyMessageText={copyMessageText}
             handleFeedback={handleFeedback}
+            deleteQueuedMessage={deleteQueuedMessage}
             regenerateLastResponse={regenerateLastResponse}
             formatTimestamp={formatTimestamp}
             onOpenActions={handleOpenActions}

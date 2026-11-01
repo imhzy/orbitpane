@@ -204,7 +204,7 @@ export function SchedulePanel({ conversationId }: SchedulePanelProps) {
       <div className="schedule-form-actions"><button type="button" disabled={saving} onClick={() => setEditing(null)}>取消</button><button type="submit" disabled={saving}>{saving && <Loader2 size={13} className="animate-spin" />}{saving ? '保存中…' : '保存任务'}</button></div>
     </form>}
     {loading && <div className="inspector-loading" role="status"><Loader2 size={16} className="animate-spin" />正在加载定时任务…</div>}
-    {!loading && !error && !items.length && !editing && <div className="schedule-empty"><Clock size={24} /><strong>让 Agent 按时帮你处理工作</strong><p>为这个聊天添加命令，每个任务都可以使用不同的周期。</p><button type="button" className="schedule-add" onClick={() => edit('new')}><Plus size={14} />创建第一个任务</button></div>}
+    {!loading && !error && !items.length && !editing && <div className="schedule-empty"><Clock size={24} /><strong>暂无定时任务</strong><button type="button" className="schedule-add" onClick={() => edit('new')}><Plus size={14} />创建定时任务</button></div>}
     <div className="schedule-list">{items.map(item => <article key={item.id} className={`schedule-card ${item.enabled ? '' : 'paused'}`}>
       <div className="schedule-card-title"><strong>{item.name}</strong><span className={`schedule-status ${item.enabled ? 'enabled' : ''}`}>{item.enabled ? '已启用' : '已暂停'}</span></div>
       <div className="schedule-rule"><Clock size={12} />{describeRule(item.spec)}</div>

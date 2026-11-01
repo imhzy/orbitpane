@@ -31,7 +31,7 @@ function PluginForm({ plugin, onDelete, onSave }: { plugin: Plugin; onDelete: ()
     finally { setBusy(false) }
   }
   return <form onSubmit={event => void save(event)} className="project-plugin-form">
-    <div className="settings-row"><div className="settings-row-copy"><h3>{plugin.name}</h3><p>{plugin.description}</p></div><button type="button" className="settings-switch" role="switch" aria-label={`启用${plugin.name}`} aria-checked={enabled} disabled={busy} onClick={() => { setEnabled(!enabled); setMessage('') }}><span /></button></div>
+    <div className="settings-row"><div className="settings-row-copy"><h3>启用插件</h3><p>{plugin.description}</p></div><button type="button" className="settings-switch" role="switch" aria-label={`启用${plugin.name}`} aria-checked={enabled} disabled={busy} onClick={() => { setEnabled(!enabled); setMessage('') }}><span /></button></div>
     <fieldset disabled={busy} className="project-plugin-fields">
       <div className="settings-row"><label htmlFor={`plugin-${plugin.id}-name`}>插件名称</label><Input id={`plugin-${plugin.id}-name`} value={name} required maxLength={100} onChange={event => setName(event.target.value)} /></div>
       {Object.entries(plugin.schema.properties).map(([key, field]) => {
@@ -67,7 +67,7 @@ export function PluginsSettings() {
     return () => controller.abort()
   }, [attempt])
   return <>
-    <p className="settings-footnote">在这里统一管理插件配置，可添加多个插件，也可为同一种插件配置多个账号。保存并全局启用后，在项目设置中选择允许调用的插件。</p>
+    <p className="settings-footnote">全局启用后，在项目设置中选择允许调用的插件。</p>
     <section className="settings-group"><h2>添加插件</h2><form className="settings-group-body" onSubmit={event => {
       event.preventDefault(); setBusy(true); setError('')
       void apiFetch<{ items: Plugin[] }>('/api/plugins', { method: 'POST', body: JSON.stringify({ plugin_id: kind, name: name.trim() }) })
@@ -77,6 +77,6 @@ export function PluginsSettings() {
       <div className="project-plugin-actions"><button type="submit" className="settings-button" disabled={busy || !kind || !name.trim()}>{busy ? '添加中…' : '添加插件'}</button></div>
     </form></section>
     {error && <div role="alert" className="settings-inline-note">{error}<button type="button" onClick={() => setAttempt(attempt + 1)}>重试加载</button></div>}
-    {plugins === null ? <p className="settings-footnote">正在加载插件…</p> : plugins.length === 0 ? <div className="settings-empty"><strong>尚未添加插件</strong><p>选择插件类型并填写名称，添加后配置账号和密钥；全局启用后，所有项目的新任务均可调用。</p></div> : plugins.map(plugin => <section key={plugin.id} className="settings-group"><h2>{plugin.name}</h2><div className="settings-group-body"><PluginForm plugin={plugin} onSave={updated => setPlugins(previous => previous?.map(item => item.id === updated.id ? updated : item) ?? [])} onDelete={() => setPlugins(previous => previous?.filter(item => item.id !== plugin.id) ?? [])} /></div></section>)}
+    {plugins === null ? <p className="settings-footnote">正在加载插件…</p> : plugins.length === 0 ? <div className="settings-empty"><strong>尚未添加插件</strong></div> : plugins.map(plugin => <section key={plugin.id} className="settings-group"><h2>{plugin.name}</h2><div className="settings-group-body"><PluginForm plugin={plugin} onSave={updated => setPlugins(previous => previous?.map(item => item.id === updated.id ? updated : item) ?? [])} onDelete={() => setPlugins(previous => previous?.filter(item => item.id !== plugin.id) ?? [])} /></div></section>)}
   </>
 }

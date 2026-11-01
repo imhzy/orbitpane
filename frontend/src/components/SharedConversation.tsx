@@ -306,7 +306,6 @@ export function SharedConversation({ token }: SharedConversationProps) {
                         <Sparkles size={14} aria-hidden="true" />
                         <span>
                           <strong>总结内容</strong>
-                          <small>与上方原始消息分开展示</small>
                         </span>
                       </div>
                     )}

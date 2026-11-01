@@ -74,8 +74,32 @@ const REHYPE_PLUGINS = [rehypeKatex]
 function MarkdownCheckbox({ checked, disabled }: { checked?: boolean; disabled?: boolean }) {
   return <Checkbox checked={checked} disabled={disabled} readOnly />
 }
-const PROSE_COMPONENTS = { table: ResponsiveTable, input: MarkdownCheckbox }
-const CODE_COMPONENTS = { table: ResponsiveTable, code: CodeBlock, input: MarkdownCheckbox }
+
+function InactiveLink({ children }: React.PropsWithChildren) {
+  return <span>{children}</span>
+}
+
+function MarkdownLink({ href, children }: React.AnchorHTMLAttributes<HTMLAnchorElement>) {
+  // Never resolve generated file paths, fragments or relative URLs against the
+  // application origin. Reject browser URL repairs and credential-bearing URLs.
+  if (!href || !/^https?:\/\/[^/?#]/i.test(href) || /[\s\\]/u.test(href)
+    || Array.from(href).some(char => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)) {
+    return <InactiveLink>{children}</InactiveLink>
+  }
+  try {
+    const url = new URL(href)
+    if (!url.hostname || url.username || url.password) {
+      return <InactiveLink>{children}</InactiveLink>
+    }
+    return <a href={url.href} target="_blank" rel="noopener noreferrer" title={url.href}>{children}</a>
+  } catch {
+    return <InactiveLink>{children}</InactiveLink>
+  }
+}
+
+const PROSE_COMPONENTS = { table: ResponsiveTable, input: MarkdownCheckbox, a: MarkdownLink }
+const CODE_COMPONENTS = { ...PROSE_COMPONENTS, code: CodeBlock }
+const STREAM_COMPONENTS = { ...PROSE_COMPONENTS, a: InactiveLink }
 
 /**
  * Memoised on the text alone.
@@ -109,7 +133,7 @@ function MarkdownContent({
     <ReactMarkdown
       remarkPlugins={REMARK_PLUGINS}
       rehypePlugins={REHYPE_PLUGINS}
-      components={enableCodeBlocks && !isStreaming ? CODE_COMPONENTS : PROSE_COMPONENTS}
+      components={isStreaming ? STREAM_COMPONENTS : enableCodeBlocks ? CODE_COMPONENTS : PROSE_COMPONENTS}
     >
       {processedContent}
     </ReactMarkdown>

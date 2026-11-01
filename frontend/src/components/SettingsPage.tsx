@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { ArrowLeft, Archive, Bell, Bot, Check, ChevronRight, Fingerprint, Folder, Info, LogOut, Monitor, Moon, RefreshCw, Settings, ShieldCheck, ShieldAlert, SlidersHorizontal, Smartphone, Sun, Trash2 } from 'lucide-react'
+import { ArrowLeft, Archive, Bell, Bot, Check, Fingerprint, Folder, Info, LogOut, Monitor, Moon, RefreshCw, Settings, ShieldCheck, ShieldAlert, SlidersHorizontal, Smartphone, Sun, Trash2 } from 'lucide-react'
 import { LogoIcon } from '../LogoIcon'
 import { useAppContext } from '../contexts/AppContext'
 import { useEscapeLayer } from '../hooks/useEscapeLayer'
@@ -22,14 +22,14 @@ import './SettingsPage.css'
 import { PluginsSettings } from './ProjectPlugins'
 
 const SECTIONS = [
-  { id: 'general', label: '通用', Icon: SlidersHorizontal, description: '让 OrbitPane 更符合你的使用习惯。' },
-  { id: 'ai', label: 'AI 与工作区', Icon: Bot, description: '设置新建项目时使用的默认运行配置。' },
-  { id: 'plugins', label: 'Agent 插件', Icon: Bot, description: '统一管理全局插件、账号与密钥，启用后所有项目均可使用。' },
-  { id: 'usage', label: '账户额度', Icon: Bot, description: '查看已连接提供方的账户额度。' },
-  { id: 'notifications', label: '通知', Icon: Bell, description: '选择这台设备如何提醒你任务进展。' },
-  { id: 'data', label: '数据管理', Icon: Archive, description: '整理已归档会话与对话记录。' },
-  { id: 'security', label: '安全', Icon: ShieldCheck, description: '管理登录方式与当前登录状态。' },
-  { id: 'about', label: '关于', Icon: Info, description: '保持应用更新，随时从桌面打开。' },
+  { id: 'general', label: '通用', Icon: SlidersHorizontal },
+  { id: 'ai', label: 'AI 与工作区', Icon: Bot },
+  { id: 'plugins', label: 'Agent 插件', Icon: Bot },
+  { id: 'usage', label: '账户额度', Icon: Bot },
+  { id: 'notifications', label: '通知', Icon: Bell },
+  { id: 'data', label: '数据管理', Icon: Archive },
+  { id: 'security', label: '安全', Icon: ShieldCheck },
+  { id: 'about', label: '关于', Icon: Info },
 ] as const
 
 function UsageAccounts() {
@@ -61,7 +61,7 @@ function GeneralSettings() {
       </div>
     </SettingsGroup>
     <SettingsGroup title="阅读与布局">
-      <SettingRow title="界面密度" description="舒适模式提高文字与操作区的可读性。">
+      <SettingRow title="界面密度">
         <Select aria-label="界面密度" value={preferences.density || 'comfortable'} onChange={value => updatePreferences({ density: value as 'comfortable' | 'compact' })}
           options={[{ value: 'comfortable', label: '舒适' }, { value: 'compact', label: '紧凑' }]} />
       </SettingRow>
@@ -83,7 +83,6 @@ function AiSettings() {
   const [error, setError] = useState(false)
   const [attempt, setAttempt] = useState(0)
   const defaultModel = preferences.defaultModels[defaultProvider] || ''
-  const currentProvider = providers.find(provider => provider.id === defaultProvider)
   useEffect(() => {
     const controller = new AbortController()
     setLoading(true); setError(false); setModels([])
@@ -100,13 +99,13 @@ function AiSettings() {
   const modelSupported = models.some(model => model.id === defaultModel)
   return <>
     <SettingsGroup title="默认 AI">
-      <SettingRow title="默认 Agent" description="用于之后新建的项目。现有项目保留各自的 Agent。">
+      <SettingRow title="默认 Agent">
         <Select className="settings-select" aria-label="默认 Agent" value={preferences.defaultProvider}
           onChange={value => updatePreferences({ defaultProvider: value })}
           options={[{ value: '', label: `服务器默认 · ${providers.find(provider => provider.id === serverDefaultProvider)?.name || serverDefaultProvider}` },
             ...providers.map(provider => ({ value: provider.id, label: `${provider.name}${!provider.available ? '（不可用）' : ''}`, disabled: !provider.available }))]} />
       </SettingRow>
-      <SettingRow title="默认模型" description={`新建 ${currentProvider?.name || defaultProvider} 项目时使用；对话中可随时切换。`}>
+      <SettingRow title="默认模型">
         <Select className="settings-select" aria-label="默认模型" disabled={loading} value={modelSupported ? defaultModel : ''}
           onChange={value => updatePreferences({ defaultModels: { ...preferences.defaultModels, [defaultProvider]: value } })}
           options={[{ value: '', label: loading ? '正在读取模型…' : 'Agent 默认模型' },
@@ -174,7 +173,7 @@ function DataSettings() {
   const archived = conversations.filter(conversation => conversation.is_archived)
   return <>
     <SettingsGroup title="已归档会话">
-      {archived.length === 0 ? <div className="settings-empty"><Archive size={24} /><strong>暂无已归档会话</strong><p>在项目菜单中归档后，可以在这里恢复或删除。</p></div>
+      {archived.length === 0 ? <div className="settings-empty"><Archive size={24} /><strong>暂无已归档会话</strong></div>
         : archived.map(conversation => <div key={conversation.id} className="settings-archive-row"><Folder size={17} /><div><strong>{conversation.name}</strong><span title={conversation.path}>{conversation.path}</span></div>
           <button className="settings-button" type="button" disabled={busyId === conversation.id} onClick={async () => {
             setBusyId(conversation.id)
@@ -232,9 +231,9 @@ function AboutSettings() {
     return () => { unsubscribe(); window.removeEventListener('appinstalled', onInstalled) }
   }, [])
   return <>
-    <div className="settings-about-brand"><LogoIcon size={44} /><div><strong>OrbitPane</strong><p>你的 AI 项目工作台</p></div></div>
+    <div className="settings-about-brand"><LogoIcon size={44} /><div><strong>OrbitPane</strong></div></div>
     <SettingsGroup title="应用">
-      <SettingRow title="应用更新" description="检查并获取最新版本。"><button type="button" className="settings-button" disabled={isChecking} onClick={() => void checkForUpdate()}><RefreshCw size={15} className={isChecking ? 'animate-spin' : ''} />{isChecking ? '正在检查…' : '检查更新'}</button></SettingRow>
+      <SettingRow title="应用更新"><button type="button" className="settings-button" disabled={isChecking} onClick={() => void checkForUpdate()}><RefreshCw size={15} className={isChecking ? 'animate-spin' : ''} />{isChecking ? '正在检查…' : '检查更新'}</button></SettingRow>
       <SettingRow title="安装到设备" description="从桌面或主屏幕打开，使用独立应用窗口。">
         {installed ? <span className="settings-status available"><Check size={15} />已安装</span> : prompt ? <button type="button" className="settings-button" disabled={installing} onClick={async () => {
           setInstalling(true)
@@ -301,7 +300,7 @@ function ProjectSettings() {
         : hasActiveTasks && <div className="settings-inline-note">任务运行或排队时不能修改权限。<button type="button" onClick={() => setAttempt(previous => previous + 1)}>刷新状态</button></div>}
     </SettingsGroup>
     <SettingsGroup title="会话整理">
-      <SettingRow title="星标置顶" description="在项目列表中优先显示。"><button type="button" className="settings-switch" role="switch" aria-label="会话星标置顶" aria-checked={conversation.is_pinned} onClick={() => void updateConversation(conversation.id, { is_pinned: !conversation.is_pinned })}><span /></button></SettingRow>
+      <SettingRow title="星标置顶"><button type="button" className="settings-switch" role="switch" aria-label="会话星标置顶" aria-checked={conversation.is_pinned} onClick={() => void updateConversation(conversation.id, { is_pinned: !conversation.is_pinned })}><span /></button></SettingRow>
       <SettingRow title="归档会话" description="从左栏收起会话，对话记录仍然保留。"><button type="button" className="settings-button" onClick={() => void updateConversation(conversation.id, { is_archived: !conversation.is_archived })}><Archive size={15} />{conversation.is_archived ? '恢复会话' : '归档会话'}</button></SettingRow>
     </SettingsGroup>
   </>
@@ -327,7 +326,7 @@ export function SettingsPage() {
       <span className="settings-nav-footer"><LogoIcon size={17} />OrbitPane</span>
     </aside>
     <div className="settings-content" ref={contentRef}><div className="settings-content-inner">
-      <header className="settings-content-header"><span className="settings-breadcrumb">设置 <ChevronRight size={12} />{section?.label || '会话设置'}</span><h1 ref={headingRef} tabIndex={-1} id="settings-title">{section?.label || '会话设置'}</h1><p>{section?.description || '管理这个会话的名称、权限与归档状态。'}</p></header>
+      <header className="settings-content-header"><h1 ref={headingRef} tabIndex={-1} id="settings-title">{section?.label || '会话设置'}</h1></header>
       {settingsSection === 'plugins' && <PluginsSettings />}{settingsSection === 'general' && <GeneralSettings />}{settingsSection === 'ai' && <AiSettings />}
       {settingsSection === 'notifications' && <NotificationSettings />}{settingsSection === 'data' && <DataSettings />}
       {settingsSection === 'security' && <SecuritySettings />}{settingsSection === 'about' && <AboutSettings />}

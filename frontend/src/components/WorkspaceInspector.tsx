@@ -2,7 +2,6 @@ import { PanelResizeHandle } from './PanelResizeHandle'
 import { usePanelWidth } from '../hooks/usePanelWidth'
 import { WorkspaceDiff } from './WorkspaceDiff'
 import { ReaderDialog } from './ReaderDialog'
-import MarkdownContent from './MarkdownContent'
 import { readJson, writeJson } from '../lib/storage'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -73,13 +72,12 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
     isReconnecting,
     openSettings,
     settingsSection,
-    showToast, messages, drawerMode, isDrawerOpen,
+    showToast, drawerMode, isDrawerOpen,
   } = useAppContext()
   const panel = usePanelWidth('orbitpane_inspector_width', 340, 300, 480)
   const [collapsed, setCollapsed] = useState(() => new URLSearchParams(window.location.search).has('panel') ? false : readJson('orbitpane_inspector_collapsed', false))
   const [showSchedules, setShowSchedules] = useState(false)
   const [showDiff, setShowDiff] = useState(false)
-  const [showResult, setShowResult] = useState(false)
   const [workspaceError, setWorkspaceError] = useState(false)
   const [syncError, setSyncError] = useState(false)
   const initialPanel = new URLSearchParams(window.location.search).get('panel')
@@ -142,7 +140,6 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
     setWorkspaceError(false)
     setShowSchedules(false)
     setShowDiff(false)
-    setShowResult(false)
     setTasks([])
     void loadInspector()
   }, [activeConversationId, loadInspector])
@@ -380,15 +377,6 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
 
         {!loading && tab === 'mission' && (
           <>
-            <section className="inspector-card task-outcome-card">
-              <h3>{activeTasks.length > 0 ? '当前执行' : '最近结果'}</h3>
-              <p>{(activeTasks[0] || tasks[0])?.prompt || '发送消息，开始第一个任务。'}</p>
-              {(activeTasks[0] || tasks[0]) && <strong>{taskStatusLabel((activeTasks[0] || tasks[0]).status)}</strong>}
-              {(activeTasks[0] || tasks[0])?.error && <p className="home-task-error">{(activeTasks[0] || tasks[0]).error}</p>}
-              <div className="outcome-actions"><button className="ui-btn secondary" onClick={() => selectTab('tasks')}>查看任务记录</button>
-                <button className="ui-btn secondary" disabled={!messages.some(message => message.role === 'agent' && !message.isThinking && message.content)} onClick={() => setShowResult(true)}>阅读最近回复</button></div>
-              <small>执行完成表示 Agent 已结束运行；测试与验收结论以回复中的实际记录为准。</small>
-            </section>
             <section className="inspector-card mission-status-card">
               <div className="inspector-card-title">
                 <span><Bot size={14} />当前会话</span>
@@ -514,7 +502,6 @@ export function WorkspaceInspector({ onActiveTaskCountChange }: WorkspaceInspect
       </aside>
       {showSchedules && activeConv && <ReaderDialog title="定时任务管理" onClose={() => setShowSchedules(false)}><SchedulePanel conversationId={activeConv.id} /></ReaderDialog>}
       {showDiff && activeConv && <WorkspaceDiff conversationId={activeConv.id} onClose={() => setShowDiff(false)} />}
-      {showResult && <ReaderDialog title="最近 Agent 回复" onClose={() => setShowResult(false)}><div className="markdown-body result-reader"><MarkdownContent content={messages.findLast(message => message.role === 'agent' && !message.isThinking && message.content)?.content || ''} enableCodeBlocks /></div><p className="reader-note">来自当前已加载的会话记录。</p></ReaderDialog>}
     </>
   )
 }

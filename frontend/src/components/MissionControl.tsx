@@ -269,7 +269,7 @@ export function MissionControl({ conversations, onSelect, onCreate }: MissionCon
         {filteredProjects.length === 0 && (
           <div className="mission-empty-state">
             <CheckCircle2 size={18} />
-            <span><strong>这个队列目前是空的</strong><small>没有项目处于该状态</small></span>
+            <span><strong>没有项目处于该状态</strong></span>
             <button type="button" className="ui-btn ghost" onClick={() => selectFilter('all')}>查看全部</button>
           </div>
         )}

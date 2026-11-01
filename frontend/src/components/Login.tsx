@@ -91,7 +91,6 @@ export function Login({ onLogin }: { onLogin: () => void }) {
             </div>
             {/* One line of orientation. The card previously showed a name and a
                 field with nothing to say what this machine is. */}
-            <p className="login-brand-sub">自托管的编码 Agent 工作台</p>
           </div>
 
           <div className="login-form-area">

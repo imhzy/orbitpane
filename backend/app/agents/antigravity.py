@@ -173,6 +173,7 @@ class AntigravityProvider(AgentProvider):
         thoughts: list[str] = []
         completion_event = asyncio.Event()
         completed_responses: list[str] = []
+        pending_tasks: set[str] = set()
         stderr_task = asyncio.create_task(self._read_stderr(process, stderr_lines))
         transcript_task = asyncio.create_task(
             self._follow_transcript(
@@ -181,6 +182,7 @@ class AntigravityProvider(AgentProvider):
                 thoughts,
                 completion_event,
                 completed_responses,
+                pending_tasks,
             )
         )
         log_task = asyncio.create_task(self._follow_log(log_path, emit))
@@ -249,6 +251,8 @@ class AntigravityProvider(AgentProvider):
             return_code = await process.wait()
             await stderr_task
             interrupted = request.conversation_id in self._interrupted
+            if pending_tasks and not interrupted:
+                raise ProviderError("Gemini 在后台查询完成前退出，请重新发送消息继续任务。")
             if (
                 return_code != 0
                 and not interrupted
@@ -331,10 +335,40 @@ class AntigravityProvider(AgentProvider):
             lines.append(line.decode("utf-8", errors="replace"))
 
     @staticmethod
+    def _update_background_tasks(data: dict, pending: set[str]) -> None:
+        """Read CLI task lifecycle envelopes, not the model's waiting prose.
+
+        A manage_task result can be DONE while the task it describes is still
+        RUNNING. Only its inner status (or the system completion notification)
+        closes the background task.
+        """
+        content = data.get("content", "")
+        if data.get("type") == "GENERIC":
+            started = re.search(
+                r"^Tool is running as a background task with task id: (\S+)",
+                content, re.MULTILINE,
+            )
+            if started:
+                pending.add(started[1])
+            status = re.search(r"^Task: (\S+)\r?\nStatus: (\w+)", content, re.MULTILINE)
+            if status:
+                if status[2] == "RUNNING":
+                    pending.add(status[1])
+                elif status[2] in {"DONE", "COMPLETED", "FAILED", "ERROR", "CANCELED", "CANCELLED"}:
+                    pending.discard(status[1])
+        elif data.get("type") == "SYSTEM_MESSAGE" and data.get("source") == "SYSTEM":
+            for finished in re.finditer(
+                r'content=Task id "([^"\n]+)" (?:finished|was canceled|was cancelled|failed) with result:',
+                content,
+            ):
+                pending.discard(finished[1])
+
+    @staticmethod
     async def _follow_transcript(
         log_path: Path, emit: EmitEvent, thoughts: list[str],
         completion_event: asyncio.Event | None = None,
         completed_responses: list[str] | None = None,
+        pending_tasks: set[str] | None = None,
     ) -> None:
         deadline = time.monotonic() + 30
         while not log_path.exists() and time.monotonic() < deadline:
@@ -364,16 +398,31 @@ class AntigravityProvider(AgentProvider):
         if not transcript_path.exists():
             return
 
+        pending_tasks = pending_tasks if pending_tasks is not None else set()
         with transcript_path.open("r", encoding="utf-8", errors="replace") as stream:
+            partial_line = ""
             while True:
                 line = stream.readline()
                 if not line:
                     await asyncio.sleep(0.15)
                     continue
+                partial_line += line
+                if not partial_line.endswith("\n"):
+                    continue
+                line, partial_line = partial_line, ""
                 try:
                     data = json.loads(line)
                 except json.JSONDecodeError:
                     continue
+                pending_before = set(pending_tasks)
+                AntigravityProvider._update_background_tasks(data, pending_tasks)
+                # A task ending only wakes the model. Wait for a NEW final
+                # response, never reuse the earlier "I am waiting" response.
+                if pending_tasks or pending_tasks != pending_before or data.get("type") == "SYSTEM_MESSAGE":
+                    if completion_event is not None:
+                        completion_event.clear()
+                    if completed_responses is not None:
+                        completed_responses.clear()
                 if data.get("type") != "PLANNER_RESPONSE":
                     continue
                 formatted: list[str] = []
@@ -398,12 +447,15 @@ class AntigravityProvider(AgentProvider):
                         data.get("status") == "DONE"
                         and completed_content
                         and not has_tool_calls
+                        and not pending_tasks
                     ):
                         if completed_responses is not None:
                             completed_responses.append(completed_content)
                         completion_event.set()
                     elif has_tool_calls:
                         completion_event.clear()
+                        if completed_responses is not None:
+                            completed_responses.clear()
 
     @staticmethod
     async def _follow_log(log_path: Path, emit: EmitEvent) -> None:

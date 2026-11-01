@@ -961,6 +961,21 @@ export default function App() {
     if (willQueue) showToast('任务已加入队列', 'info')
   }
 
+  const deleteQueuedMessage = useCallback(async (runId: string) => {
+    const conversationId = activeConvRef.current?.id
+    if (!conversationId) return
+    try {
+      await apiFetch(`/api/conversations/${conversationId}/queue/${encodeURIComponent(runId)}`, { method: 'DELETE' })
+      if (activeConvRef.current?.id === conversationId) {
+        setMessages(previous => previous.filter(message => message.run_id !== runId))
+      }
+      emitTaskChange()
+      showToast('已删除排队消息', 'success')
+    } catch (error) {
+      showToast(describeApiError(error, '删除失败，任务可能已开始执行或已被移除'), 'error')
+    }
+  }, [activeConvRef, setMessages, showToast])
+
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value)
   }
@@ -1539,6 +1554,7 @@ export default function App() {
                 isDrawerSwiping={drawer.isDragging}
                 copyMessageText={copyMessageText}
                 handleFeedback={handleFeedback}
+                deleteQueuedMessage={deleteQueuedMessage}
                 regenerateLastResponse={regenerateLastResponse}
                 formatTimestamp={formatTimestamp}
                 messagesEndRef={messagesEndRef}

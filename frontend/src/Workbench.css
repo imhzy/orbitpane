@@ -1,6 +1,4 @@
 /* Workbench surfaces and optional, accessible panels. */
-:root { --text-2xs:12px; --text-xs:13px; --text-sm:14px; --text-base:15px; --text-md:16px; }
-:root[data-density='compact'] { --text-2xs:12px; --text-xs:12px; --text-sm:13px; --text-base:14px; --text-md:15px; }
 :where(button,a,summary,input,textarea,[tabindex]):focus-visible { outline:2px solid var(--accent-color); outline-offset:3px; }
 .breadcrumb-home { border:0; color:var(--text-secondary); background:none; cursor:pointer; font:inherit; }
 .header-path { font-family:var(--font-sans); }
@@ -26,7 +24,7 @@
 .panel-resize-handle { display:none; }
 .workbench-home { width:100%; max-width:1120px; margin:0 auto; padding:8px 0 32px; text-align:left; }
 .welcome-container:not(.session-empty-container) { max-width:1120px; width:100%; padding-top:24px; }
-.chat-message-list { max-width:1120px; }
+.chat-message-list, .input-box { max-width:var(--content-width); }
 .message-row { position:relative; }
 .message-more-btn { display:none; }
 .input-area .input-reference-btn { display:grid; flex:none; min-width:36px; height:36px; padding:0; place-items:center; border:1px solid var(--border-color); background:transparent; color:var(--text-secondary); border-radius:8px; cursor:pointer; }
@@ -123,4 +121,91 @@
 
 @media (max-width:768px), (pointer:coarse) {
  .message-more-btn { display:grid; place-items:center; align-self:flex-end; order:10; min-width:44px; min-height:44px; border:0; background:transparent; color:var(--text-secondary); border-radius:8px; cursor:pointer; }
+}
+
+/* Shared edges keep the header, session tabs, messages and composer aligned. */
+.chat-header,
+.project-session-bar,
+.chat-messages,
+.input-area {
+  padding-inline: max(var(--page-gutter), var(--sal)) max(var(--page-gutter), var(--sar));
+}
+
+.header-brand,
+.header-title-wrapper,
+.header-title,
+.input-bottom-left { min-width: 0; }
+
+.header-brand { flex: 1; }
+.header-actions { flex: none; }
+.chat-header { gap: 12px; }
+.chat-header .active-conv-title-text { overflow: hidden; text-overflow: ellipsis; }
+.project-session-bar { gap: 12px; }
+.session-navigation button { border-radius: var(--radius-md); }
+.session-navigation button:hover { background: var(--bg-surface-hover); }
+
+.workbench-home { max-width: var(--content-width); }
+.home-start {
+  gap: 20px;
+  padding: clamp(24px, 5vw, 48px);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-sm);
+}
+.home-start > svg {
+  box-sizing: content-box;
+  padding: 16px;
+  border-radius: var(--radius-lg);
+  color: var(--accent-text);
+  background: var(--accent-subtle-bg);
+}
+.home-start h1 { font-size: var(--text-display); line-height: 1.3; }
+.home-start .ui-btn.primary { min-width: 144px; }
+
+.global-navigation { padding: 12px 16px; }
+.global-navigation button { border-radius: var(--radius-md); }
+.sidebar-project-heading { padding-inline: 20px; }
+.sidebar-footer { padding-inline: 16px; }
+.sidebar-section-title { min-width: 0; }
+.sidebar-section-title strong { min-width: 0; }
+.sidebar-task-status { font-size: var(--text-2xs); }
+
+.input-box { border-radius: var(--radius-lg); }
+.input-bottom-bar { align-items: center; }
+.send-btn { min-height: var(--control-height); }
+.composer-references > span { min-width: 0; }
+.composer-references > span > span { min-width: 0; }
+.composer-references button { flex: none; }
+
+@media (min-width: 769px) {
+  .drawer-header { height: calc(60px + var(--sat)); padding-top: var(--sat); }
+  .chat-header .icon-btn { width: 36px; height: 36px; }
+  .input-area { padding-top: 16px; }
+}
+
+@media (max-width: 768px) {
+  :root { --page-gutter: 16px; }
+  .chat-header { gap: 8px; padding-inline: max(12px, var(--sal)) max(12px, var(--sar)); }
+  .chat-header .active-conv-title-text { max-width: 100%; }
+  .header-title-wrapper { flex: 1; overflow: hidden; }
+  .header-actions { gap: 4px; }
+  .project-session-bar { gap: 8px; }
+  .chat-messages { padding-top: 20px; padding-bottom: 28px; }
+  .chat-message-list { gap: 24px; }
+  .welcome-container:not(.session-empty-container) { padding-inline: 0; }
+  .home-start { margin-block: clamp(24px, 8vh, 64px); }
+  .input-area { padding-inline: max(12px, var(--sal)) max(12px, var(--sar)); }
+  .send-btn { min-width: 72px; }
+  .composer-references button { min-width: 32px; min-height: 32px; }
+  .cmd-input, .sidebar-search-input { font-size: var(--text-input); }
+  .cmd-dialog { max-height: calc(var(--app-height) - 32px); }
+  .cmd-backdrop { padding-top: min(14vh, 48px); }
+}
+
+@media (max-width: 380px) {
+  :root { --page-gutter: 12px; }
+  .project-session-bar { gap: 4px; }
+  .project-session-bar > .ui-btn { padding-inline: 6px; }
+  .home-start { padding: 24px 16px; }
 }

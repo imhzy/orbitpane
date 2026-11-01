@@ -39,8 +39,8 @@ const STARTER_PROMPTS = [
   },
   {
     Icon: AtSign,
-    label: '定位一个文件',
-    prompt: '用 @ 引用具体文件后，我会针对它提问。先告诉我这个项目里最值得先读的三个文件。',
+    label: '推荐先读的文件',
+    prompt: '告诉我这个项目里最值得先读的三个文件，并说明原因。',
   },
 ] as const
 
@@ -70,10 +70,6 @@ export function WelcomeScreen({
 
             {onUseStarter && (
               <div className="session-starter-block">
-                {/* A label, not a sentence. "点击后填入输入框，可以先改再发"
-                    described an interaction the first click teaches anyway,
-                    and it was set at the same size as the prompts it labelled. */}
-                <span className="session-starter-title">常用开场</span>
                 <div className="session-starter-grid">
                   {STARTER_PROMPTS.map(({ Icon, label, prompt }) => (
                     <button
@@ -85,7 +81,6 @@ export function WelcomeScreen({
                       <Icon size={15} />
                       <span>
                         <strong>{label}</strong>
-                        <small>{prompt}</small>
                       </span>
                     </button>
                   ))}

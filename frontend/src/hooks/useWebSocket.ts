@@ -37,6 +37,7 @@ export interface RealtimeEvent {
   context_chars?: number
   task?: TaskRecord
   queue?: TaskRecord[]
+  canceled_run_id?: string
 }
 
 function scheduleMetadata(value: RealtimeEvent | TaskRecord): Partial<Message> {
@@ -841,7 +842,9 @@ export function useWebSocket(
         if (data.type === 'queue_changed') {
           const positions = new Map((data.queue || []).map(task => [task.run_id, task.position]))
           setMessages(previous => {
-            let next = previous
+            let next = data.canceled_run_id
+              ? previous.filter(message => message.run_id !== data.canceled_run_id)
+              : previous
             for (const task of data.queue || []) {
               if (task.schedule_name) next = applySubmittedTask(next, task)
             }
