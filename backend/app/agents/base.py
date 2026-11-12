@@ -25,9 +25,19 @@ class AgentRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class ExecutionStep:
+    id: str
+    kind: str
+    title: str
+    status: str = "unknown"
+    content: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class AgentEvent:
     type: str
     content: str = ""
+    step: ExecutionStep | None = None
 
 
 @dataclass(frozen=True, slots=True)

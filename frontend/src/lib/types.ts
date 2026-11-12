@@ -21,7 +21,19 @@ export type MessageFeedback = 'up' | 'down' | ''
 
 export type HealthStatus = 'active' | 'compacting' | 'retrying' | 'slow' | 'stalled'
 
+export interface ExecutionStep {
+  id: string
+  kind: 'exec' | 'tool' | 'search' | 'file' | 'plan' | 'thought' | 'other'
+  title: string
+  status: 'running' | 'completed' | 'failed' | 'interrupted' | 'unknown'
+  content: string
+  started_at?: string
+  finished_at?: string
+}
+
 export interface Message {
+  execution_steps?: ExecutionStep[]
+  run_status?: string
   schedule_id?: number | null
   schedule_name?: string
   scheduled_for?: string

@@ -10,12 +10,14 @@ import shutil
 import subprocess
 import tempfile
 import time
+import uuid
 from collections import deque
 from pathlib import Path
 
 from ..config import Settings
 from .base import (
     AgentEvent,
+    ExecutionStep,
     AgentProvider,
     AgentRequest,
     AgentResult,
@@ -27,6 +29,7 @@ from .base import (
     empty_output_error,
     humanize_model_id,
 )
+from .context import build_context
 from .process import terminate_process
 from .plugins import prepare_antigravity
 from .usage import UsageCache, empty_usage
@@ -313,18 +316,7 @@ class AntigravityProvider(AgentProvider):
         await terminate_process(self._processes.get(conversation_id))
 
     def _build_prompt(self, request: AgentRequest) -> str:
-        sections = ["Here is the conversation history so far:"]
-        for message in request.history:
-            sections.append(f"{message.role.upper()}:\n{message.content}")
-        sections.extend(("### END OF HISTORY ###", f"NEW MESSAGE FROM USER:\n{request.prompt}"))
-        prompt = "\n\n".join(sections)
-        max_chars = self.settings.history_max_chars
-        if len(prompt) > max_chars:
-            prompt = (
-                "Earlier conversation history was truncated.\n\n"
-                + prompt[-max_chars:]
-            )
-        return prompt
+        return build_context(request, self.settings.history_max_chars)
 
     @staticmethod
     async def _read_stderr(
@@ -398,6 +390,7 @@ class AntigravityProvider(AgentProvider):
         if not transcript_path.exists():
             return
 
+        await emit(AgentEvent("session", conversation_uuid))
         pending_tasks = pending_tasks if pending_tasks is not None else set()
         with transcript_path.open("r", encoding="utf-8", errors="replace") as stream:
             partial_line = ""
@@ -434,7 +427,11 @@ class AntigravityProvider(AgentProvider):
                         separators=(",", ":"),
                     )
                     formatted.append(f"\n\n● **{name}**({args[:500]})\n")
+                    await emit(AgentEvent("step", step=ExecutionStep(
+                        uuid.uuid4().hex, "tool", str(name), "unknown", args[:16000])))
                 if thinking := data.get("thinking"):
+                    await emit(AgentEvent("step", step=ExecutionStep(
+                        uuid.uuid4().hex, "thought", "思考分析", "completed", str(thinking)[:16000])))
                     formatted.append(f"\n▸ *Thought*:\n{thinking}\n")
                 text = "".join(formatted)
                 if text:

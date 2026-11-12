@@ -14,7 +14,8 @@ from backend.app.agents.base import (
     EmitEvent,
 )
 from backend.app.database import Database
-from backend.app.realtime import AgentBusyError, AgentCoordinator, ConnectionHub
+from backend.app.application import ConnectionHub
+from backend.app.realtime import AgentBusyError, AgentCoordinator
 
 
 class BlockingProvider(AgentProvider):
@@ -155,11 +156,13 @@ class AgentCoordinatorTests(IsolatedAsyncioTestCase):
 
         await hub.broadcast(1, {"type": "thought", "conversation_id": 1})
 
+        await asyncio.wait_for(hub._connections[1][first_socket].queue.join(), 1)
         self.assertEqual(
             first_socket.messages,
             [{"type": "thought", "conversation_id": 1}],
         )
         self.assertEqual(second_socket.messages, [])
+        await hub.shutdown()
 
     async def test_submit_queues_edits_reorders_and_cancels_tasks(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -357,7 +360,8 @@ class AgentCoordinatorTests(IsolatedAsyncioTestCase):
                 message for _, message in hub.messages if message["type"] == "token"
             ]
             self.assertEqual(token_events[0]["sequence"], 1)
-            self.assertEqual(token_events[0]["full_content"], "done")
+            self.assertNotIn("full_content", token_events[0])
+            self.assertEqual(token_events[0]["content"], "done")
             self.assertTrue(
                 all(
                     message["conversation_id"] == conversation.id

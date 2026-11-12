@@ -21,7 +21,8 @@ from backend.app.application import create_app
 from backend.app.database import Database
 from backend.app.models import PushSubscription
 from backend.app.notifications import PushNotifications
-from backend.app.realtime import AgentCoordinator, ConnectionHub
+from backend.app.application import ConnectionHub
+from backend.app.realtime import AgentCoordinator
 from backend.tests.helpers import test_settings
 from backend.tests.test_realtime import BlockingProvider, FakeRegistry
 

@@ -19,10 +19,11 @@ import {
 import MarkdownContent from './MarkdownContent'
 import { asText } from '../lib/normalize'
 import { REQUEST_INTERRUPT_EVENT } from '../lib/appEvents'
-import type { HealthStatus } from '../lib/types'
+import type { ExecutionStep, HealthStatus } from '../lib/types'
 import './AgentExecutionTimeline.css'
 
 interface AgentExecutionTimelineProps {
+  executionSteps?: ExecutionStep[]
   thought: string
   isThinking: boolean
   duration?: number
@@ -40,9 +41,11 @@ interface ParsedStep {
   title: string
   content: string
   isComplete: boolean
+  status?: ExecutionStep['status']
 }
 
 export function AgentExecutionTimeline({ 
+  executionSteps,
   thought, 
   isThinking, 
   duration, 
@@ -77,6 +80,10 @@ export function AgentExecutionTimeline({
   }
 
   const steps = useMemo(() => {
+    if (executionSteps?.length) return executionSteps.map(step => ({
+      id: step.id, type: step.kind, title: step.title, content: step.content,
+      isComplete: step.status !== 'running', status: step.status,
+    } satisfies ParsedStep))
     // Streamed straight off the socket, so it is only a string by convention.
     const transcript = asText(thought)
     if (!transcript) return []
@@ -140,9 +147,9 @@ export function AgentExecutionTimeline({
     })
 
     return parsedSteps
-  }, [thought, isThinking])
+  }, [thought, isThinking, executionSteps])
 
-  if (!isThinking && !thought && duration === undefined) return null
+  if (!isThinking && !thought && !steps.length && duration === undefined) return null
 
   const formatDuration = (sec: number): string => {
     if (!sec || sec <= 0) return '0 秒'
@@ -166,7 +173,7 @@ export function AgentExecutionTimeline({
         onClick={() => setIsOpen(!isOpen)}
         type="button"
         aria-expanded={isOpen}
-        aria-label={isThinking ? '思考与工具调用进行中' : `思考与工具调用已完成，用时 ${formatDuration(finalDurationSec)}`}
+        aria-label={isThinking ? '思考与工具调用进行中' : `执行记录，用时 ${formatDuration(finalDurationSec)}`}
       >
         <div className="header-left">
           {isThinking ? (
@@ -199,7 +206,7 @@ export function AgentExecutionTimeline({
                     ? '长时间无输出（疑似卡住）'
                     : '思考与工具调用中…')
               : steps.length > 0 
-                ? `已完成思考与工具调用` 
+                ? `执行记录`
                 : '思考过程'
             }
           </span>
@@ -268,7 +275,10 @@ export function AgentExecutionTimeline({
                       <div key={step.id} className="timeline-step" data-type={step.type}>
                         <div className="step-indicator">
                           <div className={`step-dot ${step.isComplete ? 'complete' : 'active'}`}>
-                            {step.isComplete ? <Check size={8} /> : <div className="dot-pulse" />}
+                            {step.status === 'failed' ? <AlertCircle size={10} />
+                              : step.status === 'interrupted' ? <Square size={8} />
+                              : step.status === 'unknown' ? <Clock size={10} />
+                              : step.isComplete ? <Check size={8} /> : <div className="dot-pulse" />}
                           </div>
                           {idx < visibleSteps.length - 1 && <div className="step-line" />}
                         </div>
@@ -281,6 +291,10 @@ export function AgentExecutionTimeline({
                             <div className="step-title-row">
                               <Icon size={13} className="step-icon" />
                               <span className="step-title">{step.title}</span>
+                              {step.status && <span className="step-count-badge">{{
+                                running: '执行中', completed: '已完成', failed: '失败',
+                                interrupted: '已中断', unknown: '状态未知',
+                              }[step.status]}</span>}
                             </div>
                             {isExpanded ? (
                               <ChevronDown size={14} className="step-chevron" />

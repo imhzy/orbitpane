@@ -6,7 +6,7 @@ import logging
 from datetime import datetime, timezone
 
 from .database import Database
-from .realtime import AgentCoordinator, ConnectionHub
+from .realtime import AgentCoordinator, EventHub
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 class ScheduleService:
     POLL_SECONDS = 1.0
 
-    def __init__(self, database: Database, coordinator: AgentCoordinator, hub: ConnectionHub):
+    def __init__(self, database: Database, coordinator: AgentCoordinator, hub: EventHub):
         self.database = database
         self.coordinator = coordinator
         self.hub = hub

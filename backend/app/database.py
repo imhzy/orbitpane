@@ -273,6 +273,18 @@ class Database:
                 "WHERE status IN ('queued', 'starting', 'running')",
                 (_utc_iso(),),
             )
+            # A saved frame survives a crash, but its running indicators do not.
+            for row in connection.execute(
+                "SELECT id, execution_steps FROM messages WHERE run_status = 'running'"
+            ).fetchall():
+                steps = json.loads(row["execution_steps"])
+                for step in steps:
+                    if step.get("status") == "running":
+                        step["status"] = "interrupted"
+                connection.execute(
+                    "UPDATE messages SET run_status='interrupted', execution_steps=? WHERE id=?",
+                    (json.dumps(steps, ensure_ascii=False), row["id"]),
+                )
             connection.executescript(
                 """
                 CREATE INDEX IF NOT EXISTS idx_messages_conversation_id
@@ -351,6 +363,8 @@ class Database:
             "active_summary_id": "INTEGER",
         }
         message_columns = {
+            "execution_steps": "TEXT NOT NULL DEFAULT '[]'",
+            "run_status": "TEXT NOT NULL DEFAULT ''",
             "thought": "TEXT NOT NULL DEFAULT ''",
             "model": "TEXT NOT NULL DEFAULT ''",
             "provider": "TEXT NOT NULL DEFAULT 'antigravity'",
@@ -367,6 +381,8 @@ class Database:
             "error_code": "TEXT NOT NULL DEFAULT ''",
         }
         run_columns = {
+            "progress_sequence": "INTEGER NOT NULL DEFAULT -1",
+            "session_id": "TEXT NOT NULL DEFAULT ''",
             "schedule_id": "INTEGER REFERENCES schedules(id) ON DELETE SET NULL",
             "schedule_name": "TEXT NOT NULL DEFAULT ''",
             "scheduled_for": "TEXT NOT NULL DEFAULT ''",
@@ -430,6 +446,8 @@ class Database:
             scheduled_for=str(row["scheduled_for"] or ""),
             is_error=bool(row["is_error"]),
             error_code=str(row["error_code"] or ""),
+            execution_steps=json.loads(row["execution_steps"] or "[]"),
+            run_status=str(row["run_status"] or ""),
         )
 
     def list_conversations(self, *, include_archived: bool = False) -> list[Conversation]:
@@ -654,6 +672,56 @@ class Database:
             connection.execute(
                 "UPDATE messages SET content = ? WHERE id = ?", (content, message_id)
             )
+
+    def save_run_progress(
+        self, run_id: str, *, sequence: int, content: str, thought: str,
+        execution_steps: list[dict], duration: float, session_id: str = "",
+        run_status: str = "running", error: str = "",
+    ) -> int | None:
+        """Atomically upsert one answer and its cursor. Never resurrect deleted runs.
+
+        A terminal frame fences older checkpoint writers. BEGIN IMMEDIATE makes
+        the read/check/write atomic even across worker-thread connections.
+        """
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            run = connection.execute("SELECT * FROM runs WHERE run_id=?", (run_id,)).fetchone()
+            if run is None or sequence < run["progress_sequence"]:
+                return None
+            previous = connection.execute(
+                "SELECT id, run_status FROM messages WHERE conversation_id=? AND run_id=? "
+                "AND role IN ('agent', 'summary') ORDER BY id LIMIT 1",
+                (run["conversation_id"], run_id),
+            ).fetchone()
+            if run_status == "running" and run["status"] in {"completed", "failed", "interrupted", "canceled"}:
+                return int(previous["id"]) if previous else None
+            if previous and previous["run_status"] in {"completed", "failed", "interrupted", "canceled"}:
+                return int(previous["id"])
+            connection.execute(
+                "UPDATE runs SET progress_sequence=?, session_id=CASE WHEN ? != '' THEN ? ELSE session_id END WHERE run_id=?",
+                (sequence, session_id, session_id, run_id),
+            )
+            if not previous:
+                cursor = connection.execute(
+                    "INSERT INTO messages(conversation_id,role,content,model,provider,run_id,input_chars,context_chars,"
+                    "schedule_id,schedule_name,scheduled_for) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (run["conversation_id"], "summary" if run["is_summary"] else "agent", "", run["model"],
+                     run["provider"], run_id, run["input_chars"], run["context_chars"], run["schedule_id"],
+                     run["schedule_name"], run["scheduled_for"]),
+                )
+                message_id = int(cursor.lastrowid)
+            else:
+                message_id = int(previous["id"])
+            connection.execute(
+                "UPDATE messages SET content=?, thought=?, execution_steps=?, duration=?, output_chars=?, "
+                "run_status=?, context_chars=? WHERE id=?",
+                (content, thought, json.dumps(execution_steps, ensure_ascii=False), duration, len(content),
+                 run_status, run["context_chars"], message_id),
+            )
+            if run_status != "running":
+                self._update_run(connection, run_id, status=run_status, completed_at=_utc_iso(),
+                                 duration=duration, output_chars=len(content), error=error)
+            return message_id
 
     def get_message(self, conversation_id: int, message_id: int) -> Message | None:
         with self.connect() as connection:
@@ -1067,6 +1135,11 @@ class Database:
         return {**dict(row), "is_summary": bool(row["is_summary"])} if row else None
 
     def update_run(self, run_id: str, **values: object) -> None:
+        with self.connect() as connection:
+            self._update_run(connection, run_id, **values)
+
+    @staticmethod
+    def _update_run(connection: sqlite3.Connection, run_id: str, **values: object) -> None:
         allowed = {
             "status",
             "prompt",
@@ -1083,23 +1156,22 @@ class Database:
         updates = [(key, value) for key, value in values.items() if key in allowed]
         if not updates:
             return
-        with self.connect() as connection:
-            # Persist notification work in the same transaction as completion.
-            # Repeated completion writes, reconnects and request retries cannot
-            # enqueue the same run twice, even after delivery has been removed.
-            if values.get("status") in {"completed", "failed"}:
-                connection.execute(
-                    "INSERT OR IGNORE INTO push_deliveries(run_id, endpoint, created_at) "
-                    "SELECT r.run_id, s.endpoint, ? FROM runs r CROSS JOIN push_subscriptions s "
-                    "WHERE r.run_id = ? AND r.status NOT IN ('completed', 'failed', 'interrupted', 'canceled') "
-                    "AND (? = 'completed' OR r.schedule_name != '')",
-                    (time.time(), run_id, values["status"]),
-                )
+        # Persist notification work in the same transaction as completion.
+        # Repeated completion writes, reconnects and request retries cannot
+        # enqueue the same run twice, even after delivery has been removed.
+        if values.get("status") in {"completed", "failed"}:
             connection.execute(
-                f"UPDATE runs SET {', '.join(f'{key} = ?' for key, _ in updates)} "
-                "WHERE run_id = ?",
-                [value for _, value in updates] + [run_id],
+                "INSERT OR IGNORE INTO push_deliveries(run_id, endpoint, created_at) "
+                "SELECT r.run_id, s.endpoint, ? FROM runs r CROSS JOIN push_subscriptions s "
+                "WHERE r.run_id = ? AND r.status NOT IN ('completed', 'failed', 'interrupted', 'canceled') "
+                "AND (? = 'completed' OR r.schedule_name != '')",
+                (time.time(), run_id, values["status"]),
             )
+        connection.execute(
+            f"UPDATE runs SET {', '.join(f'{key} = ?' for key, _ in updates)} "
+            "WHERE run_id = ?",
+            [value for _, value in updates] + [run_id],
+        )
 
     def save_push_subscription(self, subscription: dict[str, Any]) -> None:
         with self.connect() as connection:

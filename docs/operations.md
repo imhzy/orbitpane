@@ -9,6 +9,51 @@ realtime execution and reconnect support without coupling the UI
 protocol to a specific agent provider. Google Antigravity is the default
 provider, with OpenAI Codex available behind a feature flag.
 
+## Execution events and saved progress
+
+New runs publish structured execution steps with stable IDs, explicit status,
+and timestamps. Codex lifecycle events distinguish running, completed and
+failed tools. Antigravity's planner transcript does not provide a reliable
+matching completion for every tool, so those steps display an unknown status.
+Older messages still render their Markdown execution transcript.
+
+WebSocket protocol 2 sends deltas with a per-run sequence. Initial connection,
+an explicit `sync` request, and task completion deliver full state; the client
+requests a snapshot when a delta or heartbeat reveals a sequence gap. Each
+socket has its own writer, a 128-frame/2 MiB queue, and a five-second send
+timeout. One larger snapshot is allowed on an empty queue. A slow or overflowing
+connection is closed with code 1013 and recovers through normal reconnect.
+
+Dirty progress is checkpointed about once per second, plus on session discovery
+and termination. Checkpoints update the same message row rather than appending
+copies. Final answer state, run status and push notification work commit in one
+transaction. History clients re-fetch mutable rows before advancing their ID
+cursor. A crash can lose output since the last successful checkpoint; startup
+marks saved running steps and messages interrupted. Native session IDs are kept
+with authenticated run records when the CLI supplies them. Restart does not
+relaunch a CLI or replay tools; sending another message continues with saved
+conversation context. Saved progress is deleted with its conversation/history.
+Public shares remain fixed snapshots with their existing field allowlist.
+
+Both CLI adapters use the same context builder. It retains the selected summary,
+the entire current request, and a contiguous suffix of complete user/agent turns.
+`ORBITPANE_HISTORY_MAX_CHARS` remains the outer envelope; 20% is reserved for CLI
+overhead. An additional conservative multilingual token estimate limits the
+payload (ASCII characters / 3, other characters × 2; budget = 80% of the character
+envelope / 3). This estimate is not measured provider usage or a guarantee about
+CLI-injected tools and instructions. Oversized mandatory content returns
+`context_limit` rather than silently cutting the request or summary. History
+outside the budget stays in the database and is omitted only from that request.
+
+Focused regressions:
+
+```bash
+python3 -m unittest backend.tests.test_agent_progress -v
+node --test frontend/tests/stream-protocol.test.mjs
+# With Vite on 127.0.0.1:5179 (all API/agent traffic is mocked):
+python3 frontend/tests/test_streaming.py
+```
+
 ## Scheduled agent commands
 
 Open a conversation and choose **定时任务** in its action menu, or the **定时**

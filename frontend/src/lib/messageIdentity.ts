@@ -26,7 +26,7 @@ export function nextLocalId(): string {
 }
 
 function runKey(role: string, runId: string): string {
-  return `${role}:${runId}`
+  return `${role === 'summary' ? 'agent' : role}:${runId}`
 }
 
 export function bindRunLocalId(role: string, runId: string, localId: string): void {

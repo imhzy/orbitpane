@@ -251,7 +251,13 @@ async def main():
         await page.evaluate("() => {history.pushState({},'', '/?id=2'); dispatchEvent(new PopStateEvent('popstate'))}")
         await page.wait_for_timeout(500)
         await page.evaluate('history.back()')
-        await page.wait_for_timeout(1200)
+        # Returning can require several history pages and virtual-row layout.
+        # Wait for the visible outcome, not a machine-dependent fixed delay.
+        await page.wait_for_function("""anchor => {
+          const viewport = document.querySelector('.chat-messages');
+          const row = viewport?.querySelector(`[data-virtual-message-id="${anchor.id}"]`);
+          return row && Math.abs(row.getBoundingClientRect().top - viewport.getBoundingClientRect().top - anchor.offset) < 20;
+        }""", arg=anchor, timeout=10000)
         restored_offset = await viewport.evaluate("""(el,id) => {
           const row=el.querySelector(`[data-virtual-message-id="${id}"]`);
           return row ? row.getBoundingClientRect().top - el.getBoundingClientRect().top : null;

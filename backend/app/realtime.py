@@ -1,17 +1,16 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import time
 import uuid
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import WebSocket
+from typing import Protocol
 
-from .agents.base import AgentEvent, AgentRequest, AgentResult, ProviderError
+from .agents.base import AgentEvent, AgentRequest, ProviderError
 from .agents.registry import ProviderRegistry
 from .database import Database
 from .models import Conversation, Message
@@ -28,65 +27,8 @@ class AgentBusyError(RuntimeError):
     pass
 
 
-class ConnectionHub:
-    def __init__(self) -> None:
-        self._connections: dict[int, set[WebSocket]] = {}
-        self._send_locks: dict[WebSocket, asyncio.Lock] = {}
-        self._lock = asyncio.Lock()
-
-    async def connect(self, websocket: WebSocket, conversation_id: int) -> None:
-        async with self._lock:
-            self._connections.setdefault(conversation_id, set()).add(websocket)
-            self._send_locks.setdefault(websocket, asyncio.Lock())
-
-    async def disconnect(self, websocket: WebSocket, conversation_id: int) -> None:
-        async with self._lock:
-            sockets = self._connections.get(conversation_id)
-            if not sockets:
-                return
-            sockets.discard(websocket)
-            if not sockets:
-                self._connections.pop(conversation_id, None)
-            self._send_locks.pop(websocket, None)
-
-    @staticmethod
-    def _encode(message: dict[str, object]) -> str:
-        # The encoding Starlette's `send_json` would apply.
-        return json.dumps(message, separators=(",", ":"), ensure_ascii=False)
-
-    async def send(
-        self,
-        websocket: WebSocket,
-        conversation_id: int,
-        message: dict[str, object],
-    ) -> bool:
-        return await self._send_text(websocket, conversation_id, self._encode(message))
-
-    async def _send_text(
-        self, websocket: WebSocket, conversation_id: int, text: str
-    ) -> bool:
-        async with self._lock:
-            if websocket not in self._connections.get(conversation_id, ()):
-                return False
-            send_lock = self._send_locks[websocket]
-        try:
-            async with send_lock:
-                await websocket.send_text(text)
-            return True
-        except Exception:
-            await self.disconnect(websocket, conversation_id)
-            return False
-
-    async def broadcast(self, conversation_id: int, message: dict[str, object]) -> None:
-        async with self._lock:
-            sockets = tuple(self._connections.get(conversation_id, ()))
-        if not sockets:
-            return
-        # Stream events repeat the whole answer so far, so encoding one is real
-        # work on the event loop: do it once, not once per open tab.
-        text = self._encode(message)
-        for websocket in sockets:
-            await self._send_text(websocket, conversation_id, text)
+class EventHub(Protocol):
+    async def broadcast(self, conversation_id: int, message: dict[str, object]) -> None: ...
 
 
 @dataclass(slots=True)
@@ -147,13 +89,18 @@ class TaskState:
     scheduled_for: str = ""
     compact_before: bool = False
     is_compacting: bool = False
+    execution_steps: dict[str, dict] = field(default_factory=dict)
+    session_id: str = ""
+    run_status: str = "running"
+    checkpoint_sequence: int = -1
+    error: str = ""
 
 
 class AgentCoordinator:
     ELAPSED_UPDATE_INTERVAL_SECONDS = 0.25
 
     def __init__(
-        self, database: Database, providers: ProviderRegistry, hub: ConnectionHub,
+        self, database: Database, providers: ProviderRegistry, hub: EventHub,
         settings: Settings | None = None,
     ) -> None:
         self.database = database
@@ -372,6 +319,10 @@ class AgentCoordinator:
             if active_summary_message_id is not None
             else history_all
         )
+        # Only the selected, successfully committed checkpoint is model memory.
+        # Interrupted summaries remain visible in history, never replace memory.
+        history = tuple(message for message in history if message.role != "summary"
+                        or message.id == active_summary_message_id)
 
         if not item.is_summary and not item.compact_before:
             self.database.add_message(
@@ -510,6 +461,7 @@ class AgentCoordinator:
         inactive_seconds = max(0.0, round(time.monotonic() - state.last_activity_time, 1))
         return {
             "type": event_type,
+            "protocol": 2,
             "conversation_id": conversation_id,
             "run_id": state.run_id,
             "request_id": state.request_id,
@@ -582,6 +534,26 @@ class AgentCoordinator:
                 self._state_message(conversation_id, state, "elapsed"),
             )
 
+    def _progress_values(self, state: TaskState) -> dict:
+        return dict(sequence=state.sequence, content=state.content, thought=state.thought,
+                    execution_steps=[dict(step) for step in state.execution_steps.values()],
+                    duration=state.duration if state.duration is not None else self._elapsed(state),
+                    session_id=state.session_id, run_status=state.run_status, error=state.error)
+
+    async def _checkpoint_loop(self, state: TaskState, stopped: asyncio.Event) -> None:
+        while not stopped.is_set():
+            try:
+                await asyncio.wait_for(stopped.wait(), timeout=1.0)
+            except asyncio.TimeoutError:
+                if state.sequence == state.checkpoint_sequence:
+                    continue
+                values = self._progress_values(state)
+                try:
+                    await asyncio.to_thread(self.database.save_run_progress, state.run_id, **values)
+                    state.checkpoint_sequence = values["sequence"]
+                except Exception:
+                    logger.exception("Could not checkpoint run %s", state.run_id)
+
     async def _execute(self, conversation_id, provider, request, state) -> None:
         role = "summary" if state.is_summary else "agent"
         await self.hub.broadcast(
@@ -600,8 +572,23 @@ class AgentCoordinator:
             name=f"elapsed-{state.run_id}",
         )
 
+        checkpoint_stop = asyncio.Event()
+        checkpoint_task = asyncio.create_task(self._checkpoint_loop(state, checkpoint_stop))
+
         async def emit(event: AgentEvent) -> None:
             state.last_activity_time = time.monotonic()
+            if event.type == "session":
+                state.session_id = event.content
+                # Session metadata is storage, not a public stream event.
+                await asyncio.to_thread(self.database.save_run_progress, state.run_id, **self._progress_values(state))
+                state.checkpoint_sequence = state.sequence
+                return
+            if event.step is not None:
+                old = state.execution_steps.get(event.step.id, {})
+                step = {**asdict(event.step), "started_at": old.get("started_at", _utc_now())}
+                if event.step.status in {"completed", "failed", "interrupted"}:
+                    step["finished_at"] = old.get("finished_at", _utc_now())
+                state.execution_steps[event.step.id] = step
             if event.type == "token":
                 state.content += event.content
                 state.status_message = ""
@@ -619,8 +606,7 @@ class AgentCoordinator:
                     event.type,
                     role=role,
                     content=event.content,
-                    full_content=state.content,
-                    full_thought=state.thought,
+                    **({"step": state.execution_steps[event.step.id]} if event.step is not None else {}),
                 ),
             )
 
@@ -640,10 +626,7 @@ class AgentCoordinator:
             state.duration = self._elapsed(state)
             if result.interrupted:
                 final_status = "interrupted"
-            if result.content.strip():
-                await asyncio.to_thread(
-                    self._persist_answer, conversation_id, role, state, result
-                )
+
         except asyncio.CancelledError:
             final_status = "interrupted"
             error_message = "任务已取消"
@@ -666,22 +649,6 @@ class AgentCoordinator:
                 ),
             )
             state.duration = self._elapsed(state)
-            if state.content.strip():
-                await asyncio.to_thread(
-                    self.database.add_message,
-                    conversation_id,
-                    "agent",
-                    state.content,
-                    thought=state.thought,
-                    duration=state.duration,
-                    model=state.model,
-                    provider=state.provider,
-                    run_id=state.run_id,
-                    input_chars=state.input_chars,
-                    output_chars=len(state.content),
-                    context_chars=state.context_chars,
-                    **self._schedule_values(state),
-                )
         except Exception as exc:
             final_status = "failed"
             error_message = "Agent execution failed unexpectedly"
@@ -702,10 +669,20 @@ class AgentCoordinator:
                 ),
             )
         finally:
+            checkpoint_stop.set()
+            await checkpoint_task
+            state.run_status = final_status
+            state.error = error_message
+            for step in state.execution_steps.values():
+                if step["status"] == "running":
+                    step["status"] = "interrupted" if final_status == "interrupted" else "unknown"
+                    step["finished_at"] = _utc_now()
             elapsed_task.cancel()
             await asyncio.gather(elapsed_task, return_exceptions=True)
             if state.duration is None:
                 state.duration = self._elapsed(state)
+            if state.content or state.thought or state.execution_steps or state.checkpoint_sequence >= 0:
+                await asyncio.to_thread(self._persist_answer, conversation_id, state)
             await asyncio.to_thread(
                 self.database.update_run,
                 state.run_id,
@@ -728,6 +705,7 @@ class AgentCoordinator:
                     duration=state.duration,
                     content=state.content,
                     thought=state.thought,
+                    execution_steps=list(state.execution_steps.values()),
                 ),
             )
             async with self._lock:
@@ -752,29 +730,16 @@ class AgentCoordinator:
             self._queues.pop(conversation_id, None)
 
     def _persist_answer(
-        self, conversation_id: int, role: str, state: TaskState, result: AgentResult
+        self, conversation_id: int, state: TaskState
     ) -> None:
         """Store a finished answer (and its checkpoint); runs in a worker thread."""
-        message_id = self.database.add_message(
-            conversation_id,
-            role,
-            result.content,
-            thought=result.thought,
-            duration=state.duration or 0.0,
-            model=state.model,
-            provider=state.provider,
-            run_id=state.run_id,
-            input_chars=state.input_chars,
-            output_chars=len(result.content),
-            context_chars=state.context_chars,
-            **self._schedule_values(state),
-        )
-        if state.is_summary:
+        message_id = self.database.save_run_progress(state.run_id, **self._progress_values(state))
+        if state.is_summary and state.run_status == "completed" and message_id is not None:
             self.database.create_summary_checkpoint(
                 conversation_id,
                 message_id,
                 state.summary_covered_through_id,
-                result.content,
+                state.content,
             )
 
     async def _broadcast_queue(
@@ -947,6 +912,9 @@ class AgentCoordinator:
         inactive_seconds = max(0.0, round(time.monotonic() - state.last_activity_time, 1))
         return {
             "type": "sync_state",
+            "role": "summary" if state.is_summary else "agent",
+            "protocol": 2,
+            "execution_steps": list(state.execution_steps.values()),
             "conversation_id": conversation_id,
             "run_id": state.run_id,
             "request_id": state.request_id,

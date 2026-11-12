@@ -2,12 +2,17 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { apiFetch, describeApiError } from '../lib/api'
 import { AUTH_EXPIRED_EVENT } from '../lib/auth'
 import { bindRunLocalId, ensureLocalId, ensureLocalIds } from '../lib/messageIdentity'
-import { asOptionalText, asText, normalizeMessages } from '../lib/normalize'
+import { asOptionalText, asText, normalizeMessages, normalizeSteps } from '../lib/normalize'
+import { StreamCursor } from '../lib/streamProtocol'
 import { cacheHistory, readCachedHistory, remove } from '../lib/storage'
 import { broadcast, emitTaskChange } from '../lib/appEvents'
-import type { Conversation, HealthStatus, Message, TaskRecord } from '../lib/types'
+import type { Conversation, ExecutionStep, HealthStatus, Message, TaskRecord } from '../lib/types'
 
 export interface RealtimeEvent {
+  role?: 'agent' | 'summary'
+  protocol?: number
+  step?: ExecutionStep
+  execution_steps?: ExecutionStep[]
   schedule_id?: number | null
   schedule_name?: string
   scheduled_for?: string
@@ -38,6 +43,10 @@ export interface RealtimeEvent {
   task?: TaskRecord
   queue?: TaskRecord[]
   canceled_run_id?: string
+}
+
+function isAgentMessage(message: Message): boolean {
+  return message.role === 'agent' || message.role === 'summary'
 }
 
 function scheduleMetadata(value: RealtimeEvent | TaskRecord): Partial<Message> {
@@ -115,14 +124,14 @@ export function applySubmittedTask(messages: Message[], task: TaskRecord, reques
     if (user.localId) bindRunLocalId('user', task.run_id, user.localId)
   }
   let agentIndex = next.findIndex(message => (
-    message.role === 'agent' && message.run_id === task.run_id
+    isAgentMessage(message) && message.run_id === task.run_id
   ))
   if (agentIndex < 0 && userIndex >= 0) {
     const candidateIndex = userIndex + 1
     const candidate = next[candidateIndex]
     if (
       candidate
-      && candidate.role === 'agent'
+      && isAgentMessage(candidate)
       && !candidate.run_id
       && candidate.isOptimistic
     ) {
@@ -168,7 +177,7 @@ function ensureRunAgent(
   const next = [...messages]
   const runId = event.run_id
   const existingAgentIndex = runId
-    ? next.findIndex(message => message.role === 'agent' && message.run_id === runId)
+    ? next.findIndex(message => isAgentMessage(message) && message.run_id === runId)
     : -1
   let userIndex = runId
     ? next.findIndex(message => message.role === 'user' && message.run_id === runId)
@@ -210,7 +219,7 @@ function ensureRunAgent(
   }
 
   let agentIndex = runId
-    ? next.findIndex(message => message.role === 'agent' && message.run_id === runId)
+    ? next.findIndex(message => isAgentMessage(message) && message.run_id === runId)
     : -1
 
   if (agentIndex < 0 && runId && userIndex >= 0) {
@@ -218,7 +227,7 @@ function ensureRunAgent(
     const candidate = next[candidateIndex]
     if (
       candidate
-      && candidate.role === 'agent'
+      && isAgentMessage(candidate)
       && !candidate.run_id
       && (candidate.isThinking || candidate.isQueued)
     ) {
@@ -234,7 +243,7 @@ function ensureRunAgent(
 
   if (agentIndex < 0 && !runId) {
     for (let index = next.length - 1; index >= 0; index -= 1) {
-      if (next[index].role === 'agent' && next[index].isThinking) {
+      if (isAgentMessage(next[index]) && next[index].isThinking) {
         agentIndex = index
         break
       }
@@ -243,7 +252,7 @@ function ensureRunAgent(
 
   if (agentIndex < 0) {
     const agentMessage = ensureLocalId({
-      role: 'agent',
+      role: event.role ?? 'agent',
       content: '',
       thought: '',
       isThinking: true,
@@ -286,6 +295,7 @@ export function applyRealtimeEvent(
     : current.elapsedSoFar
   const common = {
     ...scheduleMetadata(event),
+    ...(event.role ? { role: event.role } : {}),
     ...(event.run_id ? { run_id: event.run_id } : {}),
     ...(event.model ? { model: event.model } : {}),
     ...(event.provider ? { provider: event.provider } : {}),
@@ -316,6 +326,7 @@ export function applyRealtimeEvent(
       ...common,
       content: asText(event.content),
       thought: asText(event.thought),
+      execution_steps: normalizeSteps(event.execution_steps),
       isThinking: true,
       isQueued: false,
       streamSequence: incomingSequence,
@@ -328,11 +339,23 @@ export function applyRealtimeEvent(
       isQueued: false,
     }
   } else if (event.type === 'status') {
+    if (incomingSequence <= currentSequence) return next
     next[ensured.agentIndex] = {
       ...current,
       ...common,
       isThinking: true,
       isQueued: false,
+      streamSequence: incomingSequence,
+    }
+  } else if (event.type === 'step') {
+    if (incomingSequence <= currentSequence) return next
+    const steps = normalizeSteps([event.step])
+    const step = steps[0]
+    const existing = current.execution_steps ?? []
+    next[ensured.agentIndex] = {
+      ...current, ...common, streamSequence: incomingSequence,
+      execution_steps: !step ? existing : existing.some(item => item.id === step.id)
+        ? existing.map(item => item.id === step.id ? step : item) : [...existing, step],
     }
   } else if (event.type === 'thought' || event.type === 'token' || event.type === 'answer') {
     if (incomingSequence <= currentSequence) {
@@ -369,6 +392,8 @@ export function applyRealtimeEvent(
       isThinking: false,
       isQueued: false,
       streamFinished: true,
+      execution_steps: event.execution_steps === undefined ? current.execution_steps : normalizeSteps(event.execution_steps),
+      run_status: event.status,
       healthStatus: undefined,
       statusMessage: undefined,
       inactiveSeconds: undefined,
@@ -395,7 +420,7 @@ export function applyRealtimeEvents(messages: Message[], events: RealtimeEvent[]
     users.clear()
     next.forEach((message, index) => {
       if (!message.run_id) return
-      if (message.role === 'agent') agents.set(message.run_id, index)
+      if (isAgentMessage(message)) agents.set(message.run_id, index)
       if (message.role === 'user') users.set(message.run_id, index)
     })
   }
@@ -442,12 +467,12 @@ export function mergeHistoryWithTransientMessages(
   )).map(message => message.run_id))
 
   for (const message of transient) {
-    if (message.role === 'agent' && failedScheduledRuns.has(message.run_id)
+    if (isAgentMessage(message) && failedScheduledRuns.has(message.run_id)
       && !message.content && !message.isThinking && !message.isQueued) continue
     let matchingIndex = -1
     if (message.run_id) {
       matchingIndex = merged.findIndex(candidate => (
-        candidate.role === message.role && candidate.run_id === message.run_id
+        (candidate.role === message.role || (isAgentMessage(candidate) && isAgentMessage(message))) && candidate.run_id === message.run_id
       ))
     } else if (message.role === 'user' && message.isOptimistic) {
       for (let index = merged.length - 1; index >= 0; index -= 1) {
@@ -463,7 +488,13 @@ export function mergeHistoryWithTransientMessages(
       continue
     }
 
-    if (message.role === 'agent') {
+    if (isAgentMessage(message)) {
+      if (merged[matchingIndex].run_status === 'running') {
+        // A disk checkpoint can be older than the socket, including a final
+        // frame received while the history request was in flight.
+        merged[matchingIndex] = { ...merged[matchingIndex], ...message, id: merged[matchingIndex].id }
+        continue
+      }
       merged[matchingIndex] = {
         ...merged[matchingIndex],
         isThinking: false,
@@ -480,7 +511,7 @@ export function mergeHistoryWithTransientMessages(
       message.role === 'user' && message.run_id === runId
     ))
     const agentIndex = merged.findIndex(message => (
-      message.role === 'agent' && message.run_id === runId
+      isAgentMessage(message) && message.run_id === runId
     ))
     if (userIndex >= 0 && agentIndex >= 0 && agentIndex !== userIndex + 1) {
       moveResponseAfterPrompt(merged, agentIndex, userIndex)
@@ -547,7 +578,7 @@ export function useWebSocket(
   >())
 
   const isAgentThinking = messages.some(message => (
-    message.role === 'agent' && message.isThinking
+    isAgentMessage(message) && message.isThinking
   ))
   useEffect(() => {
     isAgentThinkingRef.current = isAgentThinking
@@ -576,7 +607,7 @@ export function useWebSocket(
       const next = applyRealtimeEvents(previous, events)
       if (next === previous) return previous
       isAgentThinkingRef.current = next.some(message => (
-        message.role === 'agent' && message.isThinking
+        isAgentMessage(message) && message.isThinking
       ))
       return next
     })
@@ -652,9 +683,10 @@ export function useWebSocket(
         do {
           refreshAgainRef.current = false
           let more = true
+          const snapshot = historyStateRef.current!
+          const mutableId = snapshot.items.find(item => item.run_status === 'running')?.id
+          let lastId = mutableId ? mutableId - 1 : snapshot.items.at(-1)?.id
           while (more) {
-            const snapshot = historyStateRef.current!
-            const lastId = snapshot.items.at(-1)?.id
             const page = await apiFetch<{ items: Message[]; has_more: boolean; first_id: number }>(
               `/api/history/${convId}?limit=60${lastId ? `&after_id=${lastId}` : ''}`,
               { signal: controller.signal },
@@ -670,6 +702,7 @@ export function useWebSocket(
             publishHistory(items)
             cacheHistory(convId, items.slice(-60))
             more = !!lastId && page.has_more
+            lastId = incoming.at(-1)?.id ?? lastId
           }
         } while (refreshAgainRef.current)
         return historyStateRef.current!.items
@@ -813,6 +846,7 @@ export function useWebSocket(
       }, 20_000)
     }
 
+    const streamCursor = new StreamCursor()
     ws.onmessage = event => {
       if (!belongsToActiveConversation()) return
       try {
@@ -821,6 +855,10 @@ export function useWebSocket(
           isFiniteNumber(data.conversation_id)
           && data.conversation_id !== conv.id
         ) return
+
+        const decision = streamCursor.accept(data)
+        if (decision === 'sync') ws.send(JSON.stringify({ action: 'sync' }))
+        if (decision !== 'apply') return
 
         if (data.type === 'pong') {
           lastPongRef.current = Date.now()
@@ -923,6 +961,7 @@ export function useWebSocket(
           || data.type === 'elapsed'
           || data.type === 'status'
           || data.type === 'thought'
+          || data.type === 'step'
           || data.type === 'token'
           || data.type === 'answer'
           || data.type === 'done'
@@ -1005,7 +1044,7 @@ export function useWebSocket(
             })
             if (requestRejected) {
               isAgentThinkingRef.current = next.some(message => (
-                message.role === 'agent' && message.isThinking
+                isAgentMessage(message) && message.isThinking
               ))
             }
             return next

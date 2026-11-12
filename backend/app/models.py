@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from urllib.parse import urlsplit
@@ -99,6 +99,8 @@ class Message:
     scheduled_for: str = ""
     is_error: bool = False
     error_code: str = ""
+    execution_steps: list[dict] = field(default_factory=list)
+    run_status: str = ""
 
 
 class LoginRequest(BaseModel):

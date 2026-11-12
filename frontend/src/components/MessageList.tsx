@@ -177,6 +177,7 @@ const MessageRow = React.memo(function MessageRow({
               </div>
             )}
             <AgentExecutionTimeline
+              executionSteps={message.execution_steps}
               thought={message.thought || ''}
               isThinking={!!message.isThinking}
               duration={message.thinkingDuration ?? message.duration}
@@ -185,6 +186,10 @@ const MessageRow = React.memo(function MessageRow({
               healthStatus={message.healthStatus}
               statusMessage={message.statusMessage}
             />
+
+            {message.run_status === 'interrupted' && !message.isThinking && (
+              <div className="queued-message-status">任务已中断，已保留最近保存的进度。可以发送消息继续。</div>
+            )}
 
             {message.content ? (
               <div className="markdown-body">

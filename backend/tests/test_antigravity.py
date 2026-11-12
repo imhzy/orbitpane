@@ -131,7 +131,7 @@ class AntigravityProviderTests(IsolatedAsyncioTestCase):
                 await asyncio.gather(task, return_exceptions=True)
 
             self.assertEqual(completed_responses, ["Recovered final answer"])
-            self.assertEqual(emitted, [])
+            self.assertEqual([event.type for event in emitted], ["session"])
 
     async def test_background_query_waits_for_notification_and_new_final_answer(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -147,7 +147,8 @@ class AntigravityProviderTests(IsolatedAsyncioTestCase):
             seen = asyncio.Queue()
 
             async def emit(event):
-                await seen.put(event)
+                if event.type == "thought":
+                    await seen.put(event)
 
             async def append_and_wait(*records):
                 with transcript.open("a") as stream:

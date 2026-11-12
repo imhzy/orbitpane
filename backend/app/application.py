@@ -12,7 +12,7 @@ import subprocess
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
-from dataclasses import asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -67,7 +67,7 @@ from .models import (
     ScheduleUpdate,
     ScheduleRunRequest,
 )
-from .realtime import AgentCoordinator, ConnectionHub
+from .realtime import AgentCoordinator
 from .notifications import PushNotifications
 from .scheduler import ScheduleService
 from .security import (
@@ -84,6 +84,107 @@ from .security import (
 )
 
 logger = logging.getLogger(__name__)
+
+@dataclass
+class _SocketDelivery:
+    queue: asyncio.Queue = field(default_factory=lambda: asyncio.Queue(maxsize=128))
+    task: asyncio.Task | None = None
+    queued_bytes: int = 0
+
+
+class ConnectionHub:
+    """One bounded writer per socket; generation never awaits a slow reader."""
+    SEND_TIMEOUT = 5.0
+    MAX_QUEUED_BYTES = 2 * 1024 * 1024
+
+    def __init__(self) -> None:
+        self._connections: dict[int, dict[WebSocket, _SocketDelivery]] = {}
+        self._closing: set[asyncio.Task] = set()
+
+    async def connect(self, websocket: WebSocket, conversation_id: int) -> None:
+        delivery = _SocketDelivery()
+        self._connections.setdefault(conversation_id, {})[websocket] = delivery
+        delivery.task = asyncio.create_task(self._writer(websocket, conversation_id, delivery))
+
+    async def _writer(self, websocket, conversation_id, delivery):
+        try:
+            while True:
+                text, size = await delivery.queue.get()
+                try:
+                    await asyncio.wait_for(websocket.send_text(text), self.SEND_TIMEOUT)
+                finally:
+                    delivery.queued_bytes -= size
+                    delivery.queue.task_done()
+        except (Exception, asyncio.CancelledError):
+            pass
+        finally:
+            connections = self._connections.get(conversation_id, {})
+            if connections.get(websocket) is delivery:
+                connections.pop(websocket, None)
+                if not connections:
+                    self._connections.pop(conversation_id, None)
+                await self._close_socket(websocket)
+
+    @staticmethod
+    async def _close_socket(websocket):
+        try:
+            await asyncio.wait_for(websocket.close(code=1013), timeout=1.0)
+        except Exception:
+            pass
+
+    async def _retire(self, websocket, delivery):
+        if delivery.task:
+            delivery.task.cancel()
+            await asyncio.gather(delivery.task, return_exceptions=True)
+        # Also close a writer canceled before its coroutine ever started.
+        await self._close_socket(websocket)
+
+    async def disconnect(self, websocket: WebSocket, conversation_id: int) -> None:
+        connections = self._connections.get(conversation_id, {})
+        delivery = connections.pop(websocket, None)
+        if not connections:
+            self._connections.pop(conversation_id, None)
+        if delivery and delivery.task:
+            await self._retire(websocket, delivery)
+
+    def _enqueue(self, websocket, conversation_id, text, size):
+        delivery = self._connections.get(conversation_id, {}).get(websocket)
+        if delivery is None:
+            return False
+        # One oversized snapshot is allowed on an empty connection, otherwise
+        # a large answer could cause an endless reconnect/snapshot cycle.
+        if delivery.queue.full() or (delivery.queued_bytes and delivery.queued_bytes + size > self.MAX_QUEUED_BYTES):
+            # Disconnect rather than discard deltas. Reconnect requests a snapshot.
+            self._connections[conversation_id].pop(websocket, None)
+            if not self._connections[conversation_id]:
+                self._connections.pop(conversation_id, None)
+            task = asyncio.create_task(self._retire(websocket, delivery))
+            self._closing.add(task)
+            task.add_done_callback(self._closing.discard)
+            return False
+        delivery.queued_bytes += size
+        delivery.queue.put_nowait((text, size))
+        return True
+
+    async def send(self, websocket, conversation_id, message):
+        text = json.dumps(message, separators=(",", ":"), ensure_ascii=False)
+        return self._enqueue(websocket, conversation_id, text, len(text.encode("utf-8")))
+
+    async def broadcast(self, conversation_id: int, message: dict[str, object]) -> None:
+        sockets = tuple(self._connections.get(conversation_id, {}))
+        if not sockets:
+            return
+        text = json.dumps(message, separators=(",", ":"), ensure_ascii=False)
+        size = len(text.encode("utf-8"))
+        for websocket in sockets:
+            self._enqueue(websocket, conversation_id, text, size)
+
+    async def shutdown(self):
+        for conversation_id, sockets in tuple(self._connections.items()):
+            for websocket in tuple(sockets):
+                await self.disconnect(websocket, conversation_id)
+        await asyncio.gather(*self._closing, return_exceptions=True)
+
 
 #: Public, unauthenticated read path. Everything under it is addressed by a
 #: capability token rather than a session.
@@ -450,6 +551,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         schedule_worker.cancel()
         await asyncio.gather(schedule_worker, return_exceptions=True)
         await coordinator.shutdown()
+        await hub.shutdown()
         push_worker.cancel()
         await asyncio.gather(push_worker, return_exceptions=True)
 
@@ -1426,6 +1528,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         conversation_id,
                         {"type": "pong", "conversation_id": conversation_id},
                     )
+                    continue
+                if action == "sync":
+                    if snapshot := coordinator.sync_message(conversation_id):
+                        await hub.send(websocket, conversation_id, snapshot)
+                    else:
+                        await hub.send(websocket, conversation_id,
+                                       {"type": "ready", "conversation_id": conversation_id})
                     continue
                 if action == "interrupt":
                     await coordinator.interrupt(conversation_id)

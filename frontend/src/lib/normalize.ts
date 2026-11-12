@@ -1,4 +1,14 @@
-import type { Message, MessageFeedback, SharedMessage, SharedSnapshot } from './types'
+import type { ExecutionStep, Message, MessageFeedback, SharedMessage, SharedSnapshot } from './types'
+
+export function normalizeSteps(value: unknown): ExecutionStep[] {
+  if (!Array.isArray(value)) return []
+  return value.filter((step): step is ExecutionStep => (
+    step && typeof step.id === 'string' && typeof step.title === 'string'
+    && typeof step.content === 'string'
+    && ['exec', 'tool', 'search', 'file', 'plan', 'thought', 'other'].includes(step.kind)
+    && ['running', 'completed', 'failed', 'interrupted', 'unknown'].includes(step.status)
+  ))
+}
 
 /**
  * Runtime shape guards for data that enters the app untyped.
@@ -53,6 +63,9 @@ export function normalizeMessage(value: unknown): Message | null {
     role: raw.role as Message['role'],
     content: asText(raw.content),
     thought: asText(raw.thought),
+    execution_steps: normalizeSteps(raw.execution_steps),
+    run_status: asText(raw.run_status),
+    isThinking: raw.run_status === 'running',
     timestamp: asText(raw.timestamp),
     model: asText(raw.model),
     provider: asText(raw.provider),

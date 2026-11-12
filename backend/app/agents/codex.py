@@ -15,6 +15,7 @@ from dataclasses import dataclass, field, replace
 from ..config import Settings
 from .base import (
     AgentEvent,
+    ExecutionStep,
     AgentProvider,
     AgentRequest,
     AgentResult,
@@ -26,6 +27,7 @@ from .base import (
     empty_output_error,
     humanize_model_id,
 )
+from .context import build_context
 from .process import terminate_process
 from .plugins import codex_args, environment as plugin_environment
 from .codex_usage import parse_codex_rate_limits, read_codex_rate_limits
@@ -407,6 +409,8 @@ class CodexCliProvider(AgentProvider):
         completed = False
         recovery_deadline: float | None = None
 
+        execution_id = uuid.uuid4().hex
+        execution_items: dict[str, dict] = {}
         seen_started: set[str] = set()
         seen_completed: set[str] = set()
 
@@ -443,6 +447,7 @@ class CodexCliProvider(AgentProvider):
                     # as a CLI flag. Never use --last on a multi-project host.
                     try:
                         recovery.thread_id = str(uuid.UUID(str(event.get("thread_id", ""))))
+                        await emit(AgentEvent("session", recovery.thread_id))
                     except ValueError:
                         pass
                 elif event_type == "error":
@@ -478,6 +483,11 @@ class CodexCliProvider(AgentProvider):
                         recovery.emitted_message = True
                         await emit(AgentEvent("token", streamed_text))
                 elif event_type.startswith("item."):
+                    item_id = str(item.get("id") or "")
+                    if item_id:
+                        execution_items[item_id] = {**execution_items.get(item_id, {}), **item}
+                    if step := self._execution_step(event_type, execution_items.get(item_id, item), execution_id):
+                        await emit(AgentEvent("step", step=step))
                     thought = self._format_thought(event_type, item, seen_started, seen_completed)
                     if thought:
                         recovery.thoughts.append(thought)
@@ -533,17 +543,27 @@ class CodexCliProvider(AgentProvider):
         await terminate_process(self._processes.get(conversation_id))
 
     def _build_prompt(self, request: AgentRequest) -> str:
-        history = "\n\n".join(
-            f"{message.role.upper()}:\n{message.content}" for message in request.history
-        )
-        prompt = (
-            f"Conversation history:\n{history}\n\n"
-            f"NEW MESSAGE FROM USER:\n{request.prompt}"
-        )
-        max_chars = self.settings.history_max_chars
-        if len(prompt) > max_chars:
-            return "Earlier history was truncated.\n\n" + prompt[-max_chars:]
-        return prompt
+        return build_context(request, self.settings.history_max_chars)
+
+    @staticmethod
+    def _execution_step(event_type: str, item: dict, execution_id: str) -> ExecutionStep | None:
+        kinds = {"command_execution": "exec", "mcp_tool_call": "tool",
+                 "web_search": "search", "file_change": "file", "todo_list": "plan",
+                 "plan_update": "plan", "reasoning": "thought", "error": "other"}
+        kind = kinds.get(item.get("type"))
+        if not kind or not item.get("id"):
+            return None
+        status = "running"
+        if event_type == "item.completed":
+            status = "completed"
+        if item.get("type") == "error" or item.get("status") in {"failed", "error"} or item.get("error") or item.get("exit_code") not in (None, 0):
+            status = "failed"
+        titles = {"exec": "执行命令", "tool": str(item.get("tool") or item.get("name") or "调用工具"),
+                  "search": "搜索", "file": "文件变更", "plan": "更新计划", "thought": "思考分析", "other": "执行信息"}
+        # Preserve the source fields without reconstructing state from display text.
+        details = {key: value for key, value in item.items() if key not in {"id", "type"}}
+        content = json.dumps(details, ensure_ascii=False, indent=2)[:16000]
+        return ExecutionStep(f"{execution_id}:{item['id']}", kind, titles[kind], status, content)
 
     def _format_thought(
         self,
