@@ -77,8 +77,6 @@ export function ConfirmDialog({
             aria-describedby="confirm-dialog-description"
             onClick={e => e.stopPropagation()}
           >
-            <div className="confirm-sheet-handle" />
-
             {isDestructive && (
               <div className="confirm-danger-icon" aria-hidden="true">
                 <AlertTriangle size={20} />

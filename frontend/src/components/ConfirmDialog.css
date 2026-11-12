@@ -139,15 +139,6 @@
   border: 1px solid var(--danger-color);
 }
 
-.confirm-sheet-handle {
-  display: none;
-  width: 36px;
-  height: 4px;
-  background: var(--border-color);
-  border-radius: 999px;
-  margin: -var(--space-2) auto var(--space-4) auto;
-}
-
 @media (max-width: 640px) {
   .confirm-overlay {
     align-items: flex-end;
@@ -158,9 +149,6 @@
     border-radius: 20px 20px 0 0;
     max-width: 100%;
     border-bottom: none;
-  }
-  .confirm-sheet-handle {
-    display: block;
   }
   .confirm-actions {
     flex-direction: column-reverse;
